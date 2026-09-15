@@ -23,7 +23,7 @@
 
 Engine skeleton end-to-end on EVM: PR webhook → diff-scope → Slither-in-Docker → findings JSON → PR comment (no LLM yet). Fixtures: vulnerable Solidity Vault + Foundry test proving the bug.
 
-**GATE A — competitive deep-scan (by Sep 22):** Greptile / Crytic / ChainGPT / OpenAudit actual contract-review depth + any stealth PR-time audit products. Output: positioning confirmation or reposition.
+**GATE A — ✅ RESOLVED Sep 15 · verdict CONTESTED → positioning sharpened.** Deep-scan covered Greptile / Crytic / ChainGPT / OpenAudit + stealth layer (FYEO Scanner, Nethermind AuditAgent, Solidity Prism, Solana Security Standard, Zellic V12, Polygon DIY, proof-of-audit proto). Full moat stack (PR-time CI + deterministic grounding + reproducible score + on-chain attestation + reputation) is **unowned** — but deterministic detection alone is now a free commodity (SSS rules / aderyn-ci / slither-action) and two products overlap partially (Nethermind AuditAgent: PR-time AI incl. Solana; FYEO: self-serve Web3 PR scanning). Implications locked into SPEC.md wedge: lead with reproducible riskScore + attestation (never "AI PR review"); exceed SSS-class pattern rules with Anchor-native semantics; ship attestation early; beat the ~$0.30–0.60/PR DIY baseline. Evidence: `~/local-dev/.firecrawl/gate-a-competitive-scan-2026-09-15.md`.
 **GATE B — Solana credibility spike (by Sep 22):** Aderyn-Rust (or equivalent) against a vulnerable Anchor fixture. If credible findings → Solana module stays flagship. If NOT → EVM-first pivot (Tempo becomes flagship; Solana demotes to adapter).
 
 Detailed bite-sized tasks: `docs/superpowers/plans/2026-09-15-week-1-foundation.md`.

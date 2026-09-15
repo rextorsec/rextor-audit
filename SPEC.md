@@ -8,7 +8,7 @@ Smart-contract audits are point-in-time artifacts covering a specific commit. Te
 
 ## Wedge (why now, why us)
 
-- **Category gap:** PR-time security review for contract repos is recognized ("security becomes continuous, not one-off") but unowned. General AI reviewers (CodeRabbit, Greptile) lack audit-grade contract semantics; audit agents scan on demand, not in CI.
+- **Category gap (Gate A-verified 2026-09-15):** no shipping product combines PR-time CI + deterministic analyzer grounding + a reproducible score + on-chain attestation + agent reputation. Partial overlaps: Nethermind AuditAgent (PR-time AI scans incl. Solana), FYEO Scanner (self-serve Web3 PR scanning), Solana Security Standard (free deterministic PR gating) — deterministic detection alone is commodity; none make the verdict reproducible or accountable. Sharpened line: *"FYEO scans changes; Nethermind posts AI findings on PRs; nobody makes the verdict reproducible or accountable."*
 - **Moat:** the Rextor audit methodology (codified review profiles) + a proven GC-tier agent engine pattern (deterministic pass → citation-constrained LLM triage → on-chain attestation).
 - **Positioning line:** *"CodeRabbit reviews code changes. Rextor audits money changes."*
 
