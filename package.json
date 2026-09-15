@@ -1,0 +1,16 @@
+{
+  "name": "rextor-audit",
+  "private": true,
+  "description": "PR-time audit agent for smart-contract repositories — every PR an audit event, every verdict on-chain.",
+  "license": "MIT",
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "test:run": "turbo run test:run",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0"
+  }
+}

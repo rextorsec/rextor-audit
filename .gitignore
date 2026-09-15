@@ -1,0 +1,26 @@
+# deps
+node_modules/
+.pnpm-store/
+
+# secrets — symlinked to ~/Documents/secret/rextor-audit/.env
+.env
+.env.*
+
+# build
+dist/
+.next/
+out/
+coverage/
+turbo-*.json
+
+# tooling caches
+.firecrawl/
+.hallmark/preflight.json
+.DS_Store
+*.log
+
+# foundry / anchor
+cache/
+out-diff/
+target/
+.anchor/
