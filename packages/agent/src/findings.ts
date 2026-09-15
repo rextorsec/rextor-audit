@@ -4,7 +4,15 @@
 // the error type SPEC-2 triage must preserve end-to-end. Garbage never
 // silently skips: every bad line throws with its 1-based line number.
 
+import { createHash } from "node:crypto";
+
 export type Severity = "critical" | "high" | "medium" | "low";
+
+export interface PocInfo {
+  status: "confirmed" | "unproven" | "skipped";
+  testSource?: string;
+  block?: number;
+}
 
 export interface Finding {
   file: string;
@@ -12,9 +20,13 @@ export interface Finding {
   severity: Severity;
   check: string;
   description: string;
+  id?: number;
+  triageNote?: string;
+  mergedChecks?: string[];
+  poc?: PocInfo;
 }
 
-const SEVERITIES: readonly Severity[] = ["critical", "high", "medium", "low"];
+export const SEVERITIES: readonly Severity[] = ["critical", "high", "medium", "low"];
 
 // Rubric v0 — published weights. `score` is a pure function of findings so
 // anyone can recompute it from the published findings JSON (SPEC-1 §3).
@@ -51,6 +63,43 @@ export function normalizeFindings(ndjson: string): Finding[] {
 export function score(findings: Finding[]): number {
   const total = findings.reduce((sum, f) => sum + RUBRIC[f.severity], 0);
   return Math.min(total, SCORE_CAP);
+}
+
+/** Assign stable 0-based ids in analyzer order (SPEC-2 §1). Non-destructive. */
+export function withIds(findings: Finding[]): Finding[] {
+  return findings.map((f, id) => ({ ...f, id }));
+}
+
+/** Rubric v1 (SPEC-2 §2): v0 weights + one poc-aware rule. */
+export function scoreV1(findings: Finding[]): number {
+  const total = findings.reduce((sum, f) => {
+    const w = f.severity === "critical" && f.poc?.status === "unproven" ? 25 : RUBRIC[f.severity];
+    return sum + w;
+  }, 0);
+  return Math.min(total, SCORE_CAP);
+}
+
+function stableValue(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(stableValue);
+  if (v !== null && typeof v === "object") {
+    const src = v as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.keys(src)
+        .filter((k) => src[k] !== undefined)
+        .sort()
+        .map((k) => [k, stableValue(src[k])]),
+    );
+  }
+  return v;
+}
+
+/** SPEC-2 §2 canonical form: sorted keys, compact, backticks escaped as \u0060. */
+export function canonicalFindingsJson(findings: Finding[]): string {
+  return JSON.stringify(stableValue(findings)).replaceAll("`", "\\u0060");
+}
+
+export function findingsHash(findings: Finding[]): string {
+  return createHash("sha256").update(canonicalFindingsJson(findings), "utf8").digest("hex");
 }
 
 function parseFindingLine(line: string, lineNo: number): Finding {

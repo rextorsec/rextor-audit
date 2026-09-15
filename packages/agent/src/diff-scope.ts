@@ -15,6 +15,9 @@ export interface DiffScopeResult {
   hasContractChanges: boolean;
 }
 
+/** Alias so later tasks/specs can say `Scope` (SPEC-2 §4 ReviewDeps). */
+export type Scope = DiffScopeResult;
+
 const DIFF_GIT_RE = /^diff --git /;
 const HUNK_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 const QUOTED_SIDES_RE = /^"a\/(.*)" "b\/(.*)"$/;

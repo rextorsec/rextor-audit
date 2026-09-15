@@ -122,3 +122,55 @@ describe("score", () => {
     expect(score([])).toBe(0);
   });
 });
+
+import {
+  canonicalFindingsJson, findingsHash, scoreV1, withIds,
+  type PocInfo, type Severity,
+} from "../src/findings";
+
+describe("scoreV1 (rubric v1 — SPEC-2 §2)", () => {
+  const finding = (severity: Severity, poc?: PocInfo["status"]): Finding => ({
+    file: "a.sol", line: 1, severity, check: "c", description: "d",
+    ...(poc ? { poc: { status: poc } } : {}),
+  });
+  it.each([
+    [[finding("critical")], 60],
+    [[finding("critical", "confirmed")], 60],
+    [[finding("critical", "skipped")], 60],
+    [[finding("critical", "unproven")], 25],
+    [[finding("high")], 25],
+    [[finding("medium"), finding("low")], 13],
+    [[finding("critical"), finding("critical"), finding("high")], 100], // 145 capped
+  ])("scoreV1(%j) === %i", (findings, expected) => {
+    expect(scoreV1(findings)).toBe(expected);
+  });
+});
+
+describe("canonicalFindingsJson + findingsHash", () => {
+  it("is key-order independent and backtick-free", () => {
+    const a = withIds([{ file: "a.sol", line: 1, severity: "low", check: "c", description: "d" }]);
+    const b = [{ description: "d", check: "c", line: 1, severity: "low", file: "a.sol", id: 0 }];
+    expect(canonicalFindingsJson(a)).toBe(canonicalFindingsJson(b as Finding[]));
+    expect(canonicalFindingsJson(a)).not.toContain("`");
+  });
+  it("escapes backticks as \\u0060 but parses back identically", () => {
+    const fs = withIds([{ file: "a.sol", line: 1, severity: "low", check: "c", description: "has `ticks`" }]);
+    const canonical = canonicalFindingsJson(fs);
+    expect(canonical).toContain("\\u0060");
+    expect(JSON.parse(canonical)[0].description).toBe("has `ticks`");
+  });
+  it("matches an externally computed sha256 vector", () => {
+    // Vector computed OUTSIDE the implementation (implementer: run
+    //   printf %s '<CANONICAL_LITERAL>' | shasum -a 256
+    // over the exact canonical literal asserted below and paste the digest here):
+    const canonical = canonicalFindingsJson(
+      withIds([{ file: "src/V.sol", line: 1, severity: "low", check: "c", description: "d" }]),
+    );
+    expect(canonical).toBe(
+      '[{"check":"c","description":"d","file":"src/V.sol","id":0,"line":1,"severity":"low"}]',
+    );
+    expect(findingsHash(
+      withIds([{ file: "src/V.sol", line: 1, severity: "low", check: "c", description: "d" }]),
+    )).toBe("e68cea4f66e1dde2b0bdba549c0d57ae7d37550a35896f946459666fd607a244");
+  });
+});
