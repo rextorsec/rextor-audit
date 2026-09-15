@@ -41,10 +41,12 @@ RUN set -ex \
  && printf '// SPDX-License-Identifier: MIT\npragma solidity ^0.8.24;\ncontract Warm {}\n' > /tmp/warm/src/Warm.sol \
  && cd /tmp/warm && forge build \
  && rm -rf /tmp/warm
-
 WORKDIR /repo
 USER root
 COPY run.sh /usr/local/bin/run.sh
 RUN chmod +x /usr/local/bin/run.sh
 USER analyzer
-ENTRYPOINT ["/usr/local/bin/run.sh"]
+# Self-termination just inside the runner's 150s execFile timeout: SIGKILL on
+# the CLI would otherwise strand a hung container holding its 2g/2cpu budget.
+# coreutils `timeout` ships with debian slim (priority:required).
+ENTRYPOINT ["timeout", "-k", "5s", "140s", "/usr/local/bin/run.sh"]

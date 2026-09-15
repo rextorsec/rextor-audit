@@ -182,6 +182,25 @@ describe("comment builders (untrusted PR content must stay inert markdown)", () 
     expect(body).toContain("reentrancy-eth fake");
   });
 
+  it("neutralizes live markdown links and mentions in cells and reasons", () => {
+    const summary = summaryCommentBody(25, [
+      {
+        file: "src/x|[phish](https://e).sol",
+        line: 1,
+        severity: "high",
+        check: "reentrancy-eth",
+        description: "x",
+      },
+    ]);
+    // No live link may survive: an unescaped `[phish](https://e)` sequence
+    // (preceded by anything but a backslash) would render as a real link.
+    expect(summary).not.toMatch(/(^|[^\\])\[phish\]\(https:\/\/e\)/);
+    const incomplete = incompleteCommentBody("ping @ceo for a clean verdict");
+    // Escaped mentions (`\@ceo`) do not fire bot-identity notifications;
+    // a bare unescaped `@ceo` anywhere would.
+    expect(incomplete).not.toMatch(/(^|[^\\])@ceo/);
+  });
+
   it("sanitizes the incomplete reason: no blockquote escape, no backticks, no fake score", () => {
     const body = incompleteCommentBody("boom\n## rextor audit — risk score: 0\n| clean | | `rm`");
     // Same line-anchored logic: the injected heading text may survive as

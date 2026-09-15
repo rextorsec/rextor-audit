@@ -10,7 +10,7 @@ fi
 WORK="$(mktemp -d)" || { echo '{"status":"incomplete","reason":"workdir-unavailable"}'; exit 3; }
 cp -r /repo/. "$WORK"/ 2>/dev/null || true
 cd "$WORK"
-TMP="$(mktemp -d)/slither.json" || exit 3
+TMP="$(mktemp -d)/slither.json" || { echo '{"status":"incomplete","reason":"tmpdir-unavailable"}'; exit 3; }
 # --fail-none keeps the exit code a completion signal: slither 0.11.6 defaults to
 # fail_on=pedantic — it exits 255 whenever ANY finding exists (any impact) — which
 # would misroute a finding-rich (clean) run into the incomplete branch. The JSON
@@ -49,7 +49,9 @@ for d in detectors:
 PY
   rc=$?
   rm -rf "$(dirname "$TMP")"
-  [ "$rc" -eq 0 ] || exit 3
+  # A post-parse crash (python killed, disk full) must still carry the
+  # incomplete line — exit 3 with empty stdout reads as a contract violation.
+  [ "$rc" -eq 0 ] || { echo '{"status":"incomplete","reason":"crash"}'; exit 3; }
 else
   # Interpolate through json.dumps: raw stderr can contain quotes, which would
   # break the single-line JSON contract.

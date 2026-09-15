@@ -135,4 +135,55 @@ describe("scopeDiff", () => {
     );
     expect(contractFiles.map((f) => f.path)).toEqual(["contracts/\\303\\251.sol"]);
   });
+
+  it("preserves unquoted paths containing ' b/' (both-sides-agree split)", () => {
+    // git does NOT quote space paths — both sides can contain " b/".
+    const diff = [
+      "diff --git a/contracts/has b/slash.sol b/contracts/has b/slash.sol",
+      "--- a/contracts/has b/slash.sol",
+      "+++ b/contracts/has b/slash.sol",
+      "@@ -1,2 +1,3 @@",
+      " x",
+      "+y",
+    ].join("\n");
+    const { contractFiles, hasContractChanges } = scopeDiff(diff);
+    expect(hasContractChanges).toBe(true);
+    expect(contractFiles[0].path).toBe("contracts/has b/slash.sol");
+  });
+
+  it("adversarial ' b/' path must not vanish into a silent audit skip", () => {
+    // Splitting at the LAST " b/" tail-parses the b-side to "readme.md",
+    // declassifying a contracts/ file: the author dodges the bot entirely.
+    const diff = [
+      "diff --git a/contracts/evil b/readme.md b/contracts/evil b/readme.md",
+      "--- a/contracts/evil b/readme.md",
+      "+++ b/contracts/evil b/readme.md",
+      "@@ -1,2 +1,3 @@",
+      " x",
+      "+y",
+    ].join("\n");
+    const { contractFiles, hasContractChanges } = scopeDiff(diff);
+    expect(hasContractChanges).toBe(true);
+    expect(contractFiles[0].path).toBe("contracts/evil b/readme.md");
+  });
+
+  it("resets added-line numbering at each hunk within one file", () => {
+    const diff = [
+      "diff --git a/src/A.sol b/src/A.sol",
+      "--- a/src/A.sol",
+      "+++ b/src/A.sol",
+      "@@ -1,4 +1,4 @@",
+      " one",
+      "+two",
+      " three",
+      " four",
+      "@@ -21,4 +21,4 @@",
+      " twentyone",
+      "+twentytwo",
+      " twentythree",
+      " twentyfour",
+    ].join("\n");
+    const { contractFiles } = scopeDiff(diff);
+    expect(contractFiles[0].changedLineRanges).toEqual([[2, 2], [22, 22]]);
+  });
 });

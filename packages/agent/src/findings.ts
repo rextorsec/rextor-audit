@@ -104,9 +104,11 @@ function requireNumber(
   lineNo: number,
 ): number {
   const v = rec[key];
-  if (typeof v !== "number" || !Number.isFinite(v)) {
+  // A finding line must be a non-negative integer: fractional or negative
+  // values are corrupt analyzer output, not locatable source positions.
+  if (typeof v !== "number" || !Number.isInteger(v) || v < 0) {
     throw new Error(
-      `findings NDJSON line ${lineNo}: "${key}" must be a finite number, got ${show(v)}`,
+      `findings NDJSON line ${lineNo}: "${key}" must be a non-negative integer, got ${show(v)}`,
     );
   }
   return v;

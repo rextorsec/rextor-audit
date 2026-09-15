@@ -183,4 +183,14 @@ describe("webhook endpoint", () => {
       if (prev !== undefined) process.env.GITHUB_APP_SECRET = prev;
     }
   });
+
+  it("treats a correctly signed null body as ignorable, not a crash", async () => {
+    const { deps, comments } = makeFakeDeps();
+    await withServer({ deps, secret: SECRET }, async (port) => {
+      const res = await post(port, "null", signed("null", SECRET));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ignored: true });
+    });
+    expect(comments).toEqual([]);
+  });
 });

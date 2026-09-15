@@ -78,6 +78,16 @@ describe("normalizeFindings", () => {
     const line = JSON.stringify({ ...finding("high"), severity: "info" });
     expect(() => normalizeFindings(line)).toThrowError(/severity/);
   });
+
+  it("throws on a fractional line number (corrupt analyzer output)", () => {
+    const line = JSON.stringify({ ...finding("high"), line: 1.5 });
+    expect(() => normalizeFindings(line)).toThrowError(/line/);
+  });
+
+  it("throws on a negative line number (corrupt analyzer output)", () => {
+    const line = JSON.stringify({ ...finding("high"), line: -3 });
+    expect(() => normalizeFindings(line)).toThrowError(/line/);
+  });
 });
 
 describe("score", () => {

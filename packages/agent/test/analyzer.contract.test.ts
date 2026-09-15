@@ -18,8 +18,9 @@ type Finding = { check: string; severity: "critical" | "high" | "medium" | "low"
 type RunResult = { status: number; stdout: string };
 
 // Shared colima daemon churn can make the docker CLI fail before a container
-// ever runs — those throws carry no numeric status. A real container exit is
-// final and judged strictly; only status-less transients justify a retry.
+// ever runs — status-less throws, or a numeric status carrying
+// "Cannot connect to the Docker daemon". A real container exit (any other
+// numeric status) is final and judged strictly; only daemon churn retries.
 const runAnalyzer = (mount: string): RunResult => {
   let lastMessage = "";
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -29,8 +30,20 @@ const runAnalyzer = (mount: string): RunResult => {
         stdout: execFileSync("docker", ["run", "--rm", "-v", `${mount}:/repo`, "rextor/analyzer"]).toString(),
       };
     } catch (e) {
-      const err = e as { status?: number | null; stdout?: string | Buffer; message?: string };
-      if (typeof err?.status === "number") {
+      const err = e as {
+        status?: number | null;
+        stdout?: string | Buffer;
+        stderr?: string | Buffer;
+        message?: string;
+      };
+      // Final only when a container actually ran to an exit. A daemon-down
+      // CLI failure arrives WITH a numeric status (docker exits 1) — that is
+      // transient churn, not a verdict.
+      const stderr = String(err?.stderr ?? "");
+      if (
+        typeof err?.status === "number" &&
+        !/Cannot connect to the Docker daemon/.test(stderr)
+      ) {
         return { status: err.status, stdout: String(err?.stdout ?? "") };
       }
       lastMessage = err?.message ?? String(e);
@@ -53,9 +66,13 @@ describe.skipIf(!docker)("analyzer container contract", () => {
     expect(stdout).toContain('"status":"incomplete"');
   });
   it("exits 0 with empty stdout on a zero-findings repo (never incomplete)", { timeout: 180_000 }, () => {
-    // Contract case (b): successfully analyzed, zero findings → clean pass, NOT incomplete.
-    // Foundry-based fixture: the bare-solc path is amd64-broken on arm64 hosts.
-    const { stdout } = runAnalyzer(cleanFixturePath);
+    // Contract case (b): successfully analyzed, zero findings → clean pass,
+    // NOT incomplete. Foundry-based fixture: the bare-solc path is amd64-broken
+    // on arm64 hosts, so the foundry path is what runs here.
+    const { status, stdout } = runAnalyzer(cleanFixturePath);
+    // Explicit completion signal: exit-3-with-empty-stdout masquerading as a
+    // clean pass must fail here (SPEC-1 §1 makes status the contract).
+    expect(status).toBe(0);
     expect(stdout.trim()).toBe("");
   });
 });

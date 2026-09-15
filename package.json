@@ -1,6 +1,6 @@
 {
   "name": "rextor-audit",
-  "private": true,
+  "packageManager": "pnpm@9.15.9",
   "description": "PR-time audit agent for smart-contract repositories — every PR an audit event, every verdict on-chain.",
   "license": "MIT",
   "scripts": {

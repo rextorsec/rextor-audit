@@ -113,7 +113,9 @@ export async function runAnalyzerContainer(repoDir: string): Promise<string> {
           lastMessage = e?.message ?? String(err);
           continue;
         }
-        const detail = String(e.stderr ?? e.message ?? "").trim();
+        // Bounded: unbounded stderr detail can 422 the INCOMPLETE comment
+        // into silence (never-silent beats completeness of detail).
+        const detail = String(e.stderr ?? e.message ?? "").trim().slice(0, 300);
         throw new AnalyzerFailedError(`analyzer exited ${exitCode}: ${detail}`);
       }
       lastMessage = e?.message ?? String(err);
@@ -124,17 +126,20 @@ export async function runAnalyzerContainer(repoDir: string): Promise<string> {
   );
 }
 
-// Presentation order (weight-desc); the weights themselves live in findings.ts.
-const SEVERITY_ORDER: readonly Severity[] = ["critical", "high", "medium", "low"];
+// Untrusted strings (PR file paths, analyzer stderr echoing PR source) render
+// as inert text: raw pipes/newlines would break out of the markdown table or
+// forge headings inside the bot's own comment, and unescaped `[link](url)`,
+// `![img]`, `@mention` would render live phishing links / fire bot-identity
+// notifications (SPEC-1 invariant 3).
+const cell = (s: string): string =>
+  s.replace(/[|\r\n]+/g, " ").replace(/[[\]!@]/g, (c) => `\\${c}`);
 
 // GitHub's hard comment limit; findings beyond the cap are suppressed, never
 // allowed to 422 the whole comment into silence.
 const MAX_RENDERED_FINDINGS = 50;
 
-// Untrusted strings (PR file paths, analyzer stderr echoing PR source) render
-// as inert text: raw pipes/newlines would break out of the markdown table or
-// forge headings inside the bot's own comment (SPEC-1 invariant 3).
-const cell = (s: string): string => s.replace(/[|\r\n]+/g, " ");
+// Presentation order (weight-desc); the weights themselves live in findings.ts.
+const SEVERITY_ORDER: readonly Severity[] = ["critical", "high", "medium", "low"];
 
 export function summaryCommentBody(scoreValue: number, findings: Finding[]): string {
   const sorted = [...findings].sort(

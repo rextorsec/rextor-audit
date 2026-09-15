@@ -66,7 +66,7 @@ async function handleWebhook(
 
   let payload: { action?: string; pull_request?: { html_url?: string } };
   try {
-    payload = JSON.parse(rawBody) as typeof payload;
+    payload = (JSON.parse(rawBody) ?? {}) as typeof payload;
   } catch {
     res.statusCode = 400;
     json(res, { error: "malformed JSON body" });

@@ -37,9 +37,22 @@ function newPathFromHeader(line: string): string | undefined {
     const quoted = QUOTED_SIDES_RE.exec(rest);
     return quoted ? unescapeGitPath(quoted[2]) : undefined;
   }
-  // Unquoted: split at the last ` b/` so paths containing spaces survive.
-  const idx = rest.lastIndexOf(" b/");
-  return idx === -1 ? undefined : rest.slice(idx + " b/".length);
+  // Unquoted: git does NOT quote space paths, so BOTH sides may contain
+  // " b/". Splitting at the last occurrence tail-parses adversarial names
+  // ("a/contracts/evil b/x.md b/contracts/evil b/x.md" → "x.md"), silently
+  // declassifying contract files. Walk candidate splits backwards; the right
+  // one is where the a-side equals "a/" + the b-side. Fall back to the last
+  // occurrence (rename: "a/old.sol b/new.sol" has no agreeing split).
+  for (
+    let idx = rest.lastIndexOf(" b/");
+    idx !== -1;
+    idx = rest.lastIndexOf(" b/", idx - 1)
+  ) {
+    const bSide = rest.slice(idx + " b/".length);
+    if (rest.slice(0, idx) === "a/" + bSide) return bSide;
+  }
+  const fallback = rest.lastIndexOf(" b/");
+  return fallback === -1 ? undefined : rest.slice(fallback + " b/".length);
 }
 
 function mergeRuns(lines: number[]): Array<[number, number]> {
