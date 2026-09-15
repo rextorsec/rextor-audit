@@ -1,0 +1,99 @@
+// Real GitHub + clone adapter producing ReviewDeps. Tests never exercise the
+// DEFAULT dependency set (network/filesystem/Docker) — they inject `runGit`,
+// `token`, `rmDir`. GITHUB_TOKEN is read at call time (never captured at
+// import).
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Octokit } from "octokit";
+import { runAnalyzerContainer, type ReviewDeps } from "./review";
+
+const execFileP = promisify(execFile);
+
+// A hung git transport must not block the sync webhook handler forever.
+const GIT_OPTS = { timeout: 120_000, killSignal: "SIGKILL" as const };
+
+export interface GithubDepsOptions {
+  /** Git runner seam (test injection); default: real `git` with a 120s timeout. */
+  runGit?: (args: string[]) => Promise<void>;
+  /** Token source seam; default: env GITHUB_TOKEN, required. */
+  token?: () => string;
+  /** Directory-removal seam (test injection); default: rm -rf. */
+  rmDir?: (dir: string) => Promise<void>;
+}
+
+const PR_URL_RE = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/;
+
+function requireToken(): string {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) throw new Error("GITHUB_TOKEN is not set");
+  return token;
+}
+
+function prParts(prUrl: string): { owner: string; repo: string; number: number } {
+  const match = prUrl.match(PR_URL_RE);
+  if (!match) throw new Error(`not a GitHub PR URL: ${prUrl}`);
+  return { owner: match[1], repo: match[2], number: Number(match[3]) };
+}
+
+export function githubDeps(options: GithubDepsOptions = {}): ReviewDeps {
+  const runGit =
+    options.runGit ??
+    (async (args: string[]) => {
+      await execFileP("git", args, GIT_OPTS);
+    });
+  const token = options.token ?? requireToken;
+  const rmDir =
+    options.rmDir ?? ((dir: string) => rm(dir, { recursive: true, force: true }));
+
+  return {
+    async clone(prUrl: string): Promise<string> {
+      const { owner, repo, number } = prParts(prUrl);
+      const dir = await mkdtemp(join(tmpdir(), "rextor-review-"));
+      const t = token();
+      try {
+        // Fetch by URL without registering a remote: the token is a CLI
+        // argument only and never lands in the clone's .git/config.
+        const url = `https://x-access-token:${t}@github.com/${owner}/${repo}.git`;
+        await runGit(["init", dir]);
+        await runGit(["-C", dir, "fetch", "--depth", "1", url, `refs/pull/${number}/head`]);
+        await runGit(["-C", dir, "checkout", "--force", "FETCH_HEAD"]);
+        return dir;
+      } catch (err) {
+        // A mid-clone failure must not strand the temp dir, and the thrown
+        // message (which the webhook handler logs) must never carry the
+        // tokenized URL — redact before surfacing.
+        await rmDir(dir).catch(() => {});
+        const detail =
+          err instanceof Error ? err.message.split(t).join("***") : String(err).split(t).join("***");
+        throw new Error(`git clone failed for ${owner}/${repo}#${number}: ${detail}`);
+      }
+    },
+
+    async fetchDiff(prUrl: string): Promise<string> {
+      const { owner, repo, number } = prParts(prUrl);
+      const octokit = new Octokit({ auth: token() });
+      const res = await octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+        owner,
+        repo,
+        pull_number: number,
+        mediaType: { format: "diff" },
+      });
+      return String(res.data);
+    },
+
+    runAnalyzer: runAnalyzerContainer,
+
+    async postComment(prUrl: string, body: string): Promise<void> {
+      const { owner, repo, number } = prParts(prUrl);
+      const octokit = new Octokit({ auth: token() });
+      await octokit.rest.issues.createComment({ owner, repo, issue_number: number, body });
+    },
+
+    async dispose(repoDir: string): Promise<void> {
+      await rmDir(repoDir);
+    },
+  };
+}

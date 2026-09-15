@@ -8,7 +8,7 @@ Smart-contract audits are point-in-time artifacts covering a specific commit. Te
 
 ## Wedge (why now, why us)
 
-- **Category gap:** PR-time security review for contract repos is recognized ("security becomes continuous, not one-off") but unowned. General AI reviewers (CodeRabbit, Greptile) lack audit-grade contract semantics; audit agents scan on demand, not in CI.
+- **Category gap (Gate A-verified 2026-09-15):** no shipping product combines PR-time CI + deterministic analyzer grounding + a reproducible score + on-chain attestation + agent reputation. Partial overlaps: Nethermind AuditAgent (PR-time AI scans incl. Solana), FYEO Scanner (self-serve Web3 PR scanning), Solana Security Standard (free deterministic PR gating) — deterministic detection alone is commodity; none make the verdict reproducible or accountable. Sharpened line: *"FYEO scans changes; Nethermind posts AI findings on PRs; nobody makes the verdict reproducible or accountable."*
 - **Moat:** the Rextor audit methodology (codified review profiles) + a proven GC-tier agent engine pattern (deterministic pass → citation-constrained LLM triage → on-chain attestation).
 - **Positioning line:** *"CodeRabbit reviews code changes. Rextor audits money changes."*
 
@@ -21,7 +21,7 @@ Smart-contract audits are point-in-time artifacts covering a specific commit. Te
 ## MVP scope — IN
 
 - GitHub App (PR webhook → review comments + check status). GitHub only.
-- Chain modules: **Solana** (flagship: Aderyn-class static + liteSVM fork-sim + attestation program) and **EVM core** (Slither + Foundry fork + attestation contract; adapters: Tempo, Hyperliquid HyperEVM; riders: Ethereum L1, Base, Arbitrum, Robinhood Chain at config level).
+- Chain modules (post-Gate-B, EVM-first): **EVM core flagship** — Slither **+ Aderyn** in Docker, Foundry fork-sim, attestation contract; adapters: **Tempo (flagship-first)**, Hyperliquid HyperEVM; riders: Ethereum L1, Base, Arbitrum, Robinhood Chain at config level. **Solana → adapter tier** (semgrep-over-Anchor rules / IDL constraint validation in a future Gate B′ + liteSVM sim + attestation program) — no longer the flagship.
 - Rextor profile v1: citation-constrained triage (reclassify / dedup / add-with-citation; no invented findings; `INCOMPLETE` on tool failure).
 - Deterministic `riskScore` rubric (recomputable from findings).
 - Web surface: install flow, docs, and a single-repo living audit report (attestation ledger + risk history).
@@ -39,9 +39,9 @@ The product contract (this file) stays small and stable. Subsystem contracts liv
 |---|---|---|---|
 | [SPEC-1](docs/specs/SPEC-1-engine-loop.md) | Engine loop: webhook → diff-scope → analyzer → findings → score → PR comment | Wk 1 | **ACTIVE** |
 | SPEC-2 | Rextor profile v1: citation-constrained LLM triage + riskScore rubric v1 | Wk 2 | planned — write at phase start |
-| SPEC-3 | Fork-sim proof layer: Foundry fork (EVM) + liteSVM (Solana); PoC-gated criticals | Wk 2 | planned — Solana half pending Gate B |
-| SPEC-4 | Attestation + agent identity/reputation (EVM contract + Solana program) | Wk 2–3 | planned |
-| SPEC-5 | Chain adapters & track profiles: Tempo, Hyperliquid deep; riders config-level | Wk 2–3 | planned — shape set by Gates A/B |
+| SPEC-3 | Fork-sim proof layer: Foundry fork (EVM) + liteSVM (Solana, adapter tier); PoC-gated criticals | Wk 2 | planned — EVM first (Gate B resolved) |
+| SPEC-4 | Attestation + agent identity/reputation (EVM contract; Solana program adapter tier) | Wk 2–3 | planned — EVM-first per Gate B |
+| SPEC-5 | Chain adapters & track profiles: Tempo flagship, Hyperliquid deep; riders config-level | Wk 2–3 | planned — EVM-first per Gates A/B |
 | SPEC-6 | Product surface: landing, install flow, dashboard, money demo | Wk 3 | planned — mockup approval gates content |
 
 ## Architecture
@@ -66,7 +66,7 @@ Novelty-first: on-chain-anchored PR-time audit verdicts with agent reputation = 
 
 ## Track aims (CWF)
 
-- **Primary:** Solana + Tempo + Hyperliquid (genuine integrations: fork-sims against chain state, attestations on-chain).
+- **Primary:** **Tempo (flagship)** + Hyperliquid (genuine integrations: fork-sims against chain state, attestations on-chain). Solana: adapter tier post-Gate-B pivot (2026-09-15 — Aderyn 0.6.8 is Solidity-only; see `docs/gates/`).
 - **Riders (config-level):** Ethereum L1, Base, Arbitrum, Robinhood Chain.
 - **General layers:** 20×$15K standout (anchor), Public Goods $5K (open-source base), Grand Champion $30K (bonus).
 - **Zcash: no story — excluded.**

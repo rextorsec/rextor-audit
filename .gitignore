@@ -11,6 +11,7 @@ dist/
 .next/
 out/
 coverage/
+.turbo/
 turbo-*.json
 
 # tooling caches
@@ -24,3 +25,4 @@ cache/
 out-diff/
 target/
 .anchor/
+.superpowers/

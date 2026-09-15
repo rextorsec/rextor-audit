@@ -1,5 +1,7 @@
 # Week 1 — Foundation: Engine Loop on EVM (Implementation Plan)
 
+> **✅ EXECUTED 2026-09-15** — all 5 tasks complete on `feat/week-1-engine-loop` (92d62eb..9ebebfb), 46/46 vitest + tsc strict green, every task review-gated (SDD), final whole-branch review clean after one fix wave. 9 controller rulings recorded in the archived ledger (`docs/superpowers/reports/week-1-foundation/progress.md`). Gates A & B resolved the same day (see PLAN.md + docs/gates/) — Gate B pivoted the product EVM-first (Tempo flagship).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** End-to-end engine loop on a test repo: PR webhook → diff-scope → Slither-in-Docker → findings JSON → PR comment (no LLM yet), plus the vulnerable fixture that proves the whole pipeline.

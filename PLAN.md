@@ -23,8 +23,8 @@
 
 Engine skeleton end-to-end on EVM: PR webhook → diff-scope → Slither-in-Docker → findings JSON → PR comment (no LLM yet). Fixtures: vulnerable Solidity Vault + Foundry test proving the bug.
 
-**GATE A — competitive deep-scan (by Sep 22):** Greptile / Crytic / ChainGPT / OpenAudit actual contract-review depth + any stealth PR-time audit products. Output: positioning confirmation or reposition.
-**GATE B — Solana credibility spike (by Sep 22):** Aderyn-Rust (or equivalent) against a vulnerable Anchor fixture. If credible findings → Solana module stays flagship. If NOT → EVM-first pivot (Tempo becomes flagship; Solana demotes to adapter).
+**GATE A — ✅ RESOLVED Sep 15 · verdict CONTESTED → positioning sharpened.** Deep-scan covered Greptile / Crytic / ChainGPT / OpenAudit + stealth layer (FYEO Scanner, Nethermind AuditAgent, Solidity Prism, Solana Security Standard, Zellic V12, Polygon DIY, proof-of-audit proto). Full moat stack (PR-time CI + deterministic grounding + reproducible score + on-chain attestation + reputation) is **unowned** — but deterministic detection alone is now a free commodity (SSS rules / aderyn-ci / slither-action) and two products overlap partially (Nethermind AuditAgent: PR-time AI incl. Solana; FYEO: self-serve Web3 PR scanning). Implications locked into SPEC.md wedge: lead with reproducible riskScore + attestation (never "AI PR review"); exceed SSS-class pattern rules with Anchor-native semantics; ship attestation early; beat the ~$0.30–0.60/PR DIY baseline. Evidence: `docs/gates/gate-a-competitive-scan-2026-09-15.md`. _Post-pivot note: the Anchor-semantics clause moved to Gate B′._
+**GATE B — ✅ RESOLVED Sep 15 · verdict WEAK_PIVOT_EVM_FIRST → EVM-first pivot executed (Tempo flagship, Solana → adapter).** Aderyn 0.6.8 (official binary; crates.io 0.1.9 stale — won't compile) is Solidity/solc-AST-only: all 4 invocation variants on the Anchor fixture exit 1 ("No solidity files found", zero artifacts); corroborated by `aderyn registry` (0 solana/anchor detectors) + repo code search. Fairness twin: same binary on an equivalent Solidity fixture → H-1 unchecked-send + L-3 owner-write, 1H+5L on 13 nSLOC, clean single-doc JSON + SARIF. **Decision per pre-agreed rule.** Upside: Aderyn joins Slither as second deterministic EVM analyzer (JSON trivially flattened to the NDJSON contract). Solana finding-gen → future Gate B′ (semgrep over `#[derive(Accounts)]`, IDL constraint validation) — not Week-1/2 scope. Evidence: `docs/gates/gate-b-aderyn-2026-09-15.md` + fixture `fixtures/solana-vault/`.
 
 Detailed bite-sized tasks: `docs/superpowers/plans/2026-09-15-week-1-foundation.md`.
 
@@ -32,8 +32,8 @@ Detailed bite-sized tasks: `docs/superpowers/plans/2026-09-15-week-1-foundation.
 
 - Rextor profile v1: citation-constrained triage (Policy-A pattern — reclassify / dedup / add-with-citation; counts non-cited ops; assigns no score).
 - Deterministic `riskScore` rubric v1 (recomputable; published).
-- Fork-sim: Foundry fork (EVM chains) + liteSVM (Solana) — PoC reproduction for critical/high findings.
-- Attestation: EVM contract (deploy Tempo testnet first, then HyperEVM + riders), Solana attestation program.
+- Fork-sim: Foundry fork (EVM chains) — PoC reproduction for critical/high findings; liteSVM fork-sim = Solana adapter tier, gated on Gate B′ (not co-equal in-week).
+- Attestation: EVM contract (deploy Tempo testnet first, then HyperEVM + riders); Solana attestation program = adapter tier, gated on Gate B′.
 - Full GitHub App loop live on a test repo.
 - Author specs at phase start (post-gates): `SPEC-2` triage+scoring · `SPEC-3` fork-sim · `SPEC-4` attestation · `SPEC-5` chain adapters.
 
@@ -43,14 +43,14 @@ Detailed bite-sized tasks: `docs/superpowers/plans/2026-09-15-week-1-foundation.
 - Next.js web: landing, install flow, docs quickstart, single-repo dashboard (attestation ledger, risk history).
 - The money demo: real audited protocol + subtle post-audit bug in a PR → Rextor catches it with a runnable PoC comment.
 - Track-specific demo material: Tempo payments profile (policy engine, fee sponsorship), Hyperliquid vault/perps profile.
-- Agent identity + reputation (ERC-8004 pattern on EVM; Solana equivalent).
+- Agent identity + reputation (ERC-8004 pattern on EVM; Solana equivalent = adapter tier, gated on Gate B′).
 - Author `SPEC-6` (product surface) alongside mock approval — content gated by what the engine actually ships.
 
 ## Phase 4 — Final week (Oct 7–12): polish & submit
 
 - rextoraudit.com live (Vercel) + `/.well-known/security.txt` on both domains; one-pager on rextorsecurity.com.
 - 3-minute demo video (the money shot: stale audit PDF vs live catch).
-- README/submission: document every track integration (Solana + Tempo + Hyperliquid deep; riders config-level).
+- README/submission: document every track integration (Tempo + Hyperliquid deep; Solana adapter tier; riders config-level).
 - **Submit Oct 10.** Post-submission: keep repo public (judging criterion: open-source composability).
 
 ## Stack (locked)
