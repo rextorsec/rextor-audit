@@ -35,4 +35,104 @@ describe("scopeDiff", () => {
     expect(hasContractChanges).toBe(false);
     expect(contractFiles).toEqual([]);
   });
+  it("merges contiguous added lines into one range", () => {
+    const { contractFiles } = scopeDiff(
+      [
+        "diff --git a/contracts/A.sol b/contracts/A.sol",
+        "--- a/contracts/A.sol",
+        "+++ b/contracts/A.sol",
+        "@@ -1,3 +1,7 @@",
+        " ctx",
+        "+a",
+        "+b",
+        "+c",
+        " ctx2",
+      ].join("\n"),
+    );
+    expect(contractFiles[0].changedLineRanges).toEqual([[2, 4]]);
+  });
+  it("keeps separated added runs as distinct ranges", () => {
+    const { contractFiles } = scopeDiff(
+      [
+        "diff --git a/contracts/A.sol b/contracts/A.sol",
+        "--- a/contracts/A.sol",
+        "+++ b/contracts/A.sol",
+        "@@ -1,5 +1,7 @@",
+        " ctx",
+        "+a",
+        " ctx",
+        " ctx",
+        "+b",
+      ].join("\n"),
+    );
+    expect(contractFiles[0].changedLineRanges).toEqual([[2, 2], [5, 5]]);
+  });
+  it("flags deletion-only contract hunks with empty ranges", () => {
+    const { contractFiles, hasContractChanges } = scopeDiff(
+      [
+        "diff --git a/contracts/A.sol b/contracts/A.sol",
+        "--- a/contracts/A.sol",
+        "+++ b/contracts/A.sol",
+        "@@ -1,3 +1,2 @@",
+        " ctx",
+        "-gone",
+      ].join("\n"),
+    );
+    expect(hasContractChanges).toBe(true);
+    expect(contractFiles).toEqual([
+      { path: "contracts/A.sol", changedLineRanges: [], isContract: true },
+    ]);
+  });
+  it("does not shift numbering across \\ No newline markers", () => {
+    const { contractFiles } = scopeDiff(
+      [
+        "diff --git a/programs/x.rs b/programs/x.rs",
+        "--- a/programs/x.rs",
+        "+++ b/programs/x.rs",
+        "@@ -1,2 +1,3 @@",
+        " ctx",
+        "+added",
+        "\\ No newline at end of file",
+      ].join("\n"),
+    );
+    expect(contractFiles[0].changedLineRanges).toEqual([[2, 2]]);
+  });
+  it("numbers added lines in /dev/null new files from the hunk start", () => {
+    const { contractFiles, hasContractChanges } = scopeDiff(
+      [
+        "diff --git a/contracts/New.sol b/contracts/New.sol",
+        "--- /dev/null",
+        "+++ b/contracts/New.sol",
+        "@@ -0,0 +1,2 @@",
+        "+a",
+        "+b",
+      ].join("\n"),
+    );
+    expect(hasContractChanges).toBe(true);
+    expect(contractFiles[0].changedLineRanges).toEqual([[1, 2]]);
+  });
+  it("unquotes quoted diff headers with escaped characters", () => {
+    const { contractFiles } = scopeDiff(
+      [
+        'diff --git "a/contracts/my \\"vault\\" file.sol" "b/contracts/my \\"vault\\" file.sol"',
+        '--- a/contracts/my \\"vault\\" file.sol',
+        '+++ b/contracts/my \\"vault\\" file.sol',
+        "@@ -1 +1 @@",
+        "-x",
+        "+y",
+      ].join("\n"),
+    );
+    expect(contractFiles.map((f) => f.path)).toEqual(['contracts/my "vault" file.sol']);
+  });
+  it("leaves octal escapes in quoted paths untouched", () => {
+    const { contractFiles } = scopeDiff(
+      [
+        'diff --git "a/contracts/\\303\\251.sol" "b/contracts/\\303\\251.sol"',
+        "@@ -1 +1 @@",
+        "-x",
+        "+y",
+      ].join("\n"),
+    );
+    expect(contractFiles.map((f) => f.path)).toEqual(["contracts/\\303\\251.sol"]);
+  });
 });

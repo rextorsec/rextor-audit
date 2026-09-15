@@ -19,9 +19,13 @@ const DIFF_GIT_RE = /^diff --git /;
 const HUNK_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 const QUOTED_SIDES_RE = /^"a\/(.*)" "b\/(.*)"$/;
 
-/** Git C-escapes inside quoted paths; octal UTF-8 escapes are left as-is. */
+/**
+ * Git C-escapes inside quoted paths (`\"`, `\\`, `\n`, `\t`). Octal UTF-8
+ * escapes (`\303\251`) are passed through untouched — decoding them is out
+ * of scope and path classification never needs the exact bytes.
+ */
 function unescapeGitPath(inner: string): string {
-  return inner.replace(/\\(.)/g, (_match, c: string) =>
+  return inner.replace(/\\([^0-7])/g, (_match, c: string) =>
     c === "n" ? "\n" : c === "t" ? "\t" : c,
   );
 }
