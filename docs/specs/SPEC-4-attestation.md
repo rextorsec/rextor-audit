@@ -43,6 +43,7 @@ Verdict identity & hashes (binding, shared with the agent):
 - viem client per chain (http transport; chain params from the SPEC-5 registry). Env: `REXTOR_AGENT_PRIVATE_KEY`, `REXTOR_ATTEST_CHAIN` (default `tempo`).
 - Pipeline position: `… → score → attest → postComment` — attest runs BEFORE the comment (fast testnet write, 30 s abort) so the comment can cite the tx. On any failure: log + post the comment WITHOUT the tx line — attestation enhances, never blocks, the review.
 - `ReviewDeps` grows: `attest?: (record: AttestRecord) => Promise<{ txHash: string; explorerUrl: string } | null>` — injected; absent/env-unset → comment notes "attestation skipped (not configured)". The PR comment gains an attestation footer: chain, reviewId, tx/explorer link, findingsHash — the reproducibility recipe sitting next to the `<details>` findings JSON it hashes.
+- SPEC-1 §4 interface evolution (binding for Week 2): `clone(prUrl)` returns `{ dir: string; headSha: string }` — the attest record needs the PR head sha for `reviewId`, and the clone has it locally. `ReviewResult` gains `attestation?: { chain: string; reviewId: string; txHash: string; explorerUrl: string } | { skipped: string }`.
 
 ## Cross-cutting invariants
 
