@@ -24,4 +24,13 @@ contract Vault {
     function setOwner(address next) external {
         owner = next;
     }
+
+    // VULN 2 impact: owner-gated rescue. Whoever controls `owner` can pull
+    // the vault's entire ETH balance — this is what makes the unguarded
+    // setOwner above a real lock-in/drain vector instead of a dead variable.
+    function rescue() external {
+        require(msg.sender == owner, "only owner");
+        (bool ok, ) = owner.call{value: address(this).balance}("");
+        require(ok, "rescue failed");
+    }
 }
