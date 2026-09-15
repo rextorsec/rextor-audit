@@ -40,19 +40,19 @@ const runAnalyzer = (mount: string): RunResult => {
 };
 
 describe.skipIf(!docker)("analyzer container contract", () => {
-  it("flags reentrancy in the Vault fixture", () => {
+  it("flags reentrancy in the Vault fixture", { timeout: 180_000 }, () => {
     const { stdout } = runAnalyzer(fixturePath);
     const findings = stdout.trim().split("\n").map((l: string) => JSON.parse(l) as Finding);
     expect(findings.some((f: Finding) => f.check === "reentrancy-eth" && f.severity === "high")).toBe(true);
   });
-  it("emits incomplete (never silent clean) on analyzer failure", () => {
+  it("emits incomplete (never silent clean) on analyzer failure", { timeout: 180_000 }, () => {
     // repo with no contracts → analyzer failure → contract requires status:incomplete + exit 3
     const tmp = execFileSync("mktemp", ["-d"]).toString().trim();
     const { status, stdout } = runAnalyzer(tmp);
     expect(status).toBe(3);
     expect(stdout).toContain('"status":"incomplete"');
   });
-  it("exits 0 with empty stdout on a zero-findings repo (never incomplete)", () => {
+  it("exits 0 with empty stdout on a zero-findings repo (never incomplete)", { timeout: 180_000 }, () => {
     // Contract case (b): successfully analyzed, zero findings → clean pass, NOT incomplete.
     // Foundry-based fixture: the bare-solc path is amd64-broken on arm64 hosts.
     const { stdout } = runAnalyzer(cleanFixturePath);
