@@ -1,10 +1,15 @@
 #!/usr/bin/env sh
 # Contract: NDJSON findings on stdout; exit 3 + {"status":"incomplete"} on analyzer failure.
 set -u
-cd /repo
 if ! command -v slither >/dev/null 2>&1; then
   echo '{"status":"incomplete","reason":"slither-missing"}'; exit 3
 fi
+# Copy the mounted PR into a writable workdir and analyze THERE: the container
+# runs as an unprivileged user (the mount may be read-only or unwritable), and
+# a PR's forge build must never write back into the mounted repo.
+WORK="$(mktemp -d)" || { echo '{"status":"incomplete","reason":"workdir-unavailable"}'; exit 3; }
+cp -r /repo/. "$WORK"/ 2>/dev/null || true
+cd "$WORK"
 TMP="$(mktemp -d)/slither.json" || exit 3
 # --fail-none keeps the exit code a completion signal: slither 0.11.6 defaults to
 # fail_on=pedantic — it exits 255 whenever ANY finding exists (any impact) — which

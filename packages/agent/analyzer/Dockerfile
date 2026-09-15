@@ -1,6 +1,7 @@
 FROM python:3.12-slim
 
-# curl + ca-certificates: absent from the slim base; needed by solc-select and foundryup.
+# curl + ca-certificates: absent from the slim base; needed by solc-select and
+# foundryup. Build-time only — the runtime container runs with --network none.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
@@ -10,19 +11,40 @@ RUN apt-get update \
 RUN pip install --no-cache-dir slither-analyzer==0.11.6 \
  && pip cache purge
 
-# solc via solc-select; pin one version
+# solc-select shim is global (pip); the version cache is per-user and is
+# populated below as the runtime user, so the shim resolves at run time.
 RUN pip install --no-cache-dir solc-select \
- && solc-select install 0.8.24 && solc-select use 0.8.24 \
  && pip cache purge
 
-# Foundry (Ruling 6): crytic-compile detects foundry.toml and invokes `forge build`,
-# so the image must ship the forge toolchain. Slow layer kept below the pip layers
-# and above the COPY so run.sh edits never invalidate the foundryup cache.
+# Unprivileged runtime user (SPEC-1 invariant 3: PR content is untrusted — its
+# foundry.toml drives forge build, so it must not run as root).
+RUN useradd -m -s /usr/sbin/nologin analyzer
+USER analyzer
+ENV HOME=/home/analyzer
+ENV PATH="/home/analyzer/.foundry/bin:${PATH}"
+
+# solc via solc-select, pinned; cache lives in the analyzer user's HOME.
+RUN solc-select install 0.8.24 && solc-select use 0.8.24
+
+# Foundry (Ruling 6): crytic-compile detects foundry.toml and invokes `forge
+# build`, so the image must ship the forge toolchain. Pinned release
+# (v1.8.3, latest at time of writing) — never floating `stable`.
 RUN curl -L https://foundry.paradigm.xyz | bash \
- && /root/.foundry/bin/foundryup
-ENV PATH="/root/.foundry/bin:${PATH}"
+ && /home/analyzer/.foundry/bin/foundryup -i v1.8.3
+
+# Pre-warm foundry's own solc 0.8.24 (fixtures pin solc_version = "0.8.24"):
+# runtime runs with --network none, so the svm cache must already hold the
+# compiler — a PR-triggered `forge build` must never need to download one.
+RUN set -ex \
+ && mkdir -p /tmp/warm/src \
+ && printf '[profile.default]\nsrc = "src"\nsolc_version = "0.8.24"\n' > /tmp/warm/foundry.toml \
+ && printf '// SPDX-License-Identifier: MIT\npragma solidity ^0.8.24;\ncontract Warm {}\n' > /tmp/warm/src/Warm.sol \
+ && cd /tmp/warm && forge build \
+ && rm -rf /tmp/warm
 
 WORKDIR /repo
+USER root
 COPY run.sh /usr/local/bin/run.sh
 RUN chmod +x /usr/local/bin/run.sh
+USER analyzer
 ENTRYPOINT ["/usr/local/bin/run.sh"]

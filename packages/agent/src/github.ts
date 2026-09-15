@@ -3,13 +3,16 @@
 // GITHUB_TOKEN is read at call time (never captured at import).
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Octokit } from "octokit";
 import { runAnalyzerContainer, type ReviewDeps } from "./review";
 
 const execFileP = promisify(execFile);
+
+// A hung git transport must not block the sync webhook handler forever.
+const GIT_OPTS = { timeout: 120_000, killSignal: "SIGKILL" as const };
 
 const PR_URL_RE = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/;
 
@@ -30,12 +33,12 @@ export function githubDeps(): ReviewDeps {
     async clone(prUrl: string): Promise<string> {
       const { owner, repo, number } = prParts(prUrl);
       const dir = await mkdtemp(join(tmpdir(), "rextor-review-"));
-      // Shallow fetch of the PR head only — no default-branch clone.
+      // Fetch by URL without registering a remote: the token is a CLI argument
+      // only and never lands in the clone's .git/config.
       const url = `https://x-access-token:${requireToken()}@github.com/${owner}/${repo}.git`;
-      await execFileP("git", ["init", dir]);
-      await execFileP("git", ["-C", dir, "remote", "add", "origin", url]);
-      await execFileP("git", ["-C", dir, "fetch", "--depth", "1", "origin", `pull/${number}/head`]);
-      await execFileP("git", ["-C", dir, "checkout", "--force", "FETCH_HEAD"]);
+      await execFileP("git", ["init", dir], GIT_OPTS);
+      await execFileP("git", ["-C", dir, "fetch", "--depth", "1", url, `refs/pull/${number}/head`], GIT_OPTS);
+      await execFileP("git", ["-C", dir, "checkout", "--force", "FETCH_HEAD"], GIT_OPTS);
       return dir;
     },
 
@@ -57,6 +60,10 @@ export function githubDeps(): ReviewDeps {
       const { owner, repo, number } = prParts(prUrl);
       const octokit = new Octokit({ auth: requireToken() });
       await octokit.rest.issues.createComment({ owner, repo, issue_number: number, body });
+    },
+
+    async dispose(repoDir: string): Promise<void> {
+      await rm(repoDir, { recursive: true, force: true });
     },
   };
 }

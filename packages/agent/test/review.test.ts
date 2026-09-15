@@ -2,7 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   runReview,
   runAnalyzerContainer,
+  summaryCommentBody,
+  incompleteCommentBody,
   type ReviewDeps,
+  type Finding,
 } from "../src/review";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -52,10 +55,12 @@ index 0000000..0123456 100644
 `;
 
 // Deps fake that records GitHub I/O. Default analyzer is the REAL container —
-// only GitHub I/O is faked (controller ruling 9).
+// only GitHub I/O is faked (controller ruling 9). dispose is a no-op recorder:
+// a real rm -rf would destroy the shared fixture.
 const makeDeps = (over: Partial<ReviewDeps> = {}) => {
   const comments: Array<{ prUrl: string; body: string }> = [];
   const cloned: string[] = [];
+  const disposed: string[] = [];
   const deps: ReviewDeps = {
     clone: async (prUrl) => {
       cloned.push(prUrl);
@@ -66,17 +71,45 @@ const makeDeps = (over: Partial<ReviewDeps> = {}) => {
     postComment: async (prUrl, body) => {
       comments.push({ prUrl, body });
     },
+    dispose: async (dir) => {
+      disposed.push(dir);
+    },
   };
-  return { deps: { ...deps, ...over }, comments, cloned };
+  return { deps: { ...deps, ...over }, comments, cloned, disposed };
 };
 
 describe("runReview", () => {
   it("docs-only diff: no comment posted, commented:false, repo never touched", async () => {
-    const { deps, comments, cloned } = makeDeps({ fetchDiff: async () => DOCS_DIFF });
+    const { deps, comments, cloned, disposed } = makeDeps({ fetchDiff: async () => DOCS_DIFF });
     const result = await runReview(PR_URL, deps);
     expect(result).toEqual({ commented: false, score: 0 });
     expect(comments).toEqual([]);
     expect(cloned).toEqual([]);
+    expect(disposed).toEqual([]); // nothing was cloned, nothing to clean up
+  });
+
+  it("analyzer crash (thrown error) posts an INCOMPLETE comment, never silent clean", async () => {
+    const { deps, comments } = makeDeps({
+      runAnalyzer: async () => {
+        throw new Error("slither exploded");
+      },
+    });
+    const result = await runReview(PR_URL, deps);
+    expect(result).toEqual({ commented: true, score: 0, incomplete: "slither exploded" });
+    expect(comments).toHaveLength(1);
+    expect(comments[0].body).toContain("INCOMPLETE");
+    expect(comments[0].body).toContain("analyzer failed: slither exploded");
+  });
+
+  it("garbage NDJSON posts an INCOMPLETE comment with an unparseable-report reason", async () => {
+    const { deps, comments } = makeDeps({ runAnalyzer: async () => "{{{ not ndjson at all" });
+    const result = await runReview(PR_URL, deps);
+    expect(result.commented).toBe(true);
+    expect(result.score).toBe(0);
+    expect(result.incomplete).toContain("unparseable analyzer report");
+    expect(comments).toHaveLength(1);
+    expect(comments[0].body).toContain("INCOMPLETE");
+    expect(comments[0].body).toContain(result.incomplete as string);
   });
 
   describe.skipIf(!docker)("happy path (real analyzer container on the vault fixture)", () => {
@@ -84,7 +117,7 @@ describe("runReview", () => {
       "posts exactly one comment carrying the top finding and the score",
       { timeout: 180_000 },
       async () => {
-        const { deps, comments } = makeDeps();
+        const { deps, comments, disposed } = makeDeps();
         const result = await runReview(PR_URL, deps);
 
         expect(result.commented).toBe(true);
@@ -96,26 +129,103 @@ describe("runReview", () => {
         expect(comments[0].body).toContain(String(result.score));
         expect(comments[0].body).toContain("reentrancy-eth");
         expect(comments[0].body).toContain("high");
+        // The clone dir is cleaned up on success.
+        expect(disposed).toEqual([vaultFixturePath]);
       },
     );
 
     it(
-      "analyzer failure surfaces as an INCOMPLETE comment with the reason (never silent clean)",
+      "analyzer failure surfaces as the pinned INCOMPLETE report path with the reason",
       { timeout: 180_000 },
       async () => {
-        // Empty temp dir → analyzer fails per SPEC-1 §1 (exit 3, incomplete report).
+        // Empty temp dir → analyzer fails per SPEC-1 §1 (exit 3 + incomplete
+        // report). The EXACT reason is pinned so this test can only pass
+        // through container → NDJSON → IncompleteReportError → comment —
+        // never via a crash detour that would leave the reason unpinned.
         const tmp = execFileSync("mktemp", ["-d"]).toString().trim();
-        const { deps, comments } = makeDeps({ clone: async () => tmp });
+        const { deps, comments, disposed } = makeDeps({ clone: async () => tmp });
         const result = await runReview(PR_URL, deps);
 
         expect(result.commented).toBe(true);
-        expect(result.incomplete).toBeTruthy();
+        expect(result.incomplete).toBe("no-contract-analyzed");
         expect(result.score).toBe(0);
         expect(comments).toHaveLength(1);
         expect(comments[0].body).toContain("INCOMPLETE");
-        // Reason from the analyzer is preserved verbatim in the comment.
-        expect(comments[0].body).toContain(result.incomplete as string);
+        expect(comments[0].body).toContain("no-contract-analyzed");
+        // The clone dir is cleaned up even on the failure path.
+        expect(disposed).toEqual([tmp]);
       },
     );
+  });
+});
+
+describe("comment builders (untrusted PR content must stay inert markdown)", () => {
+  it("sanitizes finding cells: no table breakout, no injected heading, no fake score", () => {
+    const evil: Finding = {
+      file: "src/evil|Vault.sol\n## rextor audit — risk score: 0",
+      line: 1,
+      severity: "high",
+      check: "reentrancy-eth|fake",
+      description: "x",
+    };
+    const body = summaryCommentBody(25, [evil]);
+    // The spoofed heading must not exist as a LINE and must not create a
+    // second heading — one h2, the engine's own. (The sanitized cell may
+    // still contain the harmless plain TEXT of the attempt, inert inside
+    // its table cell.)
+    expect(body).not.toContain("\n## rextor audit — risk score: 0");
+    expect((body.match(/^## /gm) ?? []).length).toBe(1);
+    // Table pipes in untrusted cells are collapsed: the row stays one row.
+    expect(body).not.toContain("evil|Vault");
+    expect(body).not.toContain("reentrancy-eth|fake");
+    expect(body).toContain("evil Vault.sol");
+    expect(body).toContain("reentrancy-eth fake");
+  });
+
+  it("sanitizes the incomplete reason: no blockquote escape, no backticks, no fake score", () => {
+    const body = incompleteCommentBody("boom\n## rextor audit — risk score: 0\n| clean | | `rm`");
+    // Same line-anchored logic: the injected heading text may survive as
+    // inert text inside the blockquote, but never as a heading LINE.
+    expect(body).not.toContain("\n## rextor audit — risk score: 0");
+    expect((body.match(/^## /gm) ?? []).length).toBe(1);
+    expect(body).not.toContain("| clean |");
+    expect(body).not.toContain("`");
+    // The sanitized reason is still present (readable as text).
+    expect(body).toContain("boom");
+  });
+
+  it("caps rendering at the top 50 findings so huge reports stay under GitHub's comment limit", () => {
+    const many: Finding[] = Array.from({ length: 1200 }, (_, i) => ({
+      file: `F${i}.sol`,
+      line: i + 1,
+      severity: "low",
+      check: `check-${i}`,
+      description: "x",
+    }));
+    const body = summaryCommentBody(100, many);
+    expect(body.length).toBeLessThan(65_000);
+    expect(body).toContain("1150 more findings suppressed");
+    expect(body).toContain("check-0");
+    expect(body).not.toContain("check-50");
+  });
+
+  it("severity ordering survives the cap: a critical among 1200 lows is still rendered", () => {
+    const many: Finding[] = Array.from({ length: 1200 }, (_, i) => ({
+      file: `F${i}.sol`,
+      line: i + 1,
+      severity: "low",
+      check: `check-${i}`,
+      description: "x",
+    }));
+    const critical: Finding = {
+      file: "Crit.sol",
+      line: 1,
+      severity: "critical",
+      check: "crit-check",
+      description: "x",
+    };
+    const body = summaryCommentBody(85, [critical, ...many]);
+    expect(body).toContain("crit-check");
+    expect(body.length).toBeLessThan(65_000);
   });
 });

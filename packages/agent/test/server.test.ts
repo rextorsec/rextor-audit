@@ -50,6 +50,7 @@ const makeFakeDeps = () => {
     postComment: async (_prUrl, body) => {
       comments.push(body);
     },
+    dispose: async () => {},
   };
   return { deps, comments, cloned };
 };
