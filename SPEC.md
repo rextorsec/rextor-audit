@@ -38,10 +38,10 @@ The product contract (this file) stays small and stable. Subsystem contracts liv
 | Spec | Subsystem | Phase | Status |
 |---|---|---|---|
 | [SPEC-1](docs/specs/SPEC-1-engine-loop.md) | Engine loop: webhook → diff-scope → analyzer → findings → score → PR comment | Wk 1 | **ACTIVE** |
-| SPEC-2 | Rextor profile v1: citation-constrained LLM triage + riskScore rubric v1 | Wk 2 | planned — write at phase start |
-| SPEC-3 | Fork-sim proof layer: Foundry fork (EVM) + liteSVM (Solana, adapter tier); PoC-gated criticals | Wk 2 | planned — EVM first (Gate B resolved) |
-| SPEC-4 | Attestation + agent identity/reputation (EVM contract; Solana program adapter tier) | Wk 2–3 | planned — EVM-first per Gate B |
-| SPEC-5 | Chain adapters & track profiles: Tempo flagship, Hyperliquid deep; riders config-level | Wk 2–3 | planned — EVM-first per Gates A/B |
+| [SPEC-2](docs/specs/SPEC-2-triage-scoring.md) | Rextor profile v1: citation-constrained LLM triage + riskScore rubric v1 | Wk 2 | **ACTIVE** |
+| [SPEC-3](docs/specs/SPEC-3-fork-sim.md) | Fork-sim proof layer: Foundry fork (EVM); PoC-gated criticals | Wk 2 | **ACTIVE** — EVM first (Gate B resolved) |
+| [SPEC-4](docs/specs/SPEC-4-attestation.md) | Attestation + agent identity/reputation (EVM contract) | Wk 2–3 | **ACTIVE** — Tempo testnet first, then HyperEVM |
+| [SPEC-5](docs/specs/SPEC-5-chain-adapters.md) | Chain adapters & track profiles: Tempo flagship, Hyperliquid deep; riders config-level | Wk 2–3 | **ACTIVE** — EVM-first per Gates A/B |
 | SPEC-6 | Product surface: landing, install flow, dashboard, money demo | Wk 3 | planned — mockup approval gates content |
 
 ## Architecture
