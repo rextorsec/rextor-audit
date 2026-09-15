@@ -21,6 +21,6 @@ PR-time audit agent for smart-contract repos. Building for Colosseum Crypto Worl
 
 ## Useful facts
 
-- CWF tracks aimed: Solana + Tempo + Hyperliquid (primary), EVM riders (Eth L1 / Base / Arbitrum / Robinhood Chain). Zcash excluded deliberately.
+- CWF tracks aimed (post-Gate-B pivot 2026-09-15): **Tempo (flagship) + Hyperliquid (primary)**, Solana adapter tier, EVM riders (Eth L1 / Base / Arbitrum / Robinhood Chain). Zcash excluded deliberately. Evidence: `docs/gates/`.
 - Tempo = EVM payments L1 (Stripe/Paradigm; Foundry-native; testnet faucet). Hyperliquid = HyperEVM. Robinhood Chain = Arbitrum Orbit, mainnet Jul 2026.
 - Engine pattern heritage: Conatus (Mantle GC 2026) — deterministic pass → citation-constrained triage → rubric score → on-chain attestation.
