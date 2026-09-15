@@ -80,7 +80,7 @@ No solidity files found in given scope!
 Error making context: No solidity files found in given scope!
 ```
 
-**Aderyn never attempts to parse Rust.** Even a forced `-i src/lib.rs` include changes nothing — the toolchain (`solidity-ast-rs` + `foundry-compilers`, i.e. solc AST) has no Rust frontend. Post-run: zero files matching `/tmp/aderyn_gateb_report*` exist.
+**Aderyn never attempts to parse Rust.** `aderyn --help` lists **no language/domain flag** either — there is no option to point the toolchain at anything but Solidity (negative result, checked during the spike). Even a forced `-i src/lib.rs` include changes nothing — the toolchain (`solidity-ast-rs` + `foundry-compilers`, i.e. solc AST) has no Rust frontend. Post-run: zero files matching `/tmp/aderyn_gateb_report*` exist.
 
 ## 4. Fairness sanity check — same binary, same bug pattern, Solidity
 
@@ -91,6 +91,8 @@ To separate "broken install" from "wrong domain", ran 0.6.8 on `/tmp/aderyn_sol_
 - Noise: L-1 PUSH0, L-5 unspecific pragma, L-4 unsafe low-level `transfer` — 3 low-value findings. **1 high + 5 low on 13 nSLOC: acceptable Slither-grade signal/noise.**
 
 So the *detectors that conceptually match* exist — but they key off EVM AST patterns (`msg.sender`, `payable(...).transfer`). The Anchor equivalents (`Signer<'info>`, `#[account(constraint = vault.owner == authority)]`, `has_one`) live in Anchor's `#[derive(Accounts)]` macro expansion and are structurally invisible to a solc-AST analyzer.
+
+_Caveat: no CLEAN-fixture false-positive measurement was taken (both fixtures are deliberately vulnerable) — the acceptable-signal/noise judgment rests on a single vulnerable 13-nSLOC micro-fixture._
 
 Corroboration: `aderyn registry` (full detector list) — **0** matches for solana/anchor; GitHub code search "anchor" in Cyfrin/aderyn — no hits; third-party catalog (counterscarp.io) lists Aderyn as **EVM-only** and sells Solana/Anchor analysis as a separate proprietary product.
 
@@ -115,7 +117,7 @@ Machine-parseable: **yes**. One jq flatten (`.high_issues.issues[] + .low_issues
 | JSON output | Single JSON doc (not NDJSON) + SARIF; trivially convertible |
 | Install health | Official 0.6.8 binary: clean. crates.io `cargo install`: broken (stale 0.1.9, won't compile) |
 
-**Recommendation: `WEAK_PIVOT_EVM_FIRST`.** Aderyn contributes nothing to the Solana module — not because it is defective, but because it is domain-mismatched by design (Solidity/solc-AST only). It is simultaneously a *credible EVM anchor*: on the twin fixture it caught the unchecked-send high and near-caught the unguarded owner write, with manageable noise and clean JSON. That combination — excellent on EVM, null on Solana — is precisely the weak-pivot signature: anchor Rextor's static-analyzer leg on Aderyn **for EVM**, and treat Solana finding-generation as manual/custom (candidates for a future Gate B′: Anchor IDL constraint validation, custom semgrep Anchor rules over `#[derive(Accounts)]` structs, or a Solana-specific analyzer — none Cyfrin-owned). It is **not** `SOLANA_FLAGSHIP_CREDIBLE` (zero Solana coverage) and **not** `BROKEN` (tool installs and runs flawlessly on its intended input; the cargo failure is a stale-crate packaging issue with a documented official alternative).
+**Recommendation: `WEAK_PIVOT_EVM_FIRST`.** Aderyn contributes nothing to the Solana module — not because it is defective, but because it is domain-mismatched by design (Solidity/solc-AST only). It is simultaneously a *credible EVM anchor*: on the twin fixture it caught the unchecked-send high and near-caught the unguarded owner write, with manageable noise and clean JSON. That combination — functional and parseable on EVM, with auth-detection unproven beyond one micro-fixture, and null on Solana — is precisely the weak-pivot signature: anchor Rextor's static-analyzer leg on Aderyn **for EVM**, and treat Solana finding-generation as manual/custom (candidates for a future Gate B′: Anchor IDL constraint validation, custom semgrep Anchor rules over `#[derive(Accounts)]` structs, or a Solana-specific analyzer — none Cyfrin-owned). It is **not** `SOLANA_FLAGSHIP_CREDIBLE` (zero Solana coverage) and **not** `BROKEN` (tool installs and runs flawlessly on its intended input; the cargo failure is a stale-crate packaging issue with a documented official alternative).
 
 ## Appendix — environment
 

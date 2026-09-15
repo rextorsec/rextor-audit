@@ -90,6 +90,10 @@
 - **Minor PR-time bots:** `agunnaya001/smart-contract-auditor` (Probot GitHub App, Solidity PR audits, toy-scale), "Automated Smart Contract Auditor Pro" marketplace action (marketing-first, "#1 AI auditor" claim, no published detector rigor), **Savant Chat** (on-demand $0.07/line, no PR bot), **Cyfrin aderyn-ci** (Aderyn static analysis in CI — raw analyzer, the exact OSS ingredient Rextor orchestrates).
 - **Attestation/reputation:** only `akoita/proof-of-audit` — a 0-star prototype staking ETH on audit claims with ERC-8004 identity, challenge flow, and deterministic agent reports on Base Sepolia. Nobody has productized audit attestation + agent reputation; the concept is now independently prototyped in the OSS zeitgeist (direction validated; window still open, but not empty forever).
 
+## 6. CodeRabbit — declared gap (not deep-scanned)
+
+CodeRabbit (the eponymous generic AI PR reviewer) was **not deep-scanned** in this pass — an explicitly declared untested gap rather than a clean bill. General-knowledge read [INFERENCE, unverified against product pages at scan time]: it is a language-agnostic AI PR reviewer (summaries, walkthroughs, generic lint/security chat) with **no published contract-semantics detector inventory** (no Slither/Aderyn-class grounding, no Solidity/Anchor detector list). It matters to this scan only as evidence that AI PR review as a UX is mainstream; it does not evidence contract depth, scoring, or attestation. If it becomes a positioning-relevant comparand, give it a full lane in a future scan.
+
 ---
 
 ## Gap analysis vs Rextor's six moat dimensions
@@ -102,6 +106,7 @@
 | Deterministic scoring (reproducible riskScore) | ✗ | ✗ | ✗ | ✗ | ✗ (AI severity ranking) | ✗ | ✗ | ✗ | ✗ | ✗ | ✔ |
 | On-chain attestation | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✔ (only 0-star prototype exists elsewhere) |
 | Agent reputation | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✔ (same prototype only) |
+_✗ = not evidenced on public pages at scan time. Cell values reflect public-page evidence only; absence of evidence is not proof of absence._
 
 ## Verdict rationale — CONTESTED
 
