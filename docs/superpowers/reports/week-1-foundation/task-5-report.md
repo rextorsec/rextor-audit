@@ -126,3 +126,44 @@ manual hardened runs (network none, ro mount): reentrancy high / exit-3 incomple
 
 ## Deferred (ruled Week-2, untouched)
 body-size cap on webhook buffering, async queue + dedup, vendored forge-std slimming, commit-message style.
+
+---
+
+# Round-2 fix report (16-lane PR review) — commits c61d8fc · 0ac6e1d · 2b95b12
+
+## Commit 1 — code (c61d8fc)
+
+- **[A] diff-scope adversarial split:** `newPathFromHeader` now walks `lastIndexOf(" b/")` backwards requiring both-sides agreement (`rest.slice(0, idx) === "a/" + bSide`), falling back to the last occurrence (rename case). The silent-skip vector (`contracts/evil b/readme.md` → tail "readme.md" → declassified) is closed. Tests: space path preserved + isContract; adversarial path keeps `hasContractChanges=true` with full path; multi-hunk numbering reset `[[2,2],[22,22]]` pinned.
+- **[B] inert markdown objects:** `cell()` additionally escapes `[ ] ! @` (backslash) after pipe/newline collapse — no live `[phish](url)` links, no `![img]`, no bot-identity `@mention` notifications from cells or the INCOMPLETE reason. Tests use regex `(^|[^\\])\[phish\]\(https://e\)` / `(^|[^\\])@ceo` (escaped forms are inert, so assertions check for "no unescaped live sequence").
+- **[C]** fatal-exit stderr detail sliced to 300 chars (unbounded detail could 422 the INCOMPLETE comment into silence).
+- **[D] token-safe clone hygiene:** `githubDeps` gained DI seams (`runGit`/`token`/`rmDir`); clone wraps init/fetch/checkout — on failure the mkdtemp dir is removed (rm guarded by `.catch`) and the thrown message is `git clone failed for {owner}/{repo}#{number}: <detail with token redacted via split/join>`; deliberately no `cause` chain (Node's inspect prints cause and would leak the tokenized URL to logs). Test: injected fetch failure → dir removed, checkout never ran, message contains no token.
+- **[E]** `JSON.parse(rawBody) ?? {}` — signed `null` body → 200 `{ignored:true}` (test added).
+- **[F] run.sh contract completeness:** tmpdir-failure and post-parse-crash paths now emit `{"status":"incomplete","reason":"tmpdir-unavailable"|"crash"}` before exit 3 (SPEC-1 §1: exit 3 must never carry empty stdout).
+- **[G] test gates:** clean-pass contract test asserts `status === 0` explicitly (exit-3-empty masquerade would fail); retry helper treats `Cannot connect to the Docker daemon` in stderr (numeric status 1) as transient, not a verdict.
+- **[H] container self-termination:** ENTRYPOINT is now `timeout -k 5s 140s /usr/local/bin/run.sh` — a hung container dies inside the runner's 150s execFile budget instead of surviving a CLI SIGKILL. Verified `timeout (GNU coreutils) 9.7` present in debian slim; image rebuilt.
+- **[I]** `requireNumber` → non-negative integers only (`Number.isInteger(v) && v >= 0`); tests: `line: 1.5` and `line: -3` both throw.
+- **[J] wiring:** root `packageManager: pnpm@9.15.9`; agent scripts `test:run` + `typecheck`; `.turbo/` gitignored. Verified from root: `pnpm test:run` runs the real agent suite (uncached proof via `turbo run test:run --force`: 1 task, 0 cached, 54/54) and `pnpm typecheck` runs tsc (1 task successful).
+
+## Commit 2 — fixture (0ac6e1d)
+
+- **[K]** VULN 2 made impactful: owner-gated `rescue()` (require owner; sends `address(this).balance` to owner) — unguarded `setOwner` is now a real drain vector. Verified: `forge test` PASS (`test_reentrancy_drains_vault`, exploit = validity proof); docker contract tests green on the mounted fixture (reentrancy-eth/high still fires; `--fail-none` keeps clean exits with added findings).
+- **[L]** `fixtures/vault/PROVENANCE.md`: forge-std = upstream master @ 7fdf81f9ceb2f6ebbb8f9f1c6c5274d5bcc9a1f5 (2026-09-10, `forge install --no-git`); in-tree package.json's 1.16.2 label lags (5 post-tag files). No files touched inside lib/forge-std (byte-identity preserved).
+
+## Commit 3 — docs (2b95b12)
+
+- **[M] PLAN.md:** Phase 4 submission line → "Tempo + Hyperliquid deep; Solana adapter tier; riders config-level"; Phase 2 fork-sim + attestation and Phase 3 identity lines frame liteSVM / Solana attestation / ERC-8004 Solana equivalent as adapter tier gated on Gate B′ (not co-equal in-week); Gate A block notes the Anchor-semantics clause moved to Gate B′ post-pivot; Gate B block labeled `WEAK_PIVOT_EVM_FIRST → EVM-first pivot executed`.
+- **[N] SPEC.md:** SPEC-4 row → "(EVM contract; Solana program adapter tier) | planned — EVM-first per Gate B".
+- **[O] progress.md:** Ruling 9 added (T5 DI design + runReview posts INCOMPLETE itself); Gate A line cites in-repo evidence `docs/gates/…` + commit 3a0e45a; plumbing line for 7f30459; 047a3f0 chore moved after the Task-4 completion line; stale trailing `## Progress` refreshed (Task 1 record + provenance kept, dead "dispatched next" lines removed); BRANCH COMPLETE line updated (21 commits, 92d62eb..0ac6e1d, 54/54).
+- **[P] gate docs:** gate-a — new §6 "CodeRabbit — declared gap (not deep-scanned)" (generic AI PR reviewer, no contract-semantics detector inventory, marked [INFERENCE]/untested gap) + one-line caveat under the moat table ("✗ = not evidenced on public pages at scan time…"); gate-b — "excellent on EVM" softened to "functional and parseable on EVM, auth-detection unproven beyond one micro-fixture", clean-fixture FP-measurement caveat added, `--help` no-language-flag negative result recorded in §3.
+
+## Verification (final battery)
+
+```
+docker build -t rextor/analyzer packages/agent/analyzer  → DONE; `timeout (GNU coreutils) 9.7`, uid 1000
+pnpm exec turbo run test:run --force (root)              → 1 task, 0 cached, 54/54 tests
+pnpm typecheck (root)                                    → 1 task successful
+forge test (fixtures/vault)                              → PASS (drain proof intact)
+docker contract tests + review tests (vs rebuilt image)  → 13/13 green
+```
+
+Deferred per ruling (untouched): noUncheckedIndexedAccess, installer sha256, forge-std re-vendor/slimming, octokit timeouts, body-size cap, async queue/dedup, CONTRACT_PATH_RE depth anchoring, dead exports (stay for SPEC-2/3), commit-boundary style.
