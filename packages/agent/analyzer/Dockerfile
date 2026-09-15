@@ -5,7 +5,9 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir slither-analyzer \
+# Pinned: the no-contract failure classification in run.sh keys on this
+# version's exact stderr wording and fail_on default (verified against 0.11.6).
+RUN pip install --no-cache-dir slither-analyzer==0.11.6 \
  && pip cache purge
 
 # solc via solc-select; pin one version

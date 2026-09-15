@@ -6,9 +6,10 @@ if ! command -v slither >/dev/null 2>&1; then
   echo '{"status":"incomplete","reason":"slither-missing"}'; exit 3
 fi
 TMP="$(mktemp -d)/slither.json" || exit 3
-# --fail-none keeps the exit code a completion signal: by default slither exits 255
-# whenever a Medium/High finding exists, which would misroute a finding-rich (clean)
-# run into the incomplete branch. The JSON file is the source of truth.
+# --fail-none keeps the exit code a completion signal: slither 0.11.6 defaults to
+# fail_on=pedantic — it exits 255 whenever ANY finding exists (any impact) — which
+# would misroute a finding-rich (clean) run into the incomplete branch. The JSON
+# file is the source of truth.
 if slither . --json "$TMP" --fail-none >/dev/null 2>"$TMP.err"; then
   python3 - "$TMP" "$TMP.err" <<'PY'
 import json, sys
