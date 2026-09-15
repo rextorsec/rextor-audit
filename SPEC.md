@@ -31,6 +31,19 @@ Smart-contract audits are point-in-time artifacts covering a specific commit. Te
 
 GitLab MR support, cross-PR prioritization dashboards, CodeRabbit-style analytics, multi-tenant billing, mobile, browser extension, non-contract file review (style/logic comments), IDE integration.
 
+## Spec index — SPEC-N series
+
+The product contract (this file) stays small and stable. Subsystem contracts live as numbered specs in `docs/specs/`, each written just-in-time at the phase that needs it — Gate A/B decisions (due Sep 22) can reshape later specs, so nothing past the active one is authored speculatively.
+
+| Spec | Subsystem | Phase | Status |
+|---|---|---|---|
+| [SPEC-1](docs/specs/SPEC-1-engine-loop.md) | Engine loop: webhook → diff-scope → analyzer → findings → score → PR comment | Wk 1 | **ACTIVE** |
+| SPEC-2 | Rextor profile v1: citation-constrained LLM triage + riskScore rubric v1 | Wk 2 | planned — write at phase start |
+| SPEC-3 | Fork-sim proof layer: Foundry fork (EVM) + liteSVM (Solana); PoC-gated criticals | Wk 2 | planned — Solana half pending Gate B |
+| SPEC-4 | Attestation + agent identity/reputation (EVM contract + Solana program) | Wk 2–3 | planned |
+| SPEC-5 | Chain adapters & track profiles: Tempo, Hyperliquid deep; riders config-level | Wk 2–3 | planned — shape set by Gates A/B |
+| SPEC-6 | Product surface: landing, install flow, dashboard, money demo | Wk 3 | planned — mockup approval gates content |
+
 ## Architecture
 
 ```

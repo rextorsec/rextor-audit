@@ -35,6 +35,7 @@ Detailed bite-sized tasks: `docs/superpowers/plans/2026-09-15-week-1-foundation.
 - Fork-sim: Foundry fork (EVM chains) + liteSVM (Solana) — PoC reproduction for critical/high findings.
 - Attestation: EVM contract (deploy Tempo testnet first, then HyperEVM + riders), Solana attestation program.
 - Full GitHub App loop live on a test repo.
+- Author specs at phase start (post-gates): `SPEC-2` triage+scoring · `SPEC-3` fork-sim · `SPEC-4` attestation · `SPEC-5` chain adapters.
 
 ## Phase 3 — Week 3 (Sep 30–Oct 6): product surface (mockup-first!)
 
@@ -43,6 +44,7 @@ Detailed bite-sized tasks: `docs/superpowers/plans/2026-09-15-week-1-foundation.
 - The money demo: real audited protocol + subtle post-audit bug in a PR → Rextor catches it with a runnable PoC comment.
 - Track-specific demo material: Tempo payments profile (policy engine, fee sponsorship), Hyperliquid vault/perps profile.
 - Agent identity + reputation (ERC-8004 pattern on EVM; Solana equivalent).
+- Author `SPEC-6` (product surface) alongside mock approval — content gated by what the engine actually ships.
 
 ## Phase 4 — Final week (Oct 7–12): polish & submit
 
@@ -66,6 +68,7 @@ programs/attestation-solana  Anchor: attestation program
 fixtures/             vulnerable demo contracts/programs + proving tests
 mockups/              Hallmark static UI mocks (pre-code, approval gate)
 docs/superpowers/plans/      bite-sized execution plans
+docs/specs/                 per-subsystem SPEC-N contracts (index in SPEC.md)
 ```
 
 ## Risk register

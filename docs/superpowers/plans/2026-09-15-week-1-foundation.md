@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript (strict), Node 22 + tsx, vitest, Docker, Slither, Foundry, octokit.
 
-**Spec:** [`SPEC.md`](../../../SPEC.md) — this plan implements the first slice of the MVP IN list.
+**Spec:** [`docs/specs/SPEC-1-engine-loop.md`](../../specs/SPEC-1-engine-loop.md) — this plan implements it task-by-task; contracts live there, steps live here.
 
 ## Global Constraints
 
