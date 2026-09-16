@@ -5,11 +5,10 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Octokit } from "octokit";
 import { runAnalyzerContainer, type ReviewDeps } from "./review";
-import { generatePocFromEnv, runSimContainer } from "./sim";
+import { generatePocFromEnv, runSimContainer, simTmpBase } from "./sim";
 import { makeAttestDep } from "./attest";
 import { triageFromEnv } from "./triage";
 
@@ -61,7 +60,12 @@ export function githubDeps(options: GithubDepsOptions = {}): ReviewDeps {
   return {
     async clone(prUrl: string): Promise<{ dir: string; headSha: string }> {
       const { owner, repo, number } = prParts(prUrl);
-      const dir = await mkdtemp(join(tmpdir(), "rextor-review-"));
+      // Same base as the sim overlay (simTmpBase): BOTH containers bind-mount
+      // repoDir, and colima (macOS) shares only $HOME — a /tmp clone mounts
+      // as an EMPTY /repo inside them, silently turning every live review on
+      // macOS into a false INCOMPLETE. REXTOR_SIM_TMP_DIR overrides the base
+      // for the clone and the sim overlay alike.
+      const dir = await mkdtemp(join(simTmpBase(), "rextor-review-"));
       const t = token();
       try {
         // Fetch by URL without registering a remote: the token is a CLI
