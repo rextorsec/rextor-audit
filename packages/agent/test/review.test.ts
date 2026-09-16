@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   runReview,
   runAnalyzerContainer,
@@ -253,5 +253,68 @@ describe("comment builders (untrusted PR content must stay inert markdown)", () 
     const body = summaryCommentBody(85, rawFindingsResult([critical, ...many]));
     expect(body).toContain("crit-check");
     expect(body.length).toBeLessThan(65_000);
+  });
+});
+
+describe("runReview sim integration (SPEC-3)", () => {
+  // fakeDeps pattern (triage-pipeline.test.ts): every I/O seam faked, the REAL
+  // pipeline runs. runReview reads process.env at call time, so the fork env
+  // is stubbed per test — hermetic regardless of the runner's own env.
+  const criticalNdjson = JSON.stringify({
+    file: "src/Vault.sol", line: 16, severity: "critical", check: "reentrancy-eth", description: "drain",
+  });
+  const pocSource = "contract RextorPocTest { function testRextorPoc_0() public {} }";
+
+  const simDeps = (over: Partial<ReviewDeps> = {}) => {
+    const comments: string[] = [];
+    const deps: ReviewDeps = {
+      clone: async () => "/tmp/fake",
+      fetchDiff: async () => "diff --git a/src/Vault.sol b/src/Vault.sol\n@@ -16,1 +16,1 @@\n+x",
+      runAnalyzer: async () => criticalNdjson,
+      postComment: async (_prUrl, body) => { comments.push(body); },
+      dispose: async () => {},
+      ...over,
+    };
+    return { deps, comments };
+  };
+
+  const identityTriage = async (findings: Finding[]) => ({
+    finalFindings: findings, ops: [], rejectedOps: [], modelUsed: "vendor/m", triageStatus: "complete" as const,
+  });
+
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  it("attaches a runnable PoC block for confirmed criticals and a sim line", async () => {
+    vi.stubEnv("REXTOR_FORK_RPC_URL", "https://fork.example");
+    const { deps, comments } = simDeps({
+      triage: identityTriage,
+      generatePoc: async () => pocSource,
+      runSim: async () => ({ block: 77, results: { testRextorPoc_0: true } }),
+    });
+    const res = await runReview(PR_URL, deps);
+    const body = comments[0];
+    expect(res.commented).toBe(true);
+    // rubric v1: critical with a CONFIRMED PoC keeps its 60 (only unproven downgrades).
+    expect(res.score).toBe(60);
+    // The row labels the proof status; the sim line records the fork block.
+    expect(body).toContain("[poc:confirmed]");
+    expect(body).toContain("block 77");
+    // The runnable PoC renders collapsed inside a 4-backtick fence.
+    expect(body).toContain("<details><summary>Runnable PoC — finding #0 (Foundry)</summary>");
+    expect(body).toContain("````solidity");
+    expect(body).toContain(pocSource);
+    expect(body).toContain("1 confirmed");
+  });
+
+  it("skipped sim (no env) → note line, no PoC block, critical stays 60", async () => {
+    vi.stubEnv("REXTOR_FORK_RPC_URL", "");
+    const { deps, comments } = simDeps({ triage: identityTriage });
+    const res = await runReview(PR_URL, deps);
+    expect(res.commented).toBe(true);
+    expect(res.score).toBe(60); // critical skipped → no rubric change
+    expect(comments[0]).toContain("Fork-sim skipped: no fork configured");
+    expect(comments[0]).toContain("[poc:skipped]");
+    expect(comments[0]).not.toContain("Runnable PoC");
+    expect(comments[0]).not.toContain("````solidity");
   });
 });

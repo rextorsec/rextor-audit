@@ -12,6 +12,7 @@ import { promisify } from "node:util";
 import { resolve } from "node:path";
 import { scopeDiff, type DiffScopeResult } from "./diff-scope";
 import { NO_TRIAGE_MODEL, rawFindingsResult, type TriageResult } from "./triage";
+import { runSimStage, sanitizePocSource, type PocRequest, type SimOutcomeMap } from "./sim";
 import {
   canonicalFindingsJson,
   normalizeFindings,
@@ -36,6 +37,10 @@ export interface ReviewDeps {
   postComment(prUrl: string, body: string): Promise<void>;
   /** Releases the clone dir; runReview calls it in a finally, exactly once per clone. */
   dispose(repoDir: string): Promise<void>;
+  /** PoC generation (SPEC-3) — frontier LLM seam; absent → sim skipped. */
+  generatePoc?: (reqs: PocRequest[]) => Promise<string>;
+  /** Sim harness run (SPEC-3) — container seam; absent → sim skipped. */
+  runSim?: (repoDir: string, testSource: string, forkUrl: string) => Promise<SimOutcomeMap>;
 }
 
 export interface ReviewResult {
@@ -171,10 +176,11 @@ function triageLine(t: TriageResult): string {
 function findingRow(f: Finding): string {
   const note = f.triageNote
     ?? (f.mergedChecks ? `merged: ${f.mergedChecks.join(", ")}` : "");
-  return `| #${f.id ?? "—"} | ${f.severity} | ${cell(f.check)} | ${cell(f.file)}:${f.line} | ${cell(note)} |`;
+  const sev = `${f.severity}${f.poc ? ` [poc:${f.poc.status}]` : ""}`;
+  return `| #${f.id ?? "—"} | ${sev} | ${cell(f.check)} | ${cell(f.file)}:${f.line} | ${cell(note)} |`;
 }
 
-export function summaryCommentBody(scoreValue: number, triaged: TriageResult): string {
+export function summaryCommentBody(scoreValue: number, triaged: TriageResult, simNote = ""): string {
   const findings = triaged.finalFindings;
   const sorted = [...findings].sort(
     (a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity),
@@ -193,6 +199,20 @@ export function summaryCommentBody(scoreValue: number, triaged: TriageResult): s
     json.length > MAX_FINDINGS_JSON_CHARS
       ? [`_(findings JSON omitted: ${json.length} chars exceeds the ${MAX_FINDINGS_JSON_CHARS}-char budget — the attested findingsHash covers the full canonical form)_`]
       : ["```json", json, "```"];
+  // Confirmed PoCs render as collapsed runnable blocks. The generated source
+  // is DATA (SPEC-3 §4): sanitized (no CR, no 3+ backtick runs) inside a
+  // 4-backtick fence so it can never escape into live comment markdown.
+  const pocBlocks = findings
+    .filter((f) => f.poc?.status === "confirmed" && f.poc.testSource)
+    .map((f) => [
+      "",
+      `<details><summary>Runnable PoC — finding #${f.id} (Foundry)</summary>`,
+      "",
+      "````solidity",
+      sanitizePocSource(f.poc!.testSource!),
+      "````",
+      "</details>",
+    ].join("\n"));
   return [
     `## rextor audit — risk score: ${scoreValue}/100`,
     "",
@@ -205,12 +225,14 @@ export function summaryCommentBody(scoreValue: number, triaged: TriageResult): s
     ...(hidden > 0 ? ["", `...and ${hidden} more findings suppressed.`] : []),
     "",
     triageLine(triaged),
+    ...(simNote ? ["", simNote] : []),
     "",
     "<details><summary>Findings JSON — sha256 of this block = on-chain findingsHash</summary>",
     "",
     ...jsonBlock,
     "",
     "</details>",
+    ...pocBlocks,
   ].join("\n");
 }
 
@@ -257,9 +279,9 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
       return { commented: true, score: 0, incomplete: reason };
     }
 
-    // SPEC-2 pipeline: analyze → normalize → [triage] → score(rubric v1) →
-    // ONE PR comment. Triage is soft: a missing or throwing dep degrades to
-    // raw findings under the banner, never skips the comment.
+    // SPEC-2 pipeline: analyze → normalize → [triage] → [sim] → score(rubric
+    // v1) → ONE PR comment. Triage is soft: a missing or throwing dep degrades
+    // to raw findings under the banner, never skips the comment.
     let triaged: TriageResult;
     if (deps.triage) {
       try {
@@ -272,8 +294,15 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
       triaged = rawFindingsResult(withIds(findings));
     }
 
-    const scoreValue = scoreV1(triaged.finalFindings);
-    await deps.postComment(prUrl, summaryCommentBody(scoreValue, triaged));
+    // SPEC-3 sim: mutates ONLY `poc` fields (never severities, never
+    // existence); an unproven critical then scores 25 via rubric v1. Env is
+    // read at call time; missing fork env or seams → skipped, never a
+    // pipeline failure.
+    const simmed = await runSimStage(triaged.finalFindings, repoDir,
+      { generatePoc: deps.generatePoc, runSim: deps.runSim }, process.env);
+    const scoreValue = scoreV1(simmed.findings);
+    await deps.postComment(prUrl,
+      summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote));
     return { commented: true, score: scoreValue };
   } finally {
     // The clone dir must not outlive the review on any path (token-free but
