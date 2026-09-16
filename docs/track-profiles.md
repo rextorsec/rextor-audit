@@ -8,10 +8,10 @@
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Flagship | `tempo` | Tempo testnet | 42431 | `https://rpc.moderato.tempo.xyz` | Slither + Aderyn | yes | pending — deploy #1 | `docs/deployments/tempo.md` (pending) |
 | Primary | `hyperliquid` | HyperEVM testnet | 998 | `https://rpc.hyperliquid-testnet.xyz` | Slither + Aderyn | yes | pending — deploy #2 | `docs/deployments/hyperliquid.md` (pending) |
-| Rider | `ethereum` | Ethereum | 1 | — | Slither + Aderyn | no (config-level) | once deployed (config-level) | pending |
-| Rider | `base` | Base | 8453 | — | Slither + Aderyn | no (config-level) | once deployed (config-level) | pending |
-| Rider | `arbitrum` | Arbitrum One | 42161 | — | Slither + Aderyn | no (config-level) | once deployed (config-level) | pending |
-| Rider | `robinhood` | Robinhood Chain | null — captured at integration, never fabricated | — | Slither + Aderyn | no (config-level) | once deployed (config-level) | pending |
+| Rider | `ethereum` | Ethereum | 1 | — | deterministic pass | no (config-level) | once deployed (config-level) | pending |
+| Rider | `base` | Base | 8453 | — | deterministic pass | no (config-level) | once deployed (config-level) | pending |
+| Rider | `arbitrum` | Arbitrum One | 42161 | — | deterministic pass | no (config-level) | once deployed (config-level) | pending |
+| Rider | `robinhood` | Robinhood Chain | null — captured at integration, never fabricated | — | deterministic pass | no (config-level) | once deployed (config-level) | pending |
 
 Per-entry notes from the registry:
 

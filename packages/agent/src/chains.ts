@@ -13,7 +13,17 @@ export interface ChainConfig {
   notes: string;
 }
 
-export const CHAIN_REGISTRY: Record<ChainKey, ChainConfig> = {
+// Deep-frozen: resolveChain spreads entries shallowly, so nested testnet /
+// attestation objects are shared across resolutions — freezing keeps a
+// poisoned entry from leaking into later resolves (SPEC-5 invariant 16).
+function deepFreeze<T extends object>(obj: T): Readonly<T> {
+  for (const value of Object.values(obj)) {
+    if (value && typeof value === "object") deepFreeze(value);
+  }
+  return Object.freeze(obj);
+}
+
+export const CHAIN_REGISTRY: Record<ChainKey, ChainConfig> = deepFreeze({
   tempo: {
     key: "tempo", name: "Tempo testnet",
     testnet: { chainId: 42431, rpc: "https://rpc.moderato.tempo.xyz" },
@@ -50,13 +60,13 @@ export const CHAIN_REGISTRY: Record<ChainKey, ChainConfig> = {
     attestation: { address: null, chainId: null }, explorer: null,
     notes: "Rider: params captured at integration — never fabricated.",
   },
-};
+});
 
 export interface ResolvedChain extends ChainConfig { forkRpc: string | null }
 
 export function resolveChain(env: { REXTOR_DEFAULT_CHAIN?: string; REXTOR_FORK_RPC_URL?: string }): ResolvedChain {
   const key = (env.REXTOR_DEFAULT_CHAIN ?? "tempo") as ChainKey;
-  if (!(key in CHAIN_REGISTRY)) {
+  if (!Object.hasOwn(CHAIN_REGISTRY, key)) {
     throw new Error(`unknown chain: ${String(env.REXTOR_DEFAULT_CHAIN)} (known: ${Object.keys(CHAIN_REGISTRY).join(", ")})`);
   }
   return { ...CHAIN_REGISTRY[key], forkRpc: env.REXTOR_FORK_RPC_URL ?? CHAIN_REGISTRY[key].testnet.rpc };

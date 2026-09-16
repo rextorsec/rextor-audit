@@ -16,6 +16,14 @@ describe("CHAIN_REGISTRY", () => {
       expect(CHAIN_REGISTRY[key].attestation.address).toBeNull();
     }
   });
+  it("registry and entries are deeply frozen — spread can't share mutable state", () => {
+    expect(Object.isFrozen(CHAIN_REGISTRY)).toBe(true);
+    for (const key of Object.keys(CHAIN_REGISTRY) as ChainKey[]) {
+      expect(Object.isFrozen(CHAIN_REGISTRY[key])).toBe(true);
+      expect(Object.isFrozen(CHAIN_REGISTRY[key].testnet)).toBe(true);
+      expect(Object.isFrozen(CHAIN_REGISTRY[key].attestation)).toBe(true);
+    }
+  });
 });
 
 describe("resolveChain", () => {
@@ -31,5 +39,12 @@ describe("resolveChain", () => {
   });
   it("unknown key → explicit error listing known keys", () => {
     expect(() => resolveChain({ REXTOR_DEFAULT_CHAIN: "solana" })).toThrow(/unknown chain: solana/);
+  });
+  it("prototype keys are rejected, not resolved (fail-loud regression)", () => {
+    for (const evil of ["toString", "valueOf", "constructor", "__proto__"]) {
+      expect(() => resolveChain({ REXTOR_DEFAULT_CHAIN: evil })).toThrow(
+        `unknown chain: ${evil} (known: tempo, hyperliquid, ethereum, base, arbitrum, robinhood)`,
+      );
+    }
   });
 });
