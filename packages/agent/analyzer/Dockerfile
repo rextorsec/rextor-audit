@@ -45,6 +45,10 @@ WORKDIR /repo
 USER root
 COPY run.sh /usr/local/bin/run.sh
 COPY sim.sh /usr/local/bin/sim.sh
+# Known-good forge-std, baked for the sim harness: sim.sh pins the
+# `forge-std/` remapping here so a PR's vendored/poisoned forge-std can never
+# own the assertions a PoC "passes" on (see vendor/forge-std/PROVENANCE.md).
+COPY vendor/forge-std /opt/rextor/forge-std
 RUN chmod +x /usr/local/bin/run.sh /usr/local/bin/sim.sh
 USER analyzer
 # Self-termination just inside the runner's 150s execFile timeout: SIGKILL on

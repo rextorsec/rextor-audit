@@ -14,6 +14,7 @@ import { parseForgeJson, runSimContainer, simTmpBase } from "../src/sim";
 const execFileP = promisify(execFile);
 
 const FIXTURES_VAULT = fileURLToPath(new URL("../../../fixtures/vault", import.meta.url));
+
 const dockerUp = async (): Promise<boolean> => {
   try {
     await execFileP("docker", ["info"], { timeout: 20_000 });
@@ -57,7 +58,7 @@ contract RextorPocTest is Test {
 `;
 
 // Adversarial biconditional (SPEC-3 §2): testRextorPoc_0 PASSES only if vm.ffi
-// executes. FOUNDRY_FFI must make it revert, so `results === false` is a proof
+// executes. FFI denial must make it revert, so `results === false` is a proof
 // of denial — not of a compile failure, which the control test rules out.
 const FFI_PROBE_POC = `// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
@@ -78,6 +79,62 @@ contract RextorPocTest is Test {
 }
 `;
 
+// Deliberately failing real PoC for the decoy regression: if the planted
+// passing testRextorPoc_0 were counted, the result would read "confirmed".
+const FAILING_POC = `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+import {Test} from "forge-std/Test.sol";
+
+contract RextorPocTest is Test {
+    function testRextorPoc_0() public {
+        assertTrue(false, "deliberately failing");
+    }
+}
+`;
+
+// The decoy itself: same contract name as the generated PoC, trivially
+// passing test fn, planted in the PR's test dir under a name that sorts after
+// test/RextorPoc.t.sol (pre-fix, parseForgeJson's bare-name map was
+// last-write-wins and the decoy won).
+const DECOY_POC = `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+import {Test} from "forge-std/Test.sol";
+
+contract RextorPocTest is Test {
+    function testRextorPoc_0() public {
+        assertTrue(true);
+    }
+}
+`;
+
+// ffi-enabling foundry.toml variants a PR might ship (fix round 1: the suite
+// must cover more than the linear [profile.default] form).
+interface FfiVariant {
+  name: string;
+  rewrite: (toml: string) => string;
+  // "results" = forge runs and denial is proven in-band via the result map;
+  // "rejected" = the config itself cannot resolve (parse failure), so the
+  // harness must throw (mapped upstream to unproven) instead of running.
+  mode: "results" | "rejected";
+}
+const FFI_TOML_VARIANTS: FfiVariant[] = [
+  {
+    name: "linear ffi = true under [profile.default]",
+    rewrite: (toml) => `${toml}ffi = true\n`,
+    mode: "results",
+  },
+  {
+    name: "dotted profile.default.ffi = true inside the table",
+    rewrite: (toml) => `${toml}profile.default.ffi = true\n`,
+    mode: "results",
+  },
+  {
+    name: "root-level dotted key before any table header",
+    rewrite: (toml) => `profile.default.ffi = true\n${toml}`,
+    mode: "rejected",
+  },
+];
+
 // Container command for the E2E: start a local anvil, prove it is serving,
 // mine one block (fresh anvil sits at 0 — the test pins block > 0), then hand
 // over to the same entrypoint the production harness uses.
@@ -94,6 +151,45 @@ interface AnvilRunOutcome {
   block: number;
   results: Record<string, boolean>;
   stderr: string;
+}
+
+/** Writable fixture copy under a daemon-bindable base, stripped to the PoC
+ *  essentials (no build artifacts, no fixture test file). */
+async function makeFixtureCopy(prefix: string): Promise<string> {
+  const copy = await mkdtemp(join(simTmpBase(), prefix));
+  await cp(FIXTURES_VAULT, copy, { recursive: true });
+  await rm(join(copy, "out"), { recursive: true, force: true });
+  await rm(join(copy, "cache"), { recursive: true, force: true });
+  await rm(join(copy, "test", "Vault.t.sol"));
+  return copy;
+}
+
+/** Standalone anvil container; returns its bridge IP. */
+async function startAnvilContainer(): Promise<{ name: string; ip: string }> {
+  const name = `rextor-sim-anvil-${randomUUID().slice(0, 8)}`;
+  await execFileP("docker", [
+    "run", "-d", "--rm", "--name", name,
+    "--entrypoint", "sh", "rextor/analyzer",
+    "-c", "anvil --host 0.0.0.0 --port 8545 --silent",
+  ]);
+  // evm_mine doubles as the readiness probe: it only succeeds once anvil is
+  // serving, and it bumps the tip off block 0 so the block pin is assertable.
+  let ready = false;
+  for (let i = 0; i < 60 && !ready; i++) {
+    // Real interval: the awaited condition lives in an EXTERNAL docker/anvil
+    // process — fake timers cannot advance it. Executor form, since the
+    // project's TS lib (es2022) lacks Promise.withResolvers.
+    await new Promise((r) => setTimeout(r, 500));
+    ready = await execFileP("docker", [
+      "exec", name, "cast", "rpc", "--rpc-url", "http://127.0.0.1:8545", "evm_mine",
+    ]).then(() => true, () => false);
+  }
+  if (!ready) throw new Error(`anvil container ${name} never became ready`);
+  // docker 29 (colima): the legacy top-level NetworkSettings.IPAddress is
+  // empty; the address lives under the per-network map.
+  const ip = (await execFileP("docker",
+    ["inspect", "-f", "{{(index .NetworkSettings.Networks \"bridge\").IPAddress}}", name])).stdout.trim();
+  return { name, ip };
 }
 
 /** Same docker invocation hardening as runSimContainer (:ro repo, overlay
@@ -129,34 +225,6 @@ async function runSimContainerAnvil(repoDir: string, pocSource: string): Promise
   }
 }
 
-/** Standalone anvil container for the adversarial run; returns its bridge IP. */
-async function startAnvilContainer(): Promise<{ name: string; ip: string }> {
-  const name = `rextor-sim-anvil-${randomUUID().slice(0, 8)}`;
-  await execFileP("docker", [
-    "run", "-d", "--rm", "--name", name,
-    "--entrypoint", "sh", "rextor/analyzer",
-    "-c", "anvil --host 0.0.0.0 --port 8545 --silent",
-  ]);
-  // evm_mine doubles as the readiness probe: it only succeeds once anvil is
-  // serving, and it bumps the tip off block 0 so the block pin is assertable.
-  let ready = false;
-  for (let i = 0; i < 60 && !ready; i++) {
-    // Real interval: the awaited condition lives in an EXTERNAL docker/anvil
-    // process — fake timers cannot advance it. Executor form, since the
-    // project's TS lib (es2022) lacks Promise.withResolvers.
-    await new Promise((r) => setTimeout(r, 500));
-    ready = await execFileP("docker", [
-      "exec", name, "cast", "rpc", "--rpc-url", "http://127.0.0.1:8545", "evm_mine",
-    ]).then(() => true, () => false);
-  }
-  if (!ready) throw new Error(`anvil container ${name} never became ready`);
-  // docker 29 (colima): the legacy top-level NetworkSettings.IPAddress is
-  // empty; the address lives under the per-network map.
-  const ip = (await execFileP("docker",
-    ["inspect", "-f", "{{(index .NetworkSettings.Networks \"bridge\").IPAddress}}", name])).stdout.trim();
-  return { name, ip };
-}
-
 describe("runSimContainer (docker-gated)", () => {
   maybeIt("runs a passing PoC against a local anvil fork → confirmed", async () => {
     if (!(await dockerUp())) return; // graceful skip
@@ -165,27 +233,55 @@ describe("runSimContainer (docker-gated)", () => {
     expect(out.results["testRextorPoc_0"]).toBe(true);
   }, 300_000);
 
-  it("adversarial: PR foundry.toml ffi=true + vm.ffi PoC → ffi must stay denied", async () => {
+  it("adversarial: PR foundry.toml ffi=true (linear + dotted forms) → ffi must stay denied", async () => {
     if (!(await dockerUp())) return; // graceful skip
-    // Fixture copy with the PR-controlled ffi = true appended; the fixture's
-    // own test file is dropped so the PoC is the only thing under test.
-    const fixtureCopy = await mkdtemp(join(simTmpBase(), "rextor-sim-ffi-"));
-    await cp(FIXTURES_VAULT, fixtureCopy, { recursive: true });
-    await rm(join(fixtureCopy, "out"), { recursive: true, force: true });
-    await rm(join(fixtureCopy, "cache"), { recursive: true, force: true });
-    await rm(join(fixtureCopy, "test", "Vault.t.sol"));
-    const toml = await readFile(join(fixtureCopy, "foundry.toml"), "utf8");
-    await writeFile(join(fixtureCopy, "foundry.toml"), `${toml}ffi = true\n`, "utf8");
-
     const anvil = await startAnvilContainer();
     try {
-      // Control passing proves fixture + harness are healthy; therefore _0's
-      // failure can ONLY be the vm.ffi revert — FFI denial (patched config +
-      // FOUNDRY_FFI env) beat the PR's ffi = true.
-      const out = await runSimContainer(fixtureCopy, FFI_PROBE_POC, `http://${anvil.ip}:8545`);
-      expect(out.results["test_controlHarnessRan"]).toBe(true);
+      for (const variant of FFI_TOML_VARIANTS) {
+        const fixtureCopy = await makeFixtureCopy("rextor-sim-ffi-");
+        await writeFile(
+          join(fixtureCopy, "foundry.toml"),
+          variant.rewrite(`${await readFile(join(fixtureCopy, "foundry.toml"), "utf8")}`),
+          "utf8",
+        );
+        try {
+          if (variant.mode === "results") {
+            // Control passing proves fixture + harness are healthy; therefore
+            // _0's failure can ONLY be the vm.ffi revert — FFI denial (the
+            // resolved-config gate + patched config) beat the PR's ffi = true.
+            const out = await runSimContainer(fixtureCopy, FFI_PROBE_POC, `http://${anvil.ip}:8545`);
+            expect(out.results["test_controlHarnessRan"], variant.name).toBe(true);
+            expect(out.results["testRextorPoc_0"], variant.name).toBe(false);
+            expect(out.block, variant.name).toBeGreaterThan(0);
+          } else {
+            // A config forge cannot resolve is a harness failure (unproven),
+            // never a run — and never ffi execution.
+            await expect(
+              runSimContainer(fixtureCopy, FFI_PROBE_POC, `http://${anvil.ip}:8545`),
+              variant.name,
+            ).rejects.toThrow();
+          }
+        } finally {
+          await rm(fixtureCopy, { recursive: true, force: true }).catch(() => {});
+        }
+      }
+    } finally {
+      await execFileP("docker", ["stop", "-t", "2", anvil.name]).catch(() => {});
+    }
+  }, 300_000);
+
+  it("decoy same-name contract cannot confirm: only test/RextorPoc.t.sol runs", async () => {
+    if (!(await dockerUp())) return; // graceful skip
+    const fixtureCopy = await makeFixtureCopy("rextor-sim-decoy-");
+    await writeFile(join(fixtureCopy, "test", "ZZZ.t.sol"), DECOY_POC, "utf8");
+    const anvil = await startAnvilContainer();
+    try {
+      // The real PoC deliberately FAILS while the decoy's same-named test
+      // passes: only --match-path test/RextorPoc.t.sol keeps the decoy out of
+      // the result map, so testRextorPoc_0 must read false (pre-fix, the
+      // bare-name map was last-write-wins and the decoy read "confirmed").
+      const out = await runSimContainer(fixtureCopy, FAILING_POC, `http://${anvil.ip}:8545`);
       expect(out.results["testRextorPoc_0"]).toBe(false);
-      expect(out.block).toBeGreaterThan(0);
     } finally {
       await execFileP("docker", ["stop", "-t", "2", anvil.name]).catch(() => {});
       await rm(fixtureCopy, { recursive: true, force: true }).catch(() => {});

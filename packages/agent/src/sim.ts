@@ -239,19 +239,40 @@ export async function runSimContainer(repoDir: string, testSource: string, forkU
       "--entrypoint", "/usr/local/bin/sim.sh",
       SIM_IMAGE,
     ], { timeout: SIM_TIMEOUT_MS, killSignal: "SIGKILL" });
-    const [blockRaw, raw] = await Promise.all([
-      readFile(join(pocDir, "block.txt"), "utf8"),
-      readFile(join(pocDir, "result.json"), "utf8"),
-    ]).catch(async (err: unknown) => {
-      // No artifacts ⇒ sim.sh died before/during forge (fork unreachable,
-      // compile crash, timeout kill). Surface the container's stderr tail so
-      // the webhook log says WHY; runSimStage still maps this to unproven.
+    // A sim.sh crash before/during forge (fork unreachable, compile crash,
+    // gate refusal, timeout kill) leaves no usable artifacts. Surface the
+    // container's stderr tail so the webhook log says WHY; runSimStage maps
+    // every throw here to unproven — never a crash escaping the stage.
+    const stderrTail = async (): Promise<string> => {
       const stderr = await readFile(join(pocDir, "stderr.txt"), "utf8").catch(() => "");
-      const tail = stderr.trim().slice(-400);
+      return stderr.trim().slice(-400);
+    };
+    let blockRaw: string;
+    let raw: string;
+    try {
+      [blockRaw, raw] = await Promise.all([
+        readFile(join(pocDir, "block.txt"), "utf8"),
+        readFile(join(pocDir, "result.json"), "utf8"),
+      ]);
+    } catch (err) {
+      const tail = await stderrTail();
       throw new Error(`sim harness produced no result${tail ? ` (forge stderr: ${tail})` : ""}`, { cause: err });
-    });
+    }
     const block = parseInt(blockRaw.trim(), 10);
-    return { block: Number.isFinite(block) ? block : 0, results: parseForgeJson(raw) };
+    if (!Number.isFinite(block)) {
+      // A corrupted block record must never fabricate block 0 — the
+      // reproducibility pin (invariant 11) is either real or the run fails.
+      const tail = await stderrTail();
+      throw new Error(`sim harness wrote an unreadable block record${tail ? ` (forge stderr: ${tail})` : ""}`);
+    }
+    let results: Record<string, boolean>;
+    try {
+      results = parseForgeJson(raw);
+    } catch (err) {
+      const tail = await stderrTail();
+      throw new Error(`sim harness produced an unparseable result${tail ? ` (forge stderr: ${tail})` : ""}`, { cause: err });
+    }
+    return { block, results };
   } finally {
     await rm(pocDir, { recursive: true, force: true }).catch(() => {});
   }
