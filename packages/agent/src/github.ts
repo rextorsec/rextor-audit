@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { Octokit } from "octokit";
 import { runAnalyzerContainer, type ReviewDeps } from "./review";
 import { generatePocFromEnv, runSimContainer } from "./sim";
+import { makeAttestDep } from "./attest";
 import { triageFromEnv } from "./triage";
 
 const execFileP = promisify(execFile);
@@ -18,8 +19,9 @@ const execFileP = promisify(execFile);
 const GIT_OPTS = { timeout: 120_000, killSignal: "SIGKILL" as const };
 
 export interface GithubDepsOptions {
-  /** Git runner seam (test injection); default: real `git` with a 120s timeout. */
-  runGit?: (args: string[]) => Promise<void>;
+  /** Git runner seam (test injection); default: real `git` with a 120s timeout.
+   *  Returns raw stdout (the clone trims it for rev-parse). */
+  runGit?: (args: string[]) => Promise<string>;
   /** Token source seam; default: env GITHUB_TOKEN, required. */
   token?: () => string;
   /** Directory-removal seam (test injection); default: rm -rf. */
@@ -44,14 +46,15 @@ export function githubDeps(options: GithubDepsOptions = {}): ReviewDeps {
   const runGit =
     options.runGit ??
     (async (args: string[]) => {
-      await execFileP("git", args, GIT_OPTS);
+      const { stdout } = await execFileP("git", args, GIT_OPTS);
+      return stdout;
     });
   const token = options.token ?? requireToken;
   const rmDir =
     options.rmDir ?? ((dir: string) => rm(dir, { recursive: true, force: true }));
 
   return {
-    async clone(prUrl: string): Promise<string> {
+    async clone(prUrl: string): Promise<{ dir: string; headSha: string }> {
       const { owner, repo, number } = prParts(prUrl);
       const dir = await mkdtemp(join(tmpdir(), "rextor-review-"));
       const t = token();
@@ -62,7 +65,10 @@ export function githubDeps(options: GithubDepsOptions = {}): ReviewDeps {
         await runGit(["init", dir]);
         await runGit(["-C", dir, "fetch", "--depth", "1", url, `refs/pull/${number}/head`]);
         await runGit(["-C", dir, "checkout", "--force", "FETCH_HEAD"]);
-        return dir;
+        // SPEC-4 §3: the attestation record needs the PR head sha — the clone
+        // has it locally, so resolve it here (inside the redacting try).
+        const headSha = (await runGit(["-C", dir, "rev-parse", "HEAD"])).trim();
+        return { dir, headSha };
       } catch (err) {
         // A mid-clone failure must not strand the temp dir, and the thrown
         // message (which the webhook handler logs) must never carry the
@@ -98,6 +104,10 @@ export function githubDeps(options: GithubDepsOptions = {}): ReviewDeps {
     // before any docker call is made.
     generatePoc: generatePocFromEnv(),
     runSim: runSimContainer,
+
+    // SPEC-4 attestation default: env-driven at wiring AND call time; env
+    // unset → undefined → the review renders "attestation not configured".
+    attest: makeAttestDep(),
 
     async postComment(prUrl: string, body: string): Promise<void> {
       const { owner, repo, number } = prParts(prUrl);

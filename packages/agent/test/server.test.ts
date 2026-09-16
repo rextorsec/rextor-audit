@@ -41,7 +41,7 @@ const makeFakeDeps = () => {
   const deps: ReviewDeps = {
     clone: async (prUrl) => {
       cloned.push(prUrl);
-      return "/tmp/fake-repo";
+      return { dir: "/tmp/fake-repo", headSha: "a".repeat(40) };
     },
     fetchDiff: async () =>
       "diff --git a/src/Vault.sol b/src/Vault.sol\n--- a/src/Vault.sol\n+++ b/src/Vault.sol\n@@ -1,1 +1,2 @@\n pragma solidity ^0.8.24;\n+contract Vault {}",
@@ -90,7 +90,11 @@ describe("webhook endpoint", () => {
     await withServer({ deps, secret: SECRET }, async (port) => {
       const res = await post(port, BODY, signed(BODY, SECRET));
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ commented: true, score: 25 });
+      expect(await res.json()).toEqual({
+        commented: true,
+        score: 25,
+        attestation: { skipped: "attestation not configured" },
+      });
     });
     expect(comments).toHaveLength(1);
     expect(cloned).toEqual(["https://github.com/rextor/demo/pull/42"]);
@@ -102,7 +106,11 @@ describe("webhook endpoint", () => {
       const body = BODY.replace('"opened"', '"synchronize"');
       const res = await post(port, body, signed(body, SECRET));
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ commented: true, score: 25 });
+      expect(await res.json()).toEqual({
+        commented: true,
+        score: 25,
+        attestation: { skipped: "attestation not configured" },
+      });
     });
     expect(comments).toHaveLength(1);
   });

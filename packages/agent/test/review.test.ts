@@ -7,6 +7,8 @@ import {
   type ReviewDeps,
   type Finding,
 } from "../src/review";
+import type { AttestRecord } from "../src/attest";
+import { EMPTY_FINDINGS_SHA256 } from "./vectors";
 import { rawFindingsResult } from "../src/triage";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -21,6 +23,8 @@ const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const vaultFixturePath = `${repoRoot}fixtures/vault`;
 
 const PR_URL = "https://github.com/rextor/demo/pull/42";
+// Fake PR head sha for clone fakes — 40-hex so the attestation record builder accepts it.
+const HEAD_SHA = "a".repeat(40);
 
 // A realistic PR diff for the vault fixture: adds the reentrant withdraw()
 // to a .sol path, so scopeDiff classifies it as contract work.
@@ -65,7 +69,7 @@ const makeDeps = (over: Partial<ReviewDeps> = {}) => {
   const deps: ReviewDeps = {
     clone: async (prUrl) => {
       cloned.push(prUrl);
-      return vaultFixturePath;
+      return { dir: vaultFixturePath, headSha: HEAD_SHA };
     },
     fetchDiff: async () => VAULT_DIFF,
     runAnalyzer: runAnalyzerContainer,
@@ -96,7 +100,12 @@ describe("runReview", () => {
       },
     });
     const result = await runReview(PR_URL, deps);
-    expect(result).toEqual({ commented: true, score: 0, incomplete: "slither exploded" });
+    expect(result).toEqual({
+      commented: true,
+      score: 0,
+      incomplete: "slither exploded",
+      attestation: { skipped: "attestation not configured" },
+    });
     expect(comments).toHaveLength(1);
     expect(comments[0].body).toContain("INCOMPLETE");
     expect(comments[0].body).toContain("analyzer failed: slither exploded");
@@ -144,7 +153,7 @@ describe("runReview", () => {
         // through container → NDJSON → IncompleteReportError → comment —
         // never via a crash detour that would leave the reason unpinned.
         const tmp = execFileSync("mktemp", ["-d"]).toString().trim();
-        const { deps, comments, disposed } = makeDeps({ clone: async () => tmp });
+        const { deps, comments, disposed } = makeDeps({ clone: async () => ({ dir: tmp, headSha: HEAD_SHA }) });
         const result = await runReview(PR_URL, deps);
 
         expect(result.commented).toBe(true);
@@ -268,7 +277,7 @@ describe("runReview sim integration (SPEC-3)", () => {
   const simDeps = (over: Partial<ReviewDeps> = {}) => {
     const comments: string[] = [];
     const deps: ReviewDeps = {
-      clone: async () => "/tmp/fake",
+      clone: async () => ({ dir: "/tmp/fake", headSha: HEAD_SHA }),
       fetchDiff: async () => "diff --git a/src/Vault.sol b/src/Vault.sol\n@@ -16,1 +16,1 @@\n+x",
       runAnalyzer: async () => criticalNdjson,
       postComment: async (_prUrl, body) => { comments.push(body); },
@@ -316,5 +325,92 @@ describe("runReview sim integration (SPEC-3)", () => {
     expect(comments[0]).toContain("[poc:skipped]");
     expect(comments[0]).not.toContain("Runnable PoC");
     expect(comments[0]).not.toContain("````solidity");
+  });
+});
+
+describe("runReview attestation integration (SPEC-4 §3)", () => {
+  const findings0 = JSON.stringify({ file: "src/V.sol", line: 10, severity: "high", check: "c", description: "d" });
+  const attestDiff = "diff --git a/src/V.sol b/src/V.sol\n@@ -1 +1 @@\n+x";
+
+  it("attests BEFORE commenting and renders the footer with tx + reviewId", async () => {
+    const calls: string[] = [];
+    const bodies: string[] = [];
+    const deps: ReviewDeps = {
+      clone: async () => ({ dir: "/tmp/fake", headSha: HEAD_SHA }),
+      fetchDiff: async () => attestDiff,
+      runAnalyzer: async () => findings0,
+      triage: undefined,
+      postComment: async (_u, body) => { calls.push("comment:" + body.slice(0, 40)); bodies.push(body); },
+      dispose: async () => {},
+      attest: async (rec) => {
+        calls.push("attest:" + rec.reviewId.slice(0, 10));
+        return { txHash: "0xabc", explorerUrl: "https://explorer.example/tx/0xabc" };
+      },
+    };
+    const res = await runReview("https://github.com/o/r/pull/3", deps);
+    expect(calls[0]).toMatch(/^attest:/); // attest precedes comment
+    expect(calls[1]).toMatch(/^comment:/);
+    expect(res.attestation).toMatchObject({ txHash: "0xabc" });
+    // The footer (appended to the summary body) carries chain, reviewId and the tx link.
+    const body = bodies[0];
+    expect(body).toContain("---");
+    expect(body).toContain("attested on");
+    expect(body).toContain("[tx `0xabc…`](https://explorer.example/tx/0xabc)");
+  });
+
+  it("renders a bare tx (no link) when the attest dep returns no explorerUrl", async () => {
+    // Every SPEC-5 registry entry has explorer: null today — this is the
+    // COMMON real-world footer shape, not an edge case.
+    const bodies: string[] = [];
+    const deps: ReviewDeps = {
+      clone: async () => ({ dir: "/tmp/fake", headSha: HEAD_SHA }),
+      fetchDiff: async () => attestDiff,
+      runAnalyzer: async () => findings0,
+      postComment: async (_u, body) => { bodies.push(body); },
+      dispose: async () => {},
+      attest: async () => ({ txHash: "0xabc", explorerUrl: "" }),
+    };
+    const res = await runReview("https://github.com/o/r/pull/3", deps);
+    expect(res.attestation).toMatchObject({ txHash: "0xabc" });
+    expect(bodies[0]).toContain("attested on");
+    expect(bodies[0]).toContain("tx `0xabc`");
+    expect(bodies[0]).not.toContain("](https://");
+  });
+
+  it("attest failure or absence never blocks the comment", async () => {
+    const comments: string[] = [];
+    const base: ReviewDeps = {
+      clone: async () => ({ dir: "/tmp/fake", headSha: HEAD_SHA }),
+      fetchDiff: async () => attestDiff,
+      runAnalyzer: async () => findings0,
+      postComment: async (_u, body) => { comments.push(body); },
+      dispose: async () => {},
+    };
+    const failing = { ...base, attest: async () => null };
+    const res1 = await runReview("https://github.com/o/r/pull/3", failing);
+    expect(res1.commented).toBe(true);
+    expect(res1.attestation).toMatchObject({ skipped: expect.stringContaining("failed") });
+    const res2 = await runReview("https://github.com/o/r/pull/3", base); // no attest dep
+    expect(res2.attestation).toMatchObject({ skipped: expect.stringContaining("not configured") });
+    expect(comments[0]).toContain("attestation skipped");
+  });
+
+  it("hard-incomplete review attests status=1 with the empty-findings hash", async () => {
+    const seen: AttestRecord[] = [];
+    const deps: ReviewDeps = {
+      clone: async () => ({ dir: "/tmp/fake", headSha: HEAD_SHA }),
+      fetchDiff: async () => attestDiff,
+      runAnalyzer: async () => { throw new Error("docker daemon down"); },
+      postComment: async () => {},
+      dispose: async () => {},
+      attest: async (rec) => { seen.push(rec); return null; },
+    };
+    const res = await runReview("https://github.com/o/r/pull/3", deps);
+    expect(res.incomplete).toBe("docker daemon down");
+    expect(seen).toHaveLength(1); // exactly one attestation attempt
+    expect(seen[0]?.status).toBe(1);
+    // sha256("[]") — EXTERNAL literal shared via ./vectors (printf %s '[]' | shasum -a 256).
+    expect(seen[0]?.findingsHash).toBe("0x" + EMPTY_FINDINGS_SHA256);
+    expect(seen[0]?.findingCount).toBe(0);
   });
 });

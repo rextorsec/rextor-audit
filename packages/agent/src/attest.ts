@@ -1,0 +1,143 @@
+// SPEC-4 §3 — verdict identity + on-chain anchoring. The attestation
+// ENHANCES the review; it can never block or fail it (invariant: the comment
+// always posts — runReview wraps every failure into a "skipped" footer).
+//
+// Verdict identity (binding, shared with RextorAttestation.sol):
+//   reviewId     = keccak256("rextor/review/v1|" + owner/repo + "|" + pr + "|" + headSha)
+//   commitHash   = 20-byte git sha, right-zero-padded to bytes32
+//   findingsHash = sha256(canonicalFindingsJson(findings)) — SAME canonical
+//                  form published in the PR comment (SPEC-2 §2), so anyone can
+//                  recompute it from the comment and verify() on-chain.
+import {
+  createPublicClient,
+  createWalletClient,
+  defineChain,
+  http,
+  keccak256,
+  toHex,
+} from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { findingsHash, type Finding } from "./findings";
+import { resolveChain } from "./chains";
+import type { ReviewDeps } from "./review";
+
+// Exact T6 contract ABI (human-readable). attest + verify share the payload.
+export const REXTOR_ATTESTATION_ABI = [
+  "function attest(bytes32 reviewId, bytes32 commitHash, bytes32 findingsHash, uint16 riskScore, uint16 findingCount, uint8 status)",
+  "function verify(bytes32 reviewId, bytes32 commitHash, bytes32 findingsHash, uint16 riskScore, uint16 findingCount, uint8 status) view returns (bool)",
+] as const;
+
+export interface AttestRecord {
+  reviewId: `0x${string}`;
+  commitHash: `0x${string}`;
+  findingsHash: `0x${string}`;
+  riskScore: number;
+  findingCount: number;
+  status: 0 | 1;
+}
+
+/** SPEC-4 §1 — keccak256 over the published derivation string. */
+export function reviewIdFor(repoFullName: string, prNumber: number, headSha: string): `0x${string}` {
+  return keccak256(toHex(`rextor/review/v1|${repoFullName}|${prNumber}|${headSha}`));
+}
+
+/** 20-byte git sha right-zero-padded to a bytes32 hex string. Throws on anything else. */
+export function commitHashFor(headSha: string): `0x${string}` {
+  if (!/^[0-9a-f]{40}$/i.test(headSha)) throw new Error(`not a 40-hex git sha: ${headSha}`);
+  return ("0x" + headSha.toLowerCase()).padEnd(66, "0") as `0x${string}`;
+}
+
+export function buildAttestRecord(input: {
+  repoFullName: string;
+  prNumber: number;
+  headSha: string;
+  findings: Finding[];
+  riskScore: number;
+  incomplete: boolean;
+}): AttestRecord {
+  return {
+    reviewId: reviewIdFor(input.repoFullName, input.prNumber, input.headSha),
+    commitHash: commitHashFor(input.headSha),
+    // T1's findingsHash directly — the SAME sha256-over-canonical-form the PR
+    // comment publishes, so verify() recomputes from the comment alone.
+    findingsHash: ("0x" + findingsHash(input.findings)) as `0x${string}`,
+    riskScore: input.riskScore,
+    findingCount: input.findings.length,
+    status: input.incomplete ? 1 : 0,
+  };
+}
+
+// Attestation is a fast testnet write, not a review step: a hung RPC must
+// never delay the comment past this budget (SPEC-4 §3 "30 s abort").
+const ATTEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Default `attest` dep. Undefined unless BOTH `REXTOR_AGENT_PRIVATE_KEY` and
+ * `REXTOR_ATTEST_CONTRACT_ADDRESS` are set (checked at wiring time); chain
+ * params are re-resolved from the SPEC-5 registry at call time. EVERY failure
+ * path — unset env, unverified chain params, revert, timeout — logs and
+ * resolves null; the caller renders "attestation skipped" and posts anyway.
+ */
+export function makeAttestDep(readEnv: () => NodeJS.ProcessEnv = () => process.env): ReviewDeps["attest"] {
+  const boot = readEnv();
+  if (!boot.REXTOR_AGENT_PRIVATE_KEY || !boot.REXTOR_ATTEST_CONTRACT_ADDRESS) return undefined;
+  return (record) => {
+    // Re-read at call time (a long-lived server must not pin a rotated key).
+    const env = readEnv();
+    const pk = env.REXTOR_AGENT_PRIVATE_KEY;
+    const address = env.REXTOR_ATTEST_CONTRACT_ADDRESS as `0x${string}` | undefined;
+    if (!pk || !address) {
+      console.error("[rextor] attestation env unset at call time — skipping");
+      return Promise.resolve(null);
+    }
+    const chain = resolveChain(env);
+    const chainId = chain.attestation.chainId ?? chain.testnet.chainId;
+    if (chainId == null || !chain.testnet.rpc) {
+      console.error("[rextor] attestation chain params unverified — skipping");
+      return Promise.resolve(null);
+    }
+    const viemChain = defineChain({
+      id: chainId,
+      name: chain.name,
+      nativeCurrency: { name: "USD", symbol: "USD", decimals: 18 },
+      rpcUrls: { default: { http: [chain.testnet.rpc] } },
+    });
+    const account = privateKeyToAccount(pk as `0x${string}`);
+    const wallet = createWalletClient({ account, chain: viemChain, transport: http() });
+    const publicClient = createPublicClient({ chain: viemChain, transport: http() });
+    const attempt = (async () => {
+      const hash = await wallet.writeContract({
+        address,
+        abi: REXTOR_ATTESTATION_ABI,
+        functionName: "attest",
+        args: [
+          record.reviewId,
+          record.commitHash,
+          record.findingsHash,
+          BigInt(record.riskScore),
+          BigInt(record.findingCount),
+          BigInt(record.status),
+        ],
+        chain: viemChain,
+        account,
+      });
+      // The tx must be mined before the comment cites it: no receipt → no tx line.
+      await publicClient.waitForTransactionReceipt({ hash });
+      return { txHash: hash, explorerUrl: chain.explorer ? `${chain.explorer}/tx/${hash}` : "" };
+    })();
+    let timer: NodeJS.Timeout | undefined;
+    const guard = new Promise<null>((resolve) => {
+      timer = setTimeout(() => {
+        console.error("[rextor] attestation timed out — posting comment without tx");
+        resolve(null);
+      }, ATTEST_TIMEOUT_MS);
+    });
+    return Promise.race([attempt, guard])
+      .catch((err: unknown) => {
+        // Log the MESSAGE only — never stack traces/env that could echo secrets.
+        console.error("[rextor] attestation failed:", err instanceof Error ? err.message : err);
+        return null;
+      })
+      .finally(() => clearTimeout(timer));
+  };
+}

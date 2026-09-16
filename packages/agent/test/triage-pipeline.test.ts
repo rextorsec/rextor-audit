@@ -15,7 +15,7 @@ const scope = {
 const fakeDeps = (triage?: ReviewDeps["triage"], ndjson = JSON.stringify({ file: "src/V.sol", line: 10, severity: "high", check: "reentrancy-eth", description: "reentrant call" })) => {
   const comments: string[] = [];
   const deps: ReviewDeps = {
-    clone: async () => "/tmp/fake",
+    clone: async () => ({ dir: "/tmp/fake", headSha: "a".repeat(40) }),
     fetchDiff: async () => "diff --git a/src/V.sol b/src/V.sol\n@@ -10,1 +10,1 @@\n+x",
     runAnalyzer: async () => ndjson,
     postComment: async (_url, body) => { comments.push(body); },

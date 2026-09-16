@@ -5,6 +5,7 @@ import {
   IncompleteReportError,
   type Finding,
 } from "../src/findings";
+import { CANONICAL_FINDINGS_LITERAL, CANONICAL_FINDINGS_SHA256, EMPTY_FINDINGS_SHA256 } from "./vectors";
 
 // SPEC-1 §1 NDJSON finding shape; helper keeps fixtures terse but explicit.
 const finding = (
@@ -159,18 +160,16 @@ describe("canonicalFindingsJson + findingsHash", () => {
     expect(canonical).toContain("\\u0060");
     expect(JSON.parse(canonical)[0].description).toBe("has `ticks`");
   });
-  it("matches an externally computed sha256 vector", () => {
-    // Vector computed OUTSIDE the implementation (implementer: run
-    //   printf %s '<CANONICAL_LITERAL>' | shasum -a 256
-    // over the exact canonical literal asserted below and paste the digest here):
-    const canonical = canonicalFindingsJson(
-      withIds([{ file: "src/V.sol", line: 1, severity: "low", check: "c", description: "d" }]),
-    );
-    expect(canonical).toBe(
-      '[{"check":"c","description":"d","file":"src/V.sol","id":0,"line":1,"severity":"low"}]',
-    );
-    expect(findingsHash(
-      withIds([{ file: "src/V.sol", line: 1, severity: "low", check: "c", description: "d" }]),
-    )).toBe("e68cea4f66e1dde2b0bdba549c0d57ae7d37550a35896f946459666fd607a244");
+  it("matches an externally computed sha256 vector (shared with attest.test.ts)", () => {
+    // Vectors live in ./vectors — computed OUTSIDE the implementation:
+    //   printf %s '<CANONICAL_FINDINGS_LITERAL>' | shasum -a 256
+    // attest.test.ts (SPEC-4) pins the SAME literals for findingsHash.
+    const findings = withIds([{ file: "src/V.sol", line: 1, severity: "low", check: "c", description: "d" }]);
+    expect(canonicalFindingsJson(findings)).toBe(CANONICAL_FINDINGS_LITERAL);
+    expect(findingsHash(findings)).toBe(CANONICAL_FINDINGS_SHA256);
+  });
+  it("hashes the empty list to the shared EMPTY_FINDINGS_SHA256 vector", () => {
+    // The hard-incomplete attestation payload (SPEC-4 #12): sha256("[]").
+    expect(findingsHash([])).toBe(EMPTY_FINDINGS_SHA256);
   });
 });

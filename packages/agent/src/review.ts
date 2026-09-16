@@ -11,6 +11,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve } from "node:path";
 import { scopeDiff, type DiffScopeResult } from "./diff-scope";
+import { buildAttestRecord, type AttestRecord } from "./attest";
+import { resolveChain } from "./chains";
 import { NO_TRIAGE_MODEL, rawFindingsResult, type TriageResult } from "./triage";
 import { runSimStage, sanitizePocSource, type PocRequest, type SimOutcomeMap } from "./sim";
 import {
@@ -28,7 +30,9 @@ export type { Finding };
 export interface ReviewDeps {
   /** LLM triage (SPEC-2); absent or failing → soft-incomplete. */
   triage?: (findings: Finding[], scope: DiffScopeResult) => Promise<TriageResult>;
-  clone(prUrl: string): Promise<string>;
+  /** Clones the PR head; returns the working dir AND the head sha (SPEC-4 §3 —
+   *  the attestation record needs the commit identity, and the clone has it locally). */
+  clone(prUrl: string): Promise<{ dir: string; headSha: string }>;
   /** PR unified diff (GitHub `.diff` representation). */
   fetchDiff(prUrl: string): Promise<string>;
   /** Analyzer run over the repo → NDJSON stdout (SPEC-1 §1). */
@@ -39,8 +43,10 @@ export interface ReviewDeps {
   dispose(repoDir: string): Promise<void>;
   /** PoC generation (SPEC-3) — frontier LLM seam; absent → sim skipped. */
   generatePoc?: (reqs: PocRequest[]) => Promise<string>;
-  /** Sim harness run (SPEC-3) — container seam; absent → sim skipped. */
+  /** Fork-sim harness run (SPEC-3) — container seam; absent → sim skipped. */
   runSim?: (repoDir: string, testSource: string, forkUrl: string) => Promise<SimOutcomeMap>;
+  /** SPEC-4 on-chain attestation; absent or failing → "skipped" footer, comment still posts. */
+  attest?: (record: AttestRecord) => Promise<{ txHash: string; explorerUrl: string } | null>;
 }
 
 export interface ReviewResult {
@@ -48,7 +54,15 @@ export interface ReviewResult {
   score: number;
   /** Set iff the analyzer could not produce a complete report — the PR comment says so. */
   incomplete?: string;
+  /** SPEC-4 §3 — on-chain anchoring outcome; set on every commented path
+   *  (success shapes when attested, { skipped } when not configured or failed). */
+  attestation?:
+    | { chain: string; reviewId: string; txHash: string; explorerUrl: string }
+    | { skipped: string };
 }
+
+/** The attestation outcome shape of ReviewResult. */
+type AttestationInfo = NonNullable<ReviewResult["attestation"]>;
 
 export class AnalyzerFailedError extends Error {
   constructor(message: string) {
@@ -249,6 +263,44 @@ export function incompleteCommentBody(reason: string): string {
   ].join("\n");
 }
 
+// SPEC-4 §3 — PR identity for the reviewId derivation. Mirrors github.ts's
+// PR_URL_RE (a shared import would make review.ts ↔ github.ts a runtime cycle).
+const PR_URL_RE = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/;
+
+function prIdentity(prUrl: string): { repoFullName: string; prNumber: number } {
+  const match = prUrl.match(PR_URL_RE);
+  if (!match) throw new Error(`not a GitHub PR URL: ${prUrl}`);
+  return { repoFullName: `${match[1]}/${match[2]}`, prNumber: Number(match[3]) };
+}
+
+// Footer label only — resolveChain throws on an unknown chain key; the
+// attestation itself never depends on this name, so degrade, never throw.
+function activeChainName(): string {
+  try {
+    return resolveChain(process.env).name;
+  } catch {
+    return "tempo";
+  }
+}
+
+// The comment footer (SPEC-4 §3): chain, reviewId, tx/explorer link and the
+// findingsHash — the reproducibility recipe sitting next to the <details>
+// findings JSON it hashes. Free-text interpolations (chain name, skip reason)
+// pass through cell(); reviewId/txHash/findingsHash are agent-generated hex.
+function attestationFooter(att: AttestationInfo, findingsHash?: string): string[] {
+  if ("skipped" in att) return ["", `_attestation skipped: ${cell(att.skipped)}_`];
+  const link = att.explorerUrl
+    ? `[tx \`${att.txHash.slice(0, 10)}…\`](${att.explorerUrl})`
+    : `tx \`${att.txHash}\``;
+  const hashPart = findingsHash ? ` · findingsHash \`${findingsHash}\`` : "";
+  return ["", "---", `⚖ attested on ${cell(att.chain)} · reviewId \`${att.reviewId}\`${hashPart} · ${link}`];
+}
+
+// Append the footer to a comment body (footer's first row is a blank line).
+function withFooter(body: string, att: AttestationInfo, findingsHash?: string): string {
+  return [body, ...attestationFooter(att, findingsHash)].join("\n");
+}
+
 export async function runReview(prUrl: string, deps: ReviewDeps): Promise<ReviewResult> {
   const diff = await deps.fetchDiff(prUrl);
   const scope = scopeDiff(diff);
@@ -256,15 +308,56 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     return { commented: false, score: 0 };
   }
 
-  const repoDir = await deps.clone(prUrl);
+  const { dir: repoDir, headSha } = await deps.clone(prUrl);
+  const identity = prIdentity(prUrl);
+
+  // SPEC-4 §3 — attestation runs BEFORE the comment on EVERY verdict path and
+  // can never block or fail the review: every failure (no dep, throw, null)
+  // degrades to a "skipped" footer. Hard-incomplete reviews attest status=1
+  // with the empty findings list — an on-chain riskScore 0 can never
+  // masquerade as a clean pass.
+  const attestStage = async (
+    findings: Finding[],
+    riskScore: number,
+    incomplete: boolean,
+  ): Promise<{ att: AttestationInfo; findingsHash?: string }> => {
+    if (!deps.attest) return { att: { skipped: "attestation not configured" } };
+    try {
+      const record = buildAttestRecord({
+        repoFullName: identity.repoFullName,
+        prNumber: identity.prNumber,
+        headSha,
+        findings,
+        riskScore,
+        incomplete,
+      });
+      const res = await deps.attest(record);
+      if (!res) return { att: { skipped: "attestation attempt failed" }, findingsHash: record.findingsHash };
+      return {
+        att: {
+          chain: activeChainName(),
+          reviewId: record.reviewId,
+          txHash: res.txHash,
+          explorerUrl: res.explorerUrl,
+        },
+        findingsHash: record.findingsHash,
+      };
+    } catch (err) {
+      console.error("[rextor] attestation failed:", err instanceof Error ? err.message : err);
+      return { att: { skipped: "attestation attempt failed" } };
+    }
+  };
+
   try {
     let ndjson: string;
     try {
       ndjson = await deps.runAnalyzer(repoDir);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      await deps.postComment(prUrl, incompleteCommentBody(`analyzer failed: ${reason}`));
-      return { commented: true, score: 0, incomplete: reason };
+      const { att, findingsHash } = await attestStage([], 0, true);
+      await deps.postComment(prUrl,
+        withFooter(incompleteCommentBody(`analyzer failed: ${reason}`), att, findingsHash));
+      return { commented: true, score: 0, incomplete: reason, attestation: att };
     }
 
     let findings: Finding[];
@@ -275,8 +368,10 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
         err instanceof IncompleteReportError
           ? err.reason
           : `unparseable analyzer report: ${err instanceof Error ? err.message : String(err)}`;
-      await deps.postComment(prUrl, incompleteCommentBody(reason));
-      return { commented: true, score: 0, incomplete: reason };
+      const { att, findingsHash } = await attestStage([], 0, true);
+      await deps.postComment(prUrl,
+        withFooter(incompleteCommentBody(reason), att, findingsHash));
+      return { commented: true, score: 0, incomplete: reason, attestation: att };
     }
 
     // SPEC-2 pipeline: analyze → normalize → [triage] → [sim] → score(rubric
@@ -301,9 +396,11 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     const simmed = await runSimStage(triaged.finalFindings, repoDir,
       { generatePoc: deps.generatePoc, runSim: deps.runSim }, process.env);
     const scoreValue = scoreV1(simmed.findings);
-    await deps.postComment(prUrl,
-      summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote));
-    return { commented: true, score: scoreValue };
+    const { att, findingsHash } = await attestStage(simmed.findings, scoreValue, false);
+    await deps.postComment(prUrl, withFooter(
+      summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote),
+      att, findingsHash));
+    return { commented: true, score: scoreValue, attestation: att };
   } finally {
     // The clone dir must not outlive the review on any path (token-free but
     // still disk growth); cleanup failure never masks the review result.
