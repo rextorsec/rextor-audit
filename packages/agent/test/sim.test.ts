@@ -79,6 +79,21 @@ describe("runSimStage", () => {
     expect(out2.findings[0].poc?.status).toBe("unproven");
   });
 
+  it("generator absent but harness present → config-gap skip, never unproven", async () => {
+    // A misconfigured runner must NOT silently downgrade criticals to
+    // rubric-25 unproven: absent generator = config gap → skipped.
+    const runSim = async (): Promise<SimOutcomeMap> => ({ block: 9, results: {} });
+    const out = await runSimStage(withIds([crit(0)]), "/tmp/x", { runSim }, forkEnv);
+    expect(out.findings[0].poc?.status).toBe("skipped");
+    expect(out.simNote).toContain("not configured on this runner");
+  });
+
+  it("malformed harness result → unproven, never a throw", async () => {
+    const out = await runSimStage(withIds([crit(0)]), "/tmp/x",
+      { generatePoc: async () => "src", runSim: async () => null as unknown as SimOutcomeMap }, forkEnv);
+    expect(out.findings[0].poc?.status).toBe("unproven");
+  });
+
   it("mixed severities: only critical/high touched", async () => {
     const runSim = async (): Promise<SimOutcomeMap> => ({ block: 1, results: { testRextorPoc_0: true } });
     const out = await runSimStage(withIds([crit(0), low(1)]), "/tmp/x",
@@ -121,6 +136,19 @@ describe("generatePocFromEnv", () => {
       OPENROUTER_API_KEY: "k", REXTOR_FRONTIER_MODEL: "vendor/front",
     }), { fetchFn: badFetch });
     await expect(gen2!(reqs)).rejects.toThrow();
+  });
+
+  it("shape validation is id-exact: testRextorPoc_1 is not satisfied by _10", async () => {
+    // Substring matching would let finding #1 ride on finding #10's test fn.
+    const onlyTen = 'import "forge-std/Test.sol";\ncontract RextorPocTest { function testRextorPoc_10() public {} }';
+    const fetchFn = (async () => ({
+      ok: true, status: 200,
+      json: async () => ({ choices: [{ message: { content: "```solidity\n" + onlyTen + "\n```" } }] }),
+    })) as unknown as typeof fetch;
+    const gen = generatePocFromEnv(() => ({
+      OPENROUTER_API_KEY: "k", REXTOR_FRONTIER_MODEL: "vendor/front",
+    }), { fetchFn });
+    await expect(gen!([{ finding: crit(1), excerpt: "..." }])).rejects.toThrow();
   });
   it("unset env → undefined dep", () => {
     expect(generatePocFromEnv(() => ({}))).toBeUndefined();

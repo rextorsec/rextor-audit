@@ -68,19 +68,21 @@ export async function runSimStage(
     markAll("skipped");
     return { findings: out, simNote: "_Fork-sim skipped: no fork configured (REXTOR_FORK_RPC_URL)._" };
   }
-  if (!deps.generatePoc && !deps.runSim) {
+  // A missing seam is a RUNNER CONFIG gap, not a sim result: config gaps
+  // skip (no rubric change); only attempted-and-failed work is unproven.
+  if (!deps.generatePoc) {
     markAll("skipped");
     return { findings: out, simNote: "_Fork-sim skipped: sim not configured on this runner._" };
   }
 
   let testSource: string;
   try {
-    if (!deps.generatePoc) throw new Error("no PoC generator configured");
+    const generate = deps.generatePoc;
     const reqs = await Promise.all(eligibleIdx.map(async (i) => ({
       finding: findings[i],
       excerpt: await readExcerpt(repoDir, findings[i].file, findings[i].line),
     })));
-    testSource = await deps.generatePoc(reqs);
+    testSource = await generate(reqs);
   } catch (err) {
     console.error("[rextor] PoC generation failed:", err instanceof Error ? err.message : err);
     markAll("unproven");
@@ -99,6 +101,13 @@ export async function runSimStage(
     outcome = await deps.runSim(repoDir, testSource, forkUrl);
   } catch (err) {
     console.error("[rextor] sim harness failed:", err instanceof Error ? err.message : err);
+    markAll("unproven");
+    return { findings: out, simNote: "Fork-sim: harness failed — eligible findings unproven." };
+  }
+  // The harness dep is a seam; a malformed result (null/garbage) is a harness
+  // failure, never a crash escaping runSimStage (never-throw is total).
+  if (!outcome || typeof outcome.block !== "number" || outcome.results === null || typeof outcome.results !== "object") {
+    console.error("[rextor] sim harness returned a malformed result");
     markAll("unproven");
     return { findings: out, simNote: "Fork-sim: harness failed — eligible findings unproven." };
   }
@@ -146,8 +155,10 @@ export function generatePocFromEnv(
         { role: "user", content: user },
       ]);
       const source = raw.replace(/^```[a-z]*\n?/, "").replace(/\n?```\s*$/, "").trim();
-      const testFns = reqs.map((r) => `testRextorPoc_${r.finding.id}`);
-      const shapeOk = source.includes("contract RextorPocTest") && testFns.every((fn) => source.includes(fn));
+      // Word-boundary match: `testRextorPoc_1` must not be satisfied by
+      // `testRextorPoc_10` — a missing test fn for finding #1 must reject.
+      const testFns = reqs.map((r) => new RegExp(`\\btestRextorPoc_${r.finding.id}\\b`));
+      const shapeOk = source.includes("contract RextorPocTest") && testFns.every((fn) => fn.test(source));
       if (!shapeOk) throw new Error("generated PoC failed shape validation (contract/test names)");
       return source;
     })();
