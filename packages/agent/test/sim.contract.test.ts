@@ -270,6 +270,43 @@ describe("runSimContainer (docker-gated)", () => {
     }
   }, 300_000);
 
+  it("FFI gate refusal writes its cause to /poc/stderr.txt (stderrTail visibility)", async () => {
+    if (!(await dockerUp())) return; // graceful skip
+    const fixtureCopy = await makeFixtureCopy("rextor-sim-gate-");
+    // Inline-table profile form: valid TOML forge RESOLVES to ffi=true, but
+    // sim.sh's line-based sed rewrite cannot match it — the exact gate-1
+    // refusal path (empirically verified on the image's forge 1.8.3).
+    await writeFile(join(fixtureCopy, "foundry.toml"), "[profile]\ndefault = { ffi = true }\n", "utf8");
+    const pocDir = await mkdtemp(join(simTmpBase(), "rextor-sim-gate-poc-"));
+    try {
+      // Same hardening as runSimContainer (:ro repo, /poc overlay,
+      // FOUNDRY_FFI=false, SIGKILL budget). FORK_BLOCK=1 skips cast, so no
+      // fork is contacted before the gates — --network none suffices.
+      await chmod(pocDir, 0o777);
+      await writeFile(join(pocDir, "RextorPoc.t.sol"), FFI_PROBE_POC, "utf8");
+      await expect(execFileP("docker", [
+        "run", "--rm", "--network", "none",
+        "-v", `${resolve(fixtureCopy)}:/repo:ro`,
+        "-v", `${pocDir}:/poc`,
+        "-e", "FORK_URL=http://127.0.0.1:8545",
+        "-e", "FORK_BLOCK=1",
+        "-e", "FOUNDRY_FFI=false",
+        "--entrypoint", "/usr/local/bin/sim.sh",
+        "rextor/analyzer",
+      ], { timeout: 240_000, killSignal: "SIGKILL" })).rejects.toThrow(); // sim.sh exits 1
+      // The refusal cause must reach the artifact the runner's stderrTail()
+      // parses (readFile + trim + 400-char tail) — otherwise an adversarial
+      // refusal is indistinguishable from harness breakage in the log.
+      const stderr = await readFile(join(pocDir, "stderr.txt"), "utf8");
+      expect(stderr.trim().slice(-400)).toContain(
+        "resolved foundry config has ffi enabled — refusing to run",
+      );
+    } finally {
+      await rm(fixtureCopy, { recursive: true, force: true }).catch(() => {});
+      await rm(pocDir, { recursive: true, force: true }).catch(() => {});
+    }
+  }, 300_000);
+
   it("decoy same-name contract cannot confirm: only test/RextorPoc.t.sol runs", async () => {
     if (!(await dockerUp())) return; // graceful skip
     const fixtureCopy = await makeFixtureCopy("rextor-sim-decoy-");

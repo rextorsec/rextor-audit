@@ -67,6 +67,10 @@ echo "forge-std/=$BAKED_FORGE_STD" >> remappings.txt
 if FOUNDRY_FFI=false forge config --json 2>/dev/null \
     | grep -q '"ffi"[[:space:]]*:[[:space:]]*true'; then
   echo "resolved foundry config has ffi enabled — refusing to run" >&2
+  # The runner's stderrTail() parses /poc/stderr.txt: without this line a
+  # fail-closed refusal is indistinguishable from harness breakage in the
+  # webhook log. || true — the artifact write must never mask the refusal.
+  echo "resolved foundry config has ffi enabled — refusing to run" > /poc/stderr.txt || true
   exit 1
 fi
 
@@ -77,6 +81,8 @@ resolved_remappings="$(forge remappings 2>/dev/null || true)"
 if [ "$(printf '%s\n' "$resolved_remappings" | grep -c '^forge-std/' || true)" != "1" ] || \
    ! printf '%s\n' "$resolved_remappings" | grep -qx "forge-std/=$BAKED_FORGE_STD"; then
   echo "forge-std remapping is not pinned to the baked copy — refusing to run" >&2
+  # Same stderrTail() visibility as the FFI gate above.
+  echo "forge-std remapping is not pinned to the baked copy — refusing to run" > /poc/stderr.txt || true
   exit 1
 fi
 

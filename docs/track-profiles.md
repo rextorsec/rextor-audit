@@ -22,7 +22,7 @@ Per-entry notes from the registry:
 - **arbitrum** — Rider: config-level (Robinhood Chain is an Arbitrum Orbit chain).
 - **robinhood** — Rider: params captured at integration — never fabricated.
 
-All attestation addresses start `null` and are filled by SPEC-4 deployments (`packages/contracts` `RextorAttestation`); explorer links are `null` until verified — the report footer omits the link rather than guessing.
+All attestation addresses start `null` and are filled by SPEC-4 deployments (`contracts/attestation-evm/src/RextorAttestation.sol`); explorer links are `null` until verified — the report footer omits the link rather than guessing.
 
 ## Config resolution
 
