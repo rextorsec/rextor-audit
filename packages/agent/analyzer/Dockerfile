@@ -44,7 +44,8 @@ RUN set -ex \
 WORKDIR /repo
 USER root
 COPY run.sh /usr/local/bin/run.sh
-RUN chmod +x /usr/local/bin/run.sh
+COPY sim.sh /usr/local/bin/sim.sh
+RUN chmod +x /usr/local/bin/run.sh /usr/local/bin/sim.sh
 USER analyzer
 # Self-termination just inside the runner's 150s execFile timeout: SIGKILL on
 # the CLI would otherwise strand a hung container holding its 2g/2cpu budget.

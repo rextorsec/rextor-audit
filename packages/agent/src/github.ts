@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Octokit } from "octokit";
 import { runAnalyzerContainer, type ReviewDeps } from "./review";
+import { generatePocFromEnv, runSimContainer } from "./sim";
 import { triageFromEnv } from "./triage";
 
 const execFileP = promisify(execFile);
@@ -90,6 +91,13 @@ export function githubDeps(options: GithubDepsOptions = {}): ReviewDeps {
     // SPEC-2 default triage: env resolved per call; unset env degrades the
     // review to raw findings under the soft-incomplete banner.
     triage: triageFromEnv(),
+
+    // SPEC-3 fork-sim defaults: PoC generation via the frontier LLM when env
+    // is configured (undefined → the stage skips cleanly); the container
+    // harness is always wired — without REXTOR_FORK_RPC_URL the stage skips
+    // before any docker call is made.
+    generatePoc: generatePocFromEnv(),
+    runSim: runSimContainer,
 
     async postComment(prUrl: string, body: string): Promise<void> {
       const { owner, repo, number } = prParts(prUrl);

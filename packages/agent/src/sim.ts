@@ -1,8 +1,11 @@
 // SPEC-3 — fork-sim proof layer. Sim NEVER deletes findings: it only sets
 // `poc` fields (invariant 9). The LLM generates; deterministic TS maps results.
 // Every I/O seam (generation, harness) is injected; env is read per call.
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { promisify } from "node:util";
 import { chatCompletion } from "./openrouter";
 import { POC_V1_SYSTEM } from "./profile";
 import type { Finding } from "./findings";
@@ -163,4 +166,93 @@ export function generatePocFromEnv(
       return source;
     })();
   };
+}
+
+// ---------------------------------------------------------------------------
+// SPEC-3 §2 — the real sim harness (container seam). The sim container is the
+// ONLY network-enabled container in the system (fork RPC + possible solc
+// download for non-prewarmed pins); every other container runs --network none.
+
+const execFileP = promisify(execFile);
+const SIM_IMAGE = "rextor/analyzer";
+// Wall-clock budget; the forge run inside self-terminates at 220s (sim.sh),
+// so a hang surfaces as SIGKILL, never a stuck webhook handler.
+const SIM_TIMEOUT_MS = 240_000;
+
+/** Base dir for the PoC overlay: the docker daemon can only bind-mount paths
+ *  it shares. colima (macOS dev) shares only $HOME — a /tmp bind silently
+ *  degrades to an empty VM-local dir (empirically verified) — so darwin
+ *  defaults to the home dir; Linux keeps /tmp. REXTOR_SIM_TMP_DIR overrides
+ *  for exotic daemons. The contract tests must agree with this choice, so
+ *  it lives here and not in the test file. */
+export function simTmpBase(): string {
+  return process.env.REXTOR_SIM_TMP_DIR ?? (process.platform === "darwin" ? homedir() : tmpdir());
+}
+
+/** forge's per-test JSON, normalized to BARE test names → pass/fail. Pinned
+ *  by tests to real forge 1.5.1/1.8.3 output — NOT the shape the spec sketch
+ *  guessed: `{"path:Contract": {"test_results": {"fnName()": {"status":
+ *  "Success" | "Failure", …}}}}` (string enum; no boolean success field).
+ *  Test names carry their `path:Contract::` prefix only in other forge
+ *  generations, so normalization strips any prefix up to the last `:` and a
+ *  trailing `()` — `runSimStage` looks up bare `testRextorPoc_<id>`. Anything
+ *  unparseable throws: a harness failure, mapped by runSimStage to unproven
+ *  (never a wrong confirmation, never a pipeline crash). */
+export function parseForgeJson(raw: string): Record<string, boolean> {
+  const doc = JSON.parse(raw) as {
+    [contract: string]: { test_results?: Record<string, { status?: unknown }> | null } | null;
+  };
+  const out: Record<string, boolean> = {};
+  for (const contract of Object.values(doc ?? {})) {
+    for (const [name, result] of Object.entries(contract?.test_results ?? {})) {
+      out[name.replace(/^.*[:]/, "").replace(/\(\)$/, "")] = result?.status === "Success";
+    }
+  }
+  return out;
+}
+
+/**
+ * Real sim harness (SPEC-3 §2): writes the generated PoC into a writable
+ * overlay, runs `sim.sh` in the analyzer image against the repo (:ro), and
+ * maps forge's JSON to bare-name results. The block is resolved in-container
+ * via `cast block-number` (or the REXTOR_FORK_BLOCK pin, read per call) and
+ * ALWAYS passed as `--fork-block-number` — the run is pinned and recorded,
+ * so a confirmed PoC is reproducible by anyone (invariant 11). Failures
+ * throw — runSimStage maps every throw to unproven; sim never deletes
+ * findings (invariant 9).
+ */
+export async function runSimContainer(repoDir: string, testSource: string, forkUrl: string): Promise<SimOutcomeMap> {
+  const pocDir = await mkdtemp(join(simTmpBase(), "rextor-sim-"));
+  try {
+    // The image runs as the unprivileged analyzer user (uid 1000); mode 0777
+    // lets it write artifacts through the bind mount (colima maps host perms).
+    await chmod(pocDir, 0o777);
+    await writeFile(join(pocDir, "RextorPoc.t.sol"), testSource, "utf8");
+    await execFileP("docker", [
+      "run", "--rm",
+      "--network", "bridge", // the ONLY network-enabled container (SPEC-3 §2)
+      "-v", `${resolve(repoDir)}:/repo:ro`,
+      "-v", `${pocDir}:/poc`,
+      "-e", `FORK_URL=${forkUrl}`,
+      ...(process.env.REXTOR_FORK_BLOCK ? ["-e", `FORK_BLOCK=${process.env.REXTOR_FORK_BLOCK}`] : []),
+      "-e", "FOUNDRY_FFI=false",
+      "--entrypoint", "/usr/local/bin/sim.sh",
+      SIM_IMAGE,
+    ], { timeout: SIM_TIMEOUT_MS, killSignal: "SIGKILL" });
+    const [blockRaw, raw] = await Promise.all([
+      readFile(join(pocDir, "block.txt"), "utf8"),
+      readFile(join(pocDir, "result.json"), "utf8"),
+    ]).catch(async (err: unknown) => {
+      // No artifacts ⇒ sim.sh died before/during forge (fork unreachable,
+      // compile crash, timeout kill). Surface the container's stderr tail so
+      // the webhook log says WHY; runSimStage still maps this to unproven.
+      const stderr = await readFile(join(pocDir, "stderr.txt"), "utf8").catch(() => "");
+      const tail = stderr.trim().slice(-400);
+      throw new Error(`sim harness produced no result${tail ? ` (forge stderr: ${tail})` : ""}`, { cause: err });
+    });
+    const block = parseInt(blockRaw.trim(), 10);
+    return { block: Number.isFinite(block) ? block : 0, results: parseForgeJson(raw) };
+  } finally {
+    await rm(pocDir, { recursive: true, force: true }).catch(() => {});
+  }
 }

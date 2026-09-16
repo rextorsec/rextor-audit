@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  generatePocFromEnv, readExcerpt, runSimStage, sanitizePocSource, simEligible,
+  generatePocFromEnv, parseForgeJson, readExcerpt, runSimStage, sanitizePocSource, simEligible,
   type PocRequest, type SimOutcomeMap,
 } from "../src/sim";
 import { withIds, type Finding } from "../src/findings";
@@ -152,5 +152,40 @@ describe("generatePocFromEnv", () => {
   });
   it("unset env → undefined dep", () => {
     expect(generatePocFromEnv(() => ({}))).toBeUndefined();
+  });
+});
+
+// parseForgeJson is pinned to the REAL `forge test --json` output, captured
+// verbatim — NOT the shape the SPEC-3 sketch guessed. Empirical captures:
+// forge 1.5.1-stable (host) and forge 1.8.3 (analyzer image) emit the SAME
+// shape: a map keyed "path:Contract", whose test_results map is keyed by bare
+// fn name WITH "()" and carries a string status enum, never a boolean.
+describe("parseForgeJson", () => {
+  // forge 1.5.1-stable, `forge test --json` on fixtures/vault (Success).
+  const FORGE_SUCCESS = '{"test/Vault.t.sol:VaultTest":{"duration":"3ms 391µs 916ns","test_results":{"test_reentrancy_drains_vault()":{"status":"Success","reason":null,"counterexample":null,"logs":[],"decoded_logs":[],"kind":{"Unit":{"gas":150622}},"traces":[],"labeled_addresses":{},"duration":"961µs 125ns","breakpoints":{},"gas_snapshots":{}}},"warnings":[]}}';
+  // forge 1.5.1-stable, failing probe test in a scratch fixture copy.
+  const FORGE_FAILURE = '{"test/Vault.t.sol:FailProbe":{"duration":"2ms 819µs 958ns","test_results":{"test_fail_probe()":{"status":"Failure","reason":"deliberate","counterexample":null,"logs":[],"decoded_logs":[],"kind":{"Unit":{"gas":3723}},"traces":[],"labeled_addresses":{},"duration":"1ms 214µs 209ns","breakpoints":{},"gas_snapshots":{}}},"warnings":[]}}';
+  // forge 1.8.3 (analyzer image), adversarial ffi run: vm.ffi reverted while a
+  // control test passed — mixed statuses inside one contract, fork recorded.
+  const FORGE_FFI_DENIED = '{"test/RextorPoc.t.sol:RextorPocTest":{"duration":"4ms 292µs 698ns","test_results":{"testRextorPoc_0()":{"status":"Failure","reason":"vm.ffi: FFI is disabled; add the `--ffi` flag to allow tests to call external commands","fork_block_number":1,"counterexample":null,"logs":[],"decoded_logs":[],"kind":{"Unit":{"gas":4939}},"traces":[],"labeled_addresses":{},"duration":"159µs 715ns","breakpoints":{},"gas_snapshots":{}},"test_controlHarnessRan()":{"status":"Success","reason":null,"fork_block_number":1,"counterexample":null,"logs":[],"decoded_logs":[],"kind":{"Unit":{"gas":256}},"traces":[],"labeled_addresses":{},"duration":"209µs 610ns","breakpoints":{},"gas_snapshots":{}}},"warnings":[]}}';
+
+  it("maps a captured Success run to bare test names (parens and contract prefix stripped)", () => {
+    expect(parseForgeJson(FORGE_SUCCESS)).toEqual({ test_reentrancy_drains_vault: true });
+  });
+
+  it("maps a captured Failure run to false (the only confirmed value is true)", () => {
+    expect(parseForgeJson(FORGE_FAILURE)).toEqual({ test_fail_probe: false });
+  });
+
+  it("splits mixed statuses across tests of one contract (captured ffi-denial run)", () => {
+    expect(parseForgeJson(FORGE_FFI_DENIED)).toEqual({
+      testRextorPoc_0: false,
+      test_controlHarnessRan: true,
+    });
+  });
+
+  it("non-JSON output throws — a harness failure, mapped upstream to unproven", () => {
+    expect(() => parseForgeJson("")).toThrow();
+    expect(() => parseForgeJson("Error: Compiler run failed:\n…")).toThrow();
   });
 });
