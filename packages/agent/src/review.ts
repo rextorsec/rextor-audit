@@ -10,10 +10,13 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve } from "node:path";
-import { scopeDiff } from "./diff-scope";
+import { scopeDiff, type DiffScopeResult } from "./diff-scope";
+import { NO_TRIAGE_MODEL, rawFindingsResult, type TriageResult } from "./triage";
 import {
+  canonicalFindingsJson,
   normalizeFindings,
-  score,
+  scoreV1,
+  withIds,
   IncompleteReportError,
   type Finding,
   type Severity,
@@ -22,7 +25,8 @@ import {
 export type { Finding };
 
 export interface ReviewDeps {
-  /** Shallow-checkout of the PR head → local repo dir (mount source). */
+  /** LLM triage (SPEC-2); absent or failing → soft-incomplete. */
+  triage?: (findings: Finding[], scope: DiffScopeResult) => Promise<TriageResult>;
   clone(prUrl: string): Promise<string>;
   /** PR unified diff (GitHub `.diff` representation). */
   fetchDiff(prUrl: string): Promise<string>;
@@ -141,23 +145,72 @@ const MAX_RENDERED_FINDINGS = 50;
 // Presentation order (weight-desc); the weights themselves live in findings.ts.
 const SEVERITY_ORDER: readonly Severity[] = ["critical", "high", "medium", "low"];
 
-export function summaryCommentBody(scoreValue: number, findings: Finding[]): string {
+// The published findings JSON doubles as the attestation payload (SPEC-4):
+// it must stay under GitHub's practical comment size or the hash becomes
+// unverifiable from the comment alone.
+const MAX_FINDINGS_JSON_CHARS = 20_000;
+
+const countOps = (t: TriageResult) => ({
+  dedup: t.ops.filter((o) => o.op === "dedup").length,
+  reclassify: t.ops.filter((o) => o.op === "reclassify").length,
+  add: t.ops.filter((o) => o.op === "add").length,
+});
+
+function triageLine(t: TriageResult): string {
+  if (t.triageStatus === "complete") {
+    const c = countOps(t);
+    const rej = t.rejectedOps.length > 0 ? ` · ${t.rejectedOps.length} non-conforming op(s) rejected` : "";
+    return `Triaged by \`${cell(t.modelUsed)}\` @ temp 0 · ops: ${c.dedup} dedup · ${c.reclassify} reclassify · ${c.add} added${rej}`;
+  }
+  if (t.modelUsed !== NO_TRIAGE_MODEL) {
+    return `Triage with \`${cell(t.modelUsed)}\` did not complete — raw analyzer findings shown.`;
+  }
+  return "_LLM triage not configured (set OPENROUTER_API_KEY, REXTOR_TRIAGE_MODEL, REXTOR_FRONTIER_MODEL)._";
+}
+
+function findingRow(f: Finding): string {
+  const note = f.triageNote
+    ?? (f.mergedChecks ? `merged: ${f.mergedChecks.join(", ")}` : "");
+  return `| #${f.id ?? "—"} | ${f.severity} | ${cell(f.check)} | ${cell(f.file)}:${f.line} | ${cell(note)} |`;
+}
+
+export function summaryCommentBody(scoreValue: number, triaged: TriageResult): string {
+  const findings = triaged.finalFindings;
   const sorted = [...findings].sort(
     (a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity),
   );
   const rendered = sorted.slice(0, MAX_RENDERED_FINDINGS);
   const hidden = findings.length - rendered.length;
+  const banner =
+    triaged.triageStatus === "incomplete"
+      ? ["**LLM triage unavailable — findings below are raw analyzer output.**", ""]
+      : [];
+  // The canonical form is published VERBATIM (sha256 of this block is the
+  // on-chain findingsHash): untrusted strings stay raw but inert inside the
+  // code fence, and the hash stays recomputable by anyone.
+  const json = canonicalFindingsJson(findings);
+  const jsonBlock =
+    json.length > MAX_FINDINGS_JSON_CHARS
+      ? [`_(findings JSON omitted: ${json.length} chars exceeds the ${MAX_FINDINGS_JSON_CHARS}-char budget — the attested findingsHash covers the full canonical form)_`]
+      : ["```json", json, "```"];
   return [
-    `## rextor audit — risk score: ${scoreValue}`,
+    `## rextor audit — risk score: ${scoreValue}/100`,
     "",
+    ...banner,
     `**${findings.length} finding(s)** in changed contract code.`,
     "",
-    "| severity | check | location |",
-    "| --- | --- | --- |",
-    ...rendered.map((f) => `| ${f.severity} | ${cell(f.check)} | ${cell(f.file)}:${f.line} |`),
+    "| # | severity | check | location | note |",
+    "| --- | --- | --- | --- | --- |",
+    ...rendered.map(findingRow),
     ...(hidden > 0 ? ["", `...and ${hidden} more findings suppressed.`] : []),
     "",
-    "_Deterministic scan, riskScore v0. Findings are starting points, not verdicts._",
+    triageLine(triaged),
+    "",
+    "<details><summary>Findings JSON — sha256 of this block = on-chain findingsHash</summary>",
+    "",
+    ...jsonBlock,
+    "",
+    "</details>",
   ].join("\n");
 }
 
@@ -204,8 +257,23 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
       return { commented: true, score: 0, incomplete: reason };
     }
 
-    const scoreValue = score(findings);
-    await deps.postComment(prUrl, summaryCommentBody(scoreValue, findings));
+    // SPEC-2 pipeline: analyze → normalize → [triage] → score(rubric v1) →
+    // ONE PR comment. Triage is soft: a missing or throwing dep degrades to
+    // raw findings under the banner, never skips the comment.
+    let triaged: TriageResult;
+    if (deps.triage) {
+      try {
+        triaged = await deps.triage(withIds(findings), scope);
+      } catch (err) {
+        console.error("[rextor] triage dep threw:", err instanceof Error ? err.message : err);
+        triaged = rawFindingsResult(withIds(findings));
+      }
+    } else {
+      triaged = rawFindingsResult(withIds(findings));
+    }
+
+    const scoreValue = scoreV1(triaged.finalFindings);
+    await deps.postComment(prUrl, summaryCommentBody(scoreValue, triaged));
     return { commented: true, score: scoreValue };
   } finally {
     // The clone dir must not outlive the review on any path (token-free but

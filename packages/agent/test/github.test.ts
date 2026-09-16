@@ -45,3 +45,10 @@ describe("github adapter clone hygiene", () => {
     expect(gitCalls).toHaveLength(2);
   });
 });
+
+describe("github adapter default deps", () => {
+  it("constructs with the SPEC-2 triage dep wired (env-driven, per-call)", () => {
+    const deps = githubDeps({ token: () => "t" });
+    expect(typeof deps.triage).toBe("function");
+  });
+});

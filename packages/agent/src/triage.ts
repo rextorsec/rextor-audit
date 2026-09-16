@@ -1,5 +1,7 @@
 // SPEC-2 §1 — triage ops: the LLM proposes, deterministic TS validates + applies.
-import { SEVERITIES, type Finding, type Severity } from "./findings";
+import { SEVERITIES, withIds, type Finding, type Severity } from "./findings";
+import { chatCompletion, extractJsonArray, triageModelFor, TriageUnavailableError, type ChatMessage } from "./openrouter";
+import { PROFILE_V1_SYSTEM, buildTriageUserMessage } from "./profile";
 import type { DiffScopeResult } from "./diff-scope";
 
 export type TriageOp =
@@ -117,4 +119,78 @@ export function applyTriage(findings: Finding[], ops: TriageOp[]): Finding[] {
     order.push(added.id!);
   }
   return order.map((id) => byId.get(id)!);
+}
+
+/** Outcome of the triage stage: what SPEC-2 §4 renders and scores. */
+export interface TriageResult {
+  finalFindings: Finding[];
+  ops: TriageOp[];
+  rejectedOps: Array<{ op: unknown; reason: string }>;
+  modelUsed: string;
+  triageStatus: "complete" | "incomplete";
+}
+
+export const NO_TRIAGE_MODEL = "none (unconfigured)";
+
+/** Soft-incomplete passthrough: raw findings, no ops, no model. */
+export function rawFindingsResult(findings: Finding[]): TriageResult {
+  return { finalFindings: findings, ops: [], rejectedOps: [], modelUsed: NO_TRIAGE_MODEL, triageStatus: "incomplete" };
+}
+
+/**
+ * Default triage dep: env resolved per call (SPEC-1 env-at-call-time pattern).
+ * `opts.fetchFn` is the transport seam — tests inject it, production leaves it
+ * unset for the platform fetch. Unset env → soft-incomplete, never a crash.
+ */
+export function triageFromEnv(
+  readEnv: () => NodeJS.ProcessEnv = () => process.env,
+  opts: { fetchFn?: typeof fetch } = {},
+): (findings: Finding[], scope: DiffScopeResult) => Promise<TriageResult> {
+  return async (findingsIn, scope) => {
+    const env = readEnv();
+    const model = triageModelFor(findingsIn, env);
+    const apiKey = env.OPENROUTER_API_KEY;
+    if (!model || !apiKey) {
+      // Partial config (a key or a model set, but not both) is a misconfiguration
+      // worth surfacing; a fully unconfigured env is the normal skipped path.
+      if (model === null && (env.REXTOR_TRIAGE_MODEL || env.REXTOR_FRONTIER_MODEL || apiKey)) {
+        console.warn("[rextor] triage env incomplete — need OPENROUTER_API_KEY, REXTOR_TRIAGE_MODEL, REXTOR_FRONTIER_MODEL; running untriaged");
+      }
+      return rawFindingsResult(findingsIn);
+    }
+    const findings = withIds(findingsIn);
+    const universe = buildCitationUniverse(findings, scope);
+    const messages: ChatMessage[] = [
+      { role: "system", content: PROFILE_V1_SYSTEM },
+      { role: "user", content: buildTriageUserMessage(findings, universe) },
+    ];
+    try {
+      let raw = await chatCompletion({ apiKey, model, fetchFn: opts.fetchFn }, messages);
+      let parsed = extractJsonArray(raw);
+      if (parsed === null) {
+        // SPEC-2 §3: retry ONCE with a corrective note.
+        raw = await chatCompletion({ apiKey, model, fetchFn: opts.fetchFn }, [
+          ...messages,
+          { role: "assistant", content: raw.slice(0, 500) },
+          { role: "user", content: "Your previous output was not valid JSON. Return ONLY the JSON array." },
+        ]);
+        parsed = extractJsonArray(raw);
+      }
+      if (parsed === null) throw new TriageUnavailableError("no JSON array in response after retry");
+      const { valid, rejected } = validateOps(parsed, findings, universe);
+      return {
+        finalFindings: applyTriage(findings, valid),
+        ops: valid,
+        rejectedOps: rejected,
+        modelUsed: model,
+        triageStatus: "complete",
+      };
+    } catch (err) {
+      console.error("[rextor] triage failed:", err instanceof Error ? err.message : err);
+      return {
+        ...rawFindingsResult(findings),
+        modelUsed: model,
+      };
+    }
+  };
 }

@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Octokit } from "octokit";
 import { runAnalyzerContainer, type ReviewDeps } from "./review";
+import { triageFromEnv } from "./triage";
 
 const execFileP = promisify(execFile);
 
@@ -85,6 +86,10 @@ export function githubDeps(options: GithubDepsOptions = {}): ReviewDeps {
     },
 
     runAnalyzer: runAnalyzerContainer,
+
+    // SPEC-2 default triage: env resolved per call; unset env degrades the
+    // review to raw findings under the soft-incomplete banner.
+    triage: triageFromEnv(),
 
     async postComment(prUrl: string, body: string): Promise<void> {
       const { owner, repo, number } = prParts(prUrl);

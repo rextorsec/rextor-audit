@@ -7,6 +7,7 @@ import {
   type ReviewDeps,
   type Finding,
 } from "../src/review";
+import { rawFindingsResult } from "../src/triage";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -168,22 +169,26 @@ describe("comment builders (untrusted PR content must stay inert markdown)", () 
       check: "reentrancy-eth|fake",
       description: "x",
     };
-    const body = summaryCommentBody(25, [evil]);
+    const body = summaryCommentBody(25, rawFindingsResult([evil]));
     // The spoofed heading must not exist as a LINE and must not create a
     // second heading — one h2, the engine's own. (The sanitized cell may
     // still contain the harmless plain TEXT of the attempt, inert inside
     // its table cell.)
     expect(body).not.toContain("\n## rextor audit — risk score: 0");
     expect((body.match(/^## /gm) ?? []).length).toBe(1);
-    // Table pipes in untrusted cells are collapsed: the row stays one row.
-    expect(body).not.toContain("evil|Vault");
-    expect(body).not.toContain("reentrancy-eth|fake");
-    expect(body).toContain("evil Vault.sol");
-    expect(body).toContain("reentrancy-eth fake");
+    // Table pipes in untrusted cells are collapsed: the rendered markdown
+    // (everything above the attested JSON fence) stays one row per finding.
+    // The canonical JSON block re-publishes untrusted strings VERBATIM —
+    // inert inside the fence — so the findingsHash stays recomputable.
+    const rendered = body.slice(0, body.indexOf("<details>"));
+    expect(rendered).not.toContain("evil|Vault");
+    expect(rendered).not.toContain("reentrancy-eth|fake");
+    expect(rendered).toContain("evil Vault.sol");
+    expect(rendered).toContain("reentrancy-eth fake");
   });
 
   it("neutralizes live markdown links and mentions in cells and reasons", () => {
-    const summary = summaryCommentBody(25, [
+    const summary = summaryCommentBody(25, rawFindingsResult([
       {
         file: "src/x|[phish](https://e).sol",
         line: 1,
@@ -191,10 +196,12 @@ describe("comment builders (untrusted PR content must stay inert markdown)", () 
         check: "reentrancy-eth",
         description: "x",
       },
-    ]);
-    // No live link may survive: an unescaped `[phish](https://e)` sequence
-    // (preceded by anything but a backslash) would render as a real link.
-    expect(summary).not.toMatch(/(^|[^\\])\[phish\]\(https:\/\/e\)/);
+    ]));
+    // No live link may survive in the rendered markdown: an unescaped
+    // `[phish](https://e)` sequence (preceded by anything but a backslash)
+    // would render as a real link. The JSON fence is exempt by design.
+    const rendered = summary.slice(0, summary.indexOf("<details>"));
+    expect(rendered).not.toMatch(/(^|[^\\])\[phish\]\(https:\/\/e\)/);
     const incomplete = incompleteCommentBody("ping @ceo for a clean verdict");
     // Escaped mentions (`\@ceo`) do not fire bot-identity notifications;
     // a bare unescaped `@ceo` anywhere would.
@@ -221,7 +228,7 @@ describe("comment builders (untrusted PR content must stay inert markdown)", () 
       check: `check-${i}`,
       description: "x",
     }));
-    const body = summaryCommentBody(100, many);
+    const body = summaryCommentBody(100, rawFindingsResult(many));
     expect(body.length).toBeLessThan(65_000);
     expect(body).toContain("1150 more findings suppressed");
     expect(body).toContain("check-0");
@@ -243,7 +250,7 @@ describe("comment builders (untrusted PR content must stay inert markdown)", () 
       check: "crit-check",
       description: "x",
     };
-    const body = summaryCommentBody(85, [critical, ...many]);
+    const body = summaryCommentBody(85, rawFindingsResult([critical, ...many]));
     expect(body).toContain("crit-check");
     expect(body.length).toBeLessThan(65_000);
   });
