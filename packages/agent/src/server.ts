@@ -1,13 +1,19 @@
 // SPEC-1 §4 — webhook endpoint (node:http, no framework). Raw body is
 // accumulated BEFORE signature verification: the HMAC is computed over the
-// exact request bytes, so JSON.parse must never happen first. Env vars are
-// read at call time. Events other than pull_request.opened/synchronize are
-// ignored with 200 and no work.
+// exact request bytes, so JSON.parse must never happen first. The buffer is
+// capped at MAX_BODY_BYTES — an unbounded pre-signature buffer is a
+// memory-DoS vector, so an oversized body answers 413 before any signature
+// work. Env vars are read at call time. Events other than
+// pull_request.opened/synchronize are ignored with 200 and no work.
+// Actionable deliveries are enqueued on a per-server ReviewQueue (delivery-id
+// dedup) and acknowledged 200 BEFORE the review completes — GitHub redelivers
+// when no response arrives within ~10s.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { runReview, type ReviewDeps, type ReviewResult } from "./review";
+import { runReview, type ReviewDeps } from "./review";
 import { githubDeps } from "./github";
+import { MAX_BODY_BYTES, ReviewQueue } from "./queue";
 
 export function verifySignature(rawBody: string, sig: string, secret: string): boolean {
   if (!sig.startsWith("sha256=")) return false;
@@ -24,10 +30,17 @@ export interface ReviewServerOptions {
   secret?: string;
 }
 
-export function createReviewServer(options: ReviewServerOptions = {}): Server {
+/** HTTP server exposing the review queue drain as a test/ops affordance. */
+export interface ReviewServer extends Server {
+  /** Resolves when the server's review queue has no queued or in-flight work. */
+  idle(): Promise<void>;
+}
+
+export function createReviewServer(options: ReviewServerOptions = {}): ReviewServer {
   const deps = options.deps ?? githubDeps();
-  return createServer((req, res) => {
-    void handleWebhook(req, res, options.secret, deps).catch((err) => {
+  const queue = new ReviewQueue();
+  const server = createServer((req, res) => {
+    void handleWebhook(req, res, options.secret, deps, queue).catch((err) => {
       console.error("[rextor] webhook handler crashed:", err);
       if (!res.headersSent) {
         res.statusCode = 500;
@@ -36,7 +49,9 @@ export function createReviewServer(options: ReviewServerOptions = {}): Server {
         res.end();
       }
     });
-  });
+  }) as ReviewServer;
+  server.idle = () => queue.idle();
+  return server;
 }
 
 async function handleWebhook(
@@ -44,9 +59,29 @@ async function handleWebhook(
   res: ServerResponse,
   secretOpt: string | undefined,
   deps: ReviewDeps,
+  queue: ReviewQueue,
 ): Promise<void> {
+  // Cap the pre-signature buffer: stop accumulating the moment the ceiling is
+  // crossed and answer 413 — signature work (and any review) never sees it.
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let total = 0;
+  let oversized = false;
+  for await (const chunk of req) {
+    const buf = chunk as Buffer;
+    total += buf.length;
+    if (total > MAX_BODY_BYTES) {
+      oversized = true;
+      break;
+    }
+    chunks.push(buf);
+  }
+  if (oversized) {
+    res.writeHead(413, { "content-type": "application/json" });
+    // Destroy only after the response is flushed so the client sees the 413
+    // instead of a connection reset.
+    res.end(JSON.stringify({ error: "payload too large" }), () => req.destroy());
+    return;
+  }
   const rawBody = Buffer.concat(chunks).toString("utf8");
 
   const secret = secretOpt ?? process.env.GITHUB_APP_SECRET;
@@ -93,8 +128,14 @@ async function handleWebhook(
     return;
   }
 
-  const result: ReviewResult = await runReview(prUrl as string, deps);
-  json(res, result);
+  // Hardening: acknowledge BEFORE the review runs. The queue dedups by
+  // delivery id (GitHub redelivers after ~10s of silence) and contains
+  // worker errors, so the enqueue promise is intentionally not awaited.
+  const deliveryId = header(req, "x-github-delivery") ?? randomUUID();
+  void queue.enqueue(deliveryId, async () => {
+    await runReview(prUrl as string, deps);
+  });
+  json(res, { queued: true });
 }
 
 function header(req: IncomingMessage, name: string): string | undefined {

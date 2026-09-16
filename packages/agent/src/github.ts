@@ -18,6 +18,11 @@ const execFileP = promisify(execFile);
 // A hung git transport must not block the sync webhook handler forever.
 const GIT_OPTS = { timeout: 120_000, killSignal: "SIGKILL" as const };
 
+// Week-2 hardening: reviews now run on a background queue, so a hung GitHub
+// API call would pin a queue slot forever. Constant of the real adapter —
+// the DI seams stay untouched.
+const OCTOKIT_TIMEOUT_MS = 15_000;
+
 export interface GithubDepsOptions {
   /** Git runner seam (test injection); default: real `git` with a 120s timeout.
    *  Returns raw stdout (the clone trims it for rev-parse). */
@@ -82,7 +87,7 @@ export function githubDeps(options: GithubDepsOptions = {}): ReviewDeps {
 
     async fetchDiff(prUrl: string): Promise<string> {
       const { owner, repo, number } = prParts(prUrl);
-      const octokit = new Octokit({ auth: token() });
+      const octokit = new Octokit({ auth: token(), request: { timeout: OCTOKIT_TIMEOUT_MS } });
       const res = await octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
         owner,
         repo,
@@ -111,7 +116,7 @@ export function githubDeps(options: GithubDepsOptions = {}): ReviewDeps {
 
     async postComment(prUrl: string, body: string): Promise<void> {
       const { owner, repo, number } = prParts(prUrl);
-      const octokit = new Octokit({ auth: token() });
+      const octokit = new Octokit({ auth: token(), request: { timeout: OCTOKIT_TIMEOUT_MS } });
       await octokit.rest.issues.createComment({ owner, repo, issue_number: number, body });
     },
 
