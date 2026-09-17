@@ -6,7 +6,7 @@
 
 | Track | Key | Name | Chain ID | Fork RPC (testnet) | Analyzers | Fork-sim | Attestation | Deployment doc |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Flagship | `tempo` | Tempo testnet | 42431 | `https://rpc.moderato.tempo.xyz` | Slither + Aderyn | yes | pending — deploy #1 | `docs/deployments/tempo.md` (pending) |
+| Flagship | `tempo` | Tempo testnet | 42431 | `https://rpc.moderato.tempo.xyz` | Slither + Aderyn | yes | deployed — `0x5137…d31f` (deploy #1) | [`docs/deployments/tempo.md`](deployments/tempo.md) |
 | Primary | `hyperliquid` | HyperEVM testnet | 998 | `https://rpc.hyperliquid-testnet.xyz` | Slither + Aderyn | yes | pending — deploy #2 | `docs/deployments/hyperliquid.md` (pending) |
 | Rider | `ethereum` | Ethereum | 1 | — | deterministic pass | no (config-level) | once deployed (config-level) | pending |
 | Rider | `base` | Base | 8453 | — | deterministic pass | no (config-level) | once deployed (config-level) | pending |
@@ -15,14 +15,14 @@
 
 Per-entry notes from the registry:
 
-- **tempo** — Flagship track: full loop — Slither+Aderyn, fork-sim, attestation deploy #1.
+- **tempo** — Flagship track: full loop — Slither+Aderyn, fork-sim; attestation deployed 2026-09-17 (`0x5137…d31f`, agent registered + active).
 - **hyperliquid** — Primary track: same loop, attestation deploy #2.
 - **ethereum** — Rider: deterministic pass; attestation once deployed (config-level).
 - **base** — Rider: config-level.
 - **arbitrum** — Rider: config-level (Robinhood Chain is an Arbitrum Orbit chain).
 - **robinhood** — Rider: params captured at integration — never fabricated.
 
-All attestation addresses start `null` and are filled by SPEC-4 deployments (`contracts/attestation-evm/src/RextorAttestation.sol`); explorer links are `null` until verified — the report footer omits the link rather than guessing.
+Undeployed attestation slots stay `null` and are filled by SPEC-4 deployment commits (tempo filled 2026-09-17 — see [`docs/deployments/tempo.md`](deployments/tempo.md)); explorer links are `null` until verified — the report footer omits the link rather than guessing.
 
 ## Config resolution
 

@@ -10,10 +10,16 @@ describe("CHAIN_REGISTRY", () => {
     expect(CHAIN_REGISTRY.arbitrum.testnet.chainId).toBe(42161);
     expect(CHAIN_REGISTRY.robinhood.testnet.chainId).toBeNull(); // never fabricated (SPEC-5 #16)
   });
-  it("every entry has non-empty notes; attestation addresses start null", () => {
+  it("every entry has non-empty notes; tempo attestation filled by deploy #1, others null", () => {
+    // SPEC-4 §2: slots start null and are filled by recorded deployments —
+    // docs/deployments/tempo.md is the anchor for this literal.
+    expect(CHAIN_REGISTRY.tempo.attestation).toEqual({
+      address: "0x513707577e4d8925295072df7944b0659228d31f",
+      chainId: 42431,
+    });
     for (const key of Object.keys(CHAIN_REGISTRY) as ChainKey[]) {
       expect(CHAIN_REGISTRY[key].notes.length).toBeGreaterThan(0);
-      expect(CHAIN_REGISTRY[key].attestation.address).toBeNull();
+      if (key !== "tempo") expect(CHAIN_REGISTRY[key].attestation.address).toBeNull();
     }
   });
   it("registry and entries are deeply frozen — spread can't share mutable state", () => {
