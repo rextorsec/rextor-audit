@@ -2,8 +2,9 @@
 // the attestation dep factory. Hash vectors are EXTERNALLY computed literals
 // shared with findings.test.ts via ./vectors — never recomputed in-suite.
 import { describe, expect, it } from "vitest";
-import { keccak256 } from "viem";
-import { buildAttestRecord, commitHashFor, makeAttestDep, reviewIdFor } from "../src/attest";
+import { getAbiItem, keccak256 } from "viem";
+
+import { buildAttestRecord, commitHashFor, makeAttestDep, reviewIdFor, REXTOR_ATTESTATION_ABI } from "../src/attest";
 import { CANONICAL_FINDINGS_LITERAL, CANONICAL_FINDINGS_SHA256, VECTOR_FINDINGS } from "./vectors";
 
 const sha40 = "971a6ca000000000000000000000000000000000"; // 40 hex chars
@@ -46,6 +47,18 @@ describe("verdict identity (SPEC-4 §1 vectors)", () => {
     });
     expect(hard.status).toBe(1);
     expect(hard.findingCount).toBe(0);
+  });
+});
+describe("REXTOR_ATTESTATION_ABI (viem-ready)", () => {
+  // Regression (T10 Phase C live run): the ABI shipped as human-readable
+  // strings, and writeContract threw `Cannot use 'in' operator to search for
+  // 'name' in function attest(…)` — every attestation degraded to "skipped".
+  it("resolves attest/verify via viem getAbiItem — parsed items, not HRABI strings", () => {
+    const attest = getAbiItem({ abi: REXTOR_ATTESTATION_ABI, name: "attest" });
+    expect(attest.type).toBe("function");
+    expect(attest.inputs).toHaveLength(6);
+    const verify = getAbiItem({ abi: REXTOR_ATTESTATION_ABI, name: "verify" });
+    expect(verify.outputs).toHaveLength(1);
   });
 });
 
