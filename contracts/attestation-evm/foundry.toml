@@ -3,3 +3,10 @@ src = "src"
 out = "out"
 libs = ["lib"]
 solc_version = "0.8.24"
+
+# SPEC-4 §2 — deployment target #1 (Tempo testnet / Moderato, flagship track).
+# No native gas token: fees for plain EVM txs to non-TIP-20 contracts are paid
+# in pathUSD held by the broadcaster (faucet: tempo_fundAddress RPC).
+[profile.tempo]
+eth_rpc_url = "https://rpc.moderato.tempo.xyz"
+chain_id = 42431
