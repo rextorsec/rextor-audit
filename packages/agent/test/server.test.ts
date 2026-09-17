@@ -4,8 +4,10 @@ import type { AddressInfo } from "node:net";
 import {
   createReviewServer,
   verifySignature,
+  type ReviewServer,
   type ReviewServerOptions,
 } from "../src/server";
+import { MAX_BODY_BYTES } from "../src/queue";
 import type { ReviewDeps } from "../src/review";
 
 // Fixed HMAC-SHA256 vector (SPEC-1 §4) — body + secret signed with
@@ -34,6 +36,9 @@ describe("verifySignature", () => {
   });
 });
 
+const FAKE_DIFF =
+  "diff --git a/src/Vault.sol b/src/Vault.sol\n--- a/src/Vault.sol\n+++ b/src/Vault.sol\n@@ -1,1 +1,2 @@\n pragma solidity ^0.8.24;\n+contract Vault {}";
+
 // Fully-faked deps — the server tests pin routing/auth, not the analyzer.
 const makeFakeDeps = () => {
   const comments: string[] = [];
@@ -41,10 +46,9 @@ const makeFakeDeps = () => {
   const deps: ReviewDeps = {
     clone: async (prUrl) => {
       cloned.push(prUrl);
-      return "/tmp/fake-repo";
+      return { dir: "/tmp/fake-repo", headSha: "a".repeat(40) };
     },
-    fetchDiff: async () =>
-      "diff --git a/src/Vault.sol b/src/Vault.sol\n--- a/src/Vault.sol\n+++ b/src/Vault.sol\n@@ -1,1 +1,2 @@\n pragma solidity ^0.8.24;\n+contract Vault {}",
+    fetchDiff: async () => FAKE_DIFF,
     runAnalyzer: async () =>
       '{"file":"src/Vault.sol","line":18,"severity":"high","check":"reentrancy-eth","description":"extcall before state zeroing"}',
     postComment: async (_prUrl, body) => {
@@ -70,14 +74,14 @@ const signed = (rawBody: string, secret: string): Record<string, string> => ({
 
 async function withServer<T>(
   opts: ReviewServerOptions,
-  fn: (port: number) => Promise<T>,
+  fn: (port: number, server: ReviewServer) => Promise<T>,
 ): Promise<T> {
   const server = createReviewServer(opts);
   const port = await new Promise<number>((resolvePort) => {
     server.listen(0, "127.0.0.1", () => resolvePort((server.address() as AddressInfo).port));
   });
   try {
-    return await fn(port);
+    return await fn(port, server);
   } finally {
     server.closeAllConnections();
     await new Promise<void>((closeDone) => server.close(() => closeDone()));
@@ -85,12 +89,13 @@ async function withServer<T>(
 }
 
 describe("webhook endpoint", () => {
-  it("accepts a signed pull_request.opened and runs exactly one review + comment", async () => {
+  it("accepts a signed pull_request.opened, queues it, and runs exactly one review + comment", async () => {
     const { deps, comments, cloned } = makeFakeDeps();
-    await withServer({ deps, secret: SECRET }, async (port) => {
+    await withServer({ deps, secret: SECRET }, async (port, server) => {
       const res = await post(port, BODY, signed(BODY, SECRET));
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ commented: true, score: 25 });
+      expect(await res.json()).toEqual({ queued: true });
+      await server.idle(); // drain the async review before asserting effects
     });
     expect(comments).toHaveLength(1);
     expect(cloned).toEqual(["https://github.com/rextor/demo/pull/42"]);
@@ -98,11 +103,12 @@ describe("webhook endpoint", () => {
 
   it("accepts pull_request.synchronize", async () => {
     const { deps, comments } = makeFakeDeps();
-    await withServer({ deps, secret: SECRET }, async (port) => {
+    await withServer({ deps, secret: SECRET }, async (port, server) => {
       const body = BODY.replace('"opened"', '"synchronize"');
       const res = await post(port, body, signed(body, SECRET));
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ commented: true, score: 25 });
+      expect(await res.json()).toEqual({ queued: true });
+      await server.idle(); // drain the async review before asserting effects
     });
     expect(comments).toHaveLength(1);
   });
@@ -192,5 +198,70 @@ describe("webhook endpoint", () => {
       expect(await res.json()).toEqual({ ignored: true });
     });
     expect(comments).toEqual([]);
+  });
+});
+
+describe("hardening", () => {
+  it("413s a body larger than 1 MiB before any signature work", async () => {
+    const { deps, comments, cloned } = makeFakeDeps();
+    await withServer({ deps, secret: SECRET }, async (port) => {
+      // Garbage signature: any signature work would answer 401, so a 413
+      // proves the cap rejected the payload before verification ran.
+      const big = "x".repeat(MAX_BODY_BYTES + 1);
+      const res = await post(port, big, {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": "sha256=deadbeef",
+      });
+      expect(res.status).toBe(413);
+      expect(await res.json()).toEqual({ error: "payload too large" });
+    });
+    expect(comments).toEqual([]);
+    expect(cloned).toEqual([]);
+  });
+
+  it("accepts a body exactly at the 1 MiB cap (cap boundary proceeds to signature+parse)", async () => {
+    const { deps, comments } = makeFakeDeps();
+    await withServer({ deps, secret: SECRET }, async (port) => {
+      const big = "x".repeat(MAX_BODY_BYTES); // validly signed, not valid JSON
+      const res = await post(port, big, signed(big, SECRET));
+      // 400 (malformed JSON) — past the cap AND past the signature check.
+      expect(res.status).toBe(400);
+    });
+    expect(comments).toEqual([]);
+  });
+
+  it("duplicate X-GitHub-Delivery triggers exactly one review", async () => {
+    const { deps, comments, cloned } = makeFakeDeps();
+    await withServer({ deps, secret: SECRET }, async (port, server) => {
+      const headers = { ...signed(BODY, SECRET), "x-github-delivery": "delivery-42" };
+      const [r1, r2] = await Promise.all([post(port, BODY, headers), post(port, BODY, headers)]);
+      expect(r1.status).toBe(200);
+      expect(r2.status).toBe(200);
+      await server.idle();
+    });
+    expect(cloned).toEqual(["https://github.com/rextor/demo/pull/42"]);
+    expect(comments).toHaveLength(1);
+  });
+
+  it("responds 200 before the review completes (queued, async)", async () => {
+    const { deps, comments } = makeFakeDeps();
+    let releaseDiff!: () => void;
+    const diffGate = new Promise<void>((resolve) => {
+      releaseDiff = resolve;
+    });
+    deps.fetchDiff = async () => {
+      await diffGate; // park the review's very first step
+      return FAKE_DIFF;
+    };
+    await withServer({ deps, secret: SECRET }, async (port, server) => {
+      const res = await post(port, BODY, signed(BODY, SECRET));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ queued: true });
+      expect(comments).toEqual([]); // review still parked — response already out
+      releaseDiff();
+      await server.idle();
+    });
+    expect(comments).toHaveLength(1);
   });
 });

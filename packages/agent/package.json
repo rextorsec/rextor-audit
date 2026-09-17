@@ -10,7 +10,8 @@
     "dev": "tsx --env-file-if-exists=../../.env src/server.ts"
   },
   "dependencies": {
-    "octokit": "^5.0.5"
+    "octokit": "^5.0.5",
+    "viem": "^2.56.5"
   },
   "devDependencies": {
     "@types/node": "^26.5.1",

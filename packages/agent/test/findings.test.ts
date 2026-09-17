@@ -5,6 +5,7 @@ import {
   IncompleteReportError,
   type Finding,
 } from "../src/findings";
+import { CANONICAL_FINDINGS_LITERAL, CANONICAL_FINDINGS_SHA256, EMPTY_FINDINGS_SHA256 } from "./vectors";
 
 // SPEC-1 §1 NDJSON finding shape; helper keeps fixtures terse but explicit.
 const finding = (
@@ -120,5 +121,55 @@ describe("score", () => {
 
   it("scores no findings as 0", () => {
     expect(score([])).toBe(0);
+  });
+});
+
+import {
+  canonicalFindingsJson, findingsHash, scoreV1, withIds,
+  type PocInfo, type Severity,
+} from "../src/findings";
+
+describe("scoreV1 (rubric v1 — SPEC-2 §2)", () => {
+  const finding = (severity: Severity, poc?: PocInfo["status"]): Finding => ({
+    file: "a.sol", line: 1, severity, check: "c", description: "d",
+    ...(poc ? { poc: { status: poc } } : {}),
+  });
+  it.each([
+    [[finding("critical")], 60],
+    [[finding("critical", "confirmed")], 60],
+    [[finding("critical", "skipped")], 60],
+    [[finding("critical", "unproven")], 25],
+    [[finding("high")], 25],
+    [[finding("medium"), finding("low")], 13],
+    [[finding("critical"), finding("critical"), finding("high")], 100], // 145 capped
+  ])("scoreV1(%j) === %i", (findings, expected) => {
+    expect(scoreV1(findings)).toBe(expected);
+  });
+});
+
+describe("canonicalFindingsJson + findingsHash", () => {
+  it("is key-order independent and backtick-free", () => {
+    const a = withIds([{ file: "a.sol", line: 1, severity: "low", check: "c", description: "d" }]);
+    const b = [{ description: "d", check: "c", line: 1, severity: "low", file: "a.sol", id: 0 }];
+    expect(canonicalFindingsJson(a)).toBe(canonicalFindingsJson(b as Finding[]));
+    expect(canonicalFindingsJson(a)).not.toContain("`");
+  });
+  it("escapes backticks as \\u0060 but parses back identically", () => {
+    const fs = withIds([{ file: "a.sol", line: 1, severity: "low", check: "c", description: "has `ticks`" }]);
+    const canonical = canonicalFindingsJson(fs);
+    expect(canonical).toContain("\\u0060");
+    expect(JSON.parse(canonical)[0].description).toBe("has `ticks`");
+  });
+  it("matches an externally computed sha256 vector (shared with attest.test.ts)", () => {
+    // Vectors live in ./vectors — computed OUTSIDE the implementation:
+    //   printf %s '<CANONICAL_FINDINGS_LITERAL>' | shasum -a 256
+    // attest.test.ts (SPEC-4) pins the SAME literals for findingsHash.
+    const findings = withIds([{ file: "src/V.sol", line: 1, severity: "low", check: "c", description: "d" }]);
+    expect(canonicalFindingsJson(findings)).toBe(CANONICAL_FINDINGS_LITERAL);
+    expect(findingsHash(findings)).toBe(CANONICAL_FINDINGS_SHA256);
+  });
+  it("hashes the empty list to the shared EMPTY_FINDINGS_SHA256 vector", () => {
+    // The hard-incomplete attestation payload (SPEC-4 #12): sha256("[]").
+    expect(findingsHash([])).toBe(EMPTY_FINDINGS_SHA256);
   });
 });

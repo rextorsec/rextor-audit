@@ -10,10 +10,16 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve } from "node:path";
-import { scopeDiff } from "./diff-scope";
+import { scopeDiff, type DiffScopeResult } from "./diff-scope";
+import { buildAttestRecord, type AttestRecord } from "./attest";
+import { resolveChain } from "./chains";
+import { NO_TRIAGE_MODEL, rawFindingsResult, type TriageResult } from "./triage";
+import { runSimStage, sanitizePocSource, type PocRequest, type SimOutcomeMap } from "./sim";
 import {
+  canonicalFindingsJson,
   normalizeFindings,
-  score,
+  scoreV1,
+  withIds,
   IncompleteReportError,
   type Finding,
   type Severity,
@@ -22,8 +28,11 @@ import {
 export type { Finding };
 
 export interface ReviewDeps {
-  /** Shallow-checkout of the PR head → local repo dir (mount source). */
-  clone(prUrl: string): Promise<string>;
+  /** LLM triage (SPEC-2); absent or failing → soft-incomplete. */
+  triage?: (findings: Finding[], scope: DiffScopeResult) => Promise<TriageResult>;
+  /** Clones the PR head; returns the working dir AND the head sha (SPEC-4 §3 —
+   *  the attestation record needs the commit identity, and the clone has it locally). */
+  clone(prUrl: string): Promise<{ dir: string; headSha: string }>;
   /** PR unified diff (GitHub `.diff` representation). */
   fetchDiff(prUrl: string): Promise<string>;
   /** Analyzer run over the repo → NDJSON stdout (SPEC-1 §1). */
@@ -32,6 +41,12 @@ export interface ReviewDeps {
   postComment(prUrl: string, body: string): Promise<void>;
   /** Releases the clone dir; runReview calls it in a finally, exactly once per clone. */
   dispose(repoDir: string): Promise<void>;
+  /** PoC generation (SPEC-3) — frontier LLM seam; absent → sim skipped. */
+  generatePoc?: (reqs: PocRequest[]) => Promise<string>;
+  /** Fork-sim harness run (SPEC-3) — container seam; absent → sim skipped. */
+  runSim?: (repoDir: string, testSource: string, forkUrl: string) => Promise<SimOutcomeMap>;
+  /** SPEC-4 on-chain attestation; absent or failing → "skipped" footer, comment still posts. */
+  attest?: (record: AttestRecord) => Promise<{ txHash: string; explorerUrl: string } | null>;
 }
 
 export interface ReviewResult {
@@ -39,7 +54,15 @@ export interface ReviewResult {
   score: number;
   /** Set iff the analyzer could not produce a complete report — the PR comment says so. */
   incomplete?: string;
+  /** SPEC-4 §3 — on-chain anchoring outcome; set on every commented path
+   *  (success shapes when attested, { skipped } when not configured or failed). */
+  attestation?:
+    | { chain: string; reviewId: string; txHash: string; explorerUrl: string }
+    | { skipped: string };
 }
+
+/** The attestation outcome shape of ReviewResult. */
+type AttestationInfo = NonNullable<ReviewResult["attestation"]>;
 
 export class AnalyzerFailedError extends Error {
   constructor(message: string) {
@@ -141,23 +164,89 @@ const MAX_RENDERED_FINDINGS = 50;
 // Presentation order (weight-desc); the weights themselves live in findings.ts.
 const SEVERITY_ORDER: readonly Severity[] = ["critical", "high", "medium", "low"];
 
-export function summaryCommentBody(scoreValue: number, findings: Finding[]): string {
+// The published findings JSON doubles as the attestation payload (SPEC-4):
+// it must stay under GitHub's practical comment size or the hash becomes
+// unverifiable from the comment alone.
+const MAX_FINDINGS_JSON_CHARS = 20_000;
+
+const countOps = (t: TriageResult) => ({
+  dedup: t.ops.filter((o) => o.op === "dedup").length,
+  reclassify: t.ops.filter((o) => o.op === "reclassify").length,
+  add: t.ops.filter((o) => o.op === "add").length,
+});
+
+function triageLine(t: TriageResult): string {
+  if (t.triageStatus === "complete") {
+    const c = countOps(t);
+    const rej = t.rejectedOps.length > 0 ? ` · ${t.rejectedOps.length} non-conforming op(s) rejected` : "";
+    return `Triaged by \`${cell(t.modelUsed)}\` @ temp 0 · ops: ${c.dedup} dedup · ${c.reclassify} reclassify · ${c.add} added${rej}`;
+  }
+  if (t.modelUsed !== NO_TRIAGE_MODEL) {
+    return `Triage with \`${cell(t.modelUsed)}\` did not complete — raw analyzer findings shown.`;
+  }
+  return "_LLM triage not configured (set OPENROUTER_API_KEY, REXTOR_TRIAGE_MODEL, REXTOR_FRONTIER_MODEL)._";
+}
+
+function findingRow(f: Finding): string {
+  const note = f.triageNote
+    ?? (f.mergedChecks ? `merged: ${f.mergedChecks.join(", ")}` : "");
+  const sev = `${f.severity}${f.poc ? ` [poc:${f.poc.status}]` : ""}`;
+  return `| #${f.id ?? "—"} | ${sev} | ${cell(f.check)} | ${cell(f.file)}:${f.line} | ${cell(note)} |`;
+}
+
+export function summaryCommentBody(scoreValue: number, triaged: TriageResult, simNote = ""): string {
+  const findings = triaged.finalFindings;
   const sorted = [...findings].sort(
     (a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity),
   );
   const rendered = sorted.slice(0, MAX_RENDERED_FINDINGS);
   const hidden = findings.length - rendered.length;
+  const banner =
+    triaged.triageStatus === "incomplete"
+      ? ["**LLM triage unavailable — findings below are raw analyzer output.**", ""]
+      : [];
+  // The canonical form is published VERBATIM (sha256 of this block is the
+  // on-chain findingsHash): untrusted strings stay raw but inert inside the
+  // code fence, and the hash stays recomputable by anyone.
+  const json = canonicalFindingsJson(findings);
+  const jsonBlock =
+    json.length > MAX_FINDINGS_JSON_CHARS
+      ? [`_(findings JSON omitted: ${json.length} chars exceeds the ${MAX_FINDINGS_JSON_CHARS}-char budget — the attested findingsHash covers the full canonical form)_`]
+      : ["```json", json, "```"];
+  // Confirmed PoCs render as collapsed runnable blocks. The generated source
+  // is DATA (SPEC-3 §4): sanitized (no CR, no 3+ backtick runs) inside a
+  // 4-backtick fence so it can never escape into live comment markdown.
+  const pocBlocks = findings
+    .filter((f) => f.poc?.status === "confirmed" && f.poc.testSource)
+    .map((f) => [
+      "",
+      `<details><summary>Runnable PoC — finding #${f.id} (Foundry)</summary>`,
+      "",
+      "````solidity",
+      sanitizePocSource(f.poc!.testSource!),
+      "````",
+      "</details>",
+    ].join("\n"));
   return [
-    `## rextor audit — risk score: ${scoreValue}`,
+    `## rextor audit — risk score: ${scoreValue}/100`,
     "",
+    ...banner,
     `**${findings.length} finding(s)** in changed contract code.`,
     "",
-    "| severity | check | location |",
-    "| --- | --- | --- |",
-    ...rendered.map((f) => `| ${f.severity} | ${cell(f.check)} | ${cell(f.file)}:${f.line} |`),
+    "| # | severity | check | location | note |",
+    "| --- | --- | --- | --- | --- |",
+    ...rendered.map(findingRow),
     ...(hidden > 0 ? ["", `...and ${hidden} more findings suppressed.`] : []),
     "",
-    "_Deterministic scan, riskScore v0. Findings are starting points, not verdicts._",
+    triageLine(triaged),
+    ...(simNote ? ["", simNote] : []),
+    "",
+    "<details><summary>Findings JSON — sha256 of this block = on-chain findingsHash</summary>",
+    "",
+    ...jsonBlock,
+    "",
+    "</details>",
+    ...pocBlocks,
   ].join("\n");
 }
 
@@ -174,6 +263,44 @@ export function incompleteCommentBody(reason: string): string {
   ].join("\n");
 }
 
+// SPEC-4 §3 — PR identity for the reviewId derivation. Mirrors github.ts's
+// PR_URL_RE (a shared import would make review.ts ↔ github.ts a runtime cycle).
+const PR_URL_RE = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/;
+
+function prIdentity(prUrl: string): { repoFullName: string; prNumber: number } {
+  const match = prUrl.match(PR_URL_RE);
+  if (!match) throw new Error(`not a GitHub PR URL: ${prUrl}`);
+  return { repoFullName: `${match[1]}/${match[2]}`, prNumber: Number(match[3]) };
+}
+
+// Footer label only — resolveChain throws on an unknown chain key; the
+// attestation itself never depends on this name, so degrade, never throw.
+function activeChainName(): string {
+  try {
+    return resolveChain(process.env).name;
+  } catch {
+    return "tempo";
+  }
+}
+
+// The comment footer (SPEC-4 §3): chain, reviewId, tx/explorer link and the
+// findingsHash — the reproducibility recipe sitting next to the <details>
+// findings JSON it hashes. Free-text interpolations (chain name, skip reason)
+// pass through cell(); reviewId/txHash/findingsHash are agent-generated hex.
+function attestationFooter(att: AttestationInfo, findingsHash?: string): string[] {
+  if ("skipped" in att) return ["", `_attestation skipped: ${cell(att.skipped)}_`];
+  const link = att.explorerUrl
+    ? `[tx \`${att.txHash.slice(0, 10)}…\`](${att.explorerUrl})`
+    : `tx \`${att.txHash}\``;
+  const hashPart = findingsHash ? ` · findingsHash \`${findingsHash}\`` : "";
+  return ["", "---", `⚖ attested on ${cell(att.chain)} · reviewId \`${att.reviewId}\`${hashPart} · ${link}`];
+}
+
+// Append the footer to a comment body (footer's first row is a blank line).
+function withFooter(body: string, att: AttestationInfo, findingsHash?: string): string {
+  return [body, ...attestationFooter(att, findingsHash)].join("\n");
+}
+
 export async function runReview(prUrl: string, deps: ReviewDeps): Promise<ReviewResult> {
   const diff = await deps.fetchDiff(prUrl);
   const scope = scopeDiff(diff);
@@ -181,15 +308,56 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     return { commented: false, score: 0 };
   }
 
-  const repoDir = await deps.clone(prUrl);
+  const { dir: repoDir, headSha } = await deps.clone(prUrl);
+  const identity = prIdentity(prUrl);
+
+  // SPEC-4 §3 — attestation runs BEFORE the comment on EVERY verdict path and
+  // can never block or fail the review: every failure (no dep, throw, null)
+  // degrades to a "skipped" footer. Hard-incomplete reviews attest status=1
+  // with the empty findings list — an on-chain riskScore 0 can never
+  // masquerade as a clean pass.
+  const attestStage = async (
+    findings: Finding[],
+    riskScore: number,
+    incomplete: boolean,
+  ): Promise<{ att: AttestationInfo; findingsHash?: string }> => {
+    if (!deps.attest) return { att: { skipped: "attestation not configured" } };
+    try {
+      const record = buildAttestRecord({
+        repoFullName: identity.repoFullName,
+        prNumber: identity.prNumber,
+        headSha,
+        findings,
+        riskScore,
+        incomplete,
+      });
+      const res = await deps.attest(record);
+      if (!res) return { att: { skipped: "attestation attempt failed" }, findingsHash: record.findingsHash };
+      return {
+        att: {
+          chain: activeChainName(),
+          reviewId: record.reviewId,
+          txHash: res.txHash,
+          explorerUrl: res.explorerUrl,
+        },
+        findingsHash: record.findingsHash,
+      };
+    } catch (err) {
+      console.error("[rextor] attestation failed:", err instanceof Error ? err.message : err);
+      return { att: { skipped: "attestation attempt failed" } };
+    }
+  };
+
   try {
     let ndjson: string;
     try {
       ndjson = await deps.runAnalyzer(repoDir);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      await deps.postComment(prUrl, incompleteCommentBody(`analyzer failed: ${reason}`));
-      return { commented: true, score: 0, incomplete: reason };
+      const { att, findingsHash } = await attestStage([], 0, true);
+      await deps.postComment(prUrl,
+        withFooter(incompleteCommentBody(`analyzer failed: ${reason}`), att, findingsHash));
+      return { commented: true, score: 0, incomplete: reason, attestation: att };
     }
 
     let findings: Finding[];
@@ -200,13 +368,39 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
         err instanceof IncompleteReportError
           ? err.reason
           : `unparseable analyzer report: ${err instanceof Error ? err.message : String(err)}`;
-      await deps.postComment(prUrl, incompleteCommentBody(reason));
-      return { commented: true, score: 0, incomplete: reason };
+      const { att, findingsHash } = await attestStage([], 0, true);
+      await deps.postComment(prUrl,
+        withFooter(incompleteCommentBody(reason), att, findingsHash));
+      return { commented: true, score: 0, incomplete: reason, attestation: att };
     }
 
-    const scoreValue = score(findings);
-    await deps.postComment(prUrl, summaryCommentBody(scoreValue, findings));
-    return { commented: true, score: scoreValue };
+    // SPEC-2 pipeline: analyze → normalize → [triage] → [sim] → score(rubric
+    // v1) → ONE PR comment. Triage is soft: a missing or throwing dep degrades
+    // to raw findings under the banner, never skips the comment.
+    let triaged: TriageResult;
+    if (deps.triage) {
+      try {
+        triaged = await deps.triage(withIds(findings), scope);
+      } catch (err) {
+        console.error("[rextor] triage dep threw:", err instanceof Error ? err.message : err);
+        triaged = rawFindingsResult(withIds(findings));
+      }
+    } else {
+      triaged = rawFindingsResult(withIds(findings));
+    }
+
+    // SPEC-3 sim: mutates ONLY `poc` fields (never severities, never
+    // existence); an unproven critical then scores 25 via rubric v1. Env is
+    // read at call time; missing fork env or seams → skipped, never a
+    // pipeline failure.
+    const simmed = await runSimStage(triaged.finalFindings, repoDir,
+      { generatePoc: deps.generatePoc, runSim: deps.runSim }, process.env);
+    const scoreValue = scoreV1(simmed.findings);
+    const { att, findingsHash } = await attestStage(simmed.findings, scoreValue, false);
+    await deps.postComment(prUrl, withFooter(
+      summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote),
+      att, findingsHash));
+    return { commented: true, score: scoreValue, attestation: att };
   } finally {
     // The clone dir must not outlive the review on any path (token-free but
     // still disk growth); cleanup failure never masks the review result.
