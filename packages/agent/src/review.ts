@@ -241,7 +241,7 @@ export function summaryCommentBody(scoreValue: number, triaged: TriageResult, si
     triageLine(triaged),
     ...(simNote ? ["", simNote] : []),
     "",
-    "<details><summary>Findings JSON — sha256 of this block = on-chain findingsHash</summary>",
+    "<details><summary>Findings JSON — sha256 of this exact line (no trailing newline) = on-chain findingsHash</summary>",
     "",
     ...jsonBlock,
     "",
