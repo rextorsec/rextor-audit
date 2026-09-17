@@ -14,6 +14,7 @@ import {
   defineChain,
   http,
   keccak256,
+  parseAbi,
   toHex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -21,11 +22,13 @@ import { findingsHash, type Finding } from "./findings";
 import { resolveChain } from "./chains";
 import type { ReviewDeps } from "./review";
 
-// Exact T6 contract ABI (human-readable). attest + verify share the payload.
-export const REXTOR_ATTESTATION_ABI = [
+// Exact T6 contract ABI. attest + verify share the payload. parseAbi is NOT
+// optional: viem's writeContract/getAbiItem need parsed items — raw
+// human-readable strings throw `'name' in …` at call time (T10 Phase C live).
+export const REXTOR_ATTESTATION_ABI = parseAbi([
   "function attest(bytes32 reviewId, bytes32 commitHash, bytes32 findingsHash, uint16 riskScore, uint16 findingCount, uint8 status)",
   "function verify(bytes32 reviewId, bytes32 commitHash, bytes32 findingsHash, uint16 riskScore, uint16 findingCount, uint8 status) view returns (bool)",
-] as const;
+]);
 
 export interface AttestRecord {
   reviewId: `0x${string}`;
@@ -114,9 +117,10 @@ export function makeAttestDep(readEnv: () => NodeJS.ProcessEnv = () => process.e
           record.reviewId,
           record.commitHash,
           record.findingsHash,
-          BigInt(record.riskScore),
-          BigInt(record.findingCount),
-          BigInt(record.status),
+          // viem types uint16/uint8 as number — only uint256+ takes bigint.
+          record.riskScore,
+          record.findingCount,
+          record.status,
         ],
         chain: viemChain,
         account,
