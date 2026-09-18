@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rextor Audit — every PR an audit event</title>
+<meta name="description" content="PR-time smart-contract auditing. Deterministic analysis, cited triage, a reproducible risk score — and the verdict anchored on-chain.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="tokens.css">
+<style>
+/* Page styles — every color and font references tokens.css. No inline values. */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-size: var(--text-base);
+  line-height: 1.6;
+  color: var(--foreground);
+  background: var(--background);
+  padding-inline: max(1rem, env(safe-area-inset-left)) max(1rem, env(safe-area-inset-right));
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+.container { max-width: 72rem; margin-inline: auto; }
+a { color: inherit; }
+
+/* ---------- N5 floating pill nav ---------- */
+.nav {
+  position: fixed;
+  top: var(--space-md);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-xs) var(--space-md);
+  border-radius: 999px;
+  background: oklch(from var(--background) l c h / 0.72);
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.wordmark {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: var(--text-sm);
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+}
+.wordmark::before {
+  content: "";
+  width: 0.55rem;
+  height: 0.55rem;
+  background: var(--primary);
+  border-radius: 1px;
+}
+.nav__links { display: flex; gap: var(--space-md); }
+.nav__link {
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.nav__link:hover { color: var(--foreground); }
+.nav__cta { margin-left: var(--space-2xs); }
+
+@media (max-width: 40rem) {
+  .nav__links { display: none; }
+  .nav { left: auto; right: var(--space-md); transform: none; }
+}
+
+/* ---------- buttons ---------- */
+.btn {
+  display: inline-block;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1;
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: 999px;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.btn--primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.btn--primary:hover { background: var(--primary-strong); }
+.btn--primary:active { transform: translateY(1px); }
+.btn--ghost {
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  background: transparent;
+}
+.btn--ghost:hover { border-color: var(--rule-strong); }
+.btn:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.link--receipt {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--primary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.link--receipt:hover { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+
+/* ---------- hero ---------- */
+.hero { padding-block: var(--space-4xl) var(--space-3xl); }
+.hero__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: var(--space-2xl);
+  align-items: end;
+}
+.hero__eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--label);
+  margin-bottom: var(--space-md);
+}
+.hero h1 {
+  font-size: var(--text-display);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  text-wrap: balance;
+}
+.hero__lede {
+  font-size: var(--text-md);
+  color: var(--muted-foreground);
+  max-width: 38ch;
+  margin-bottom: var(--space-lg);
+}
+.hero__cta-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  flex-wrap: wrap;
+}
+.hero__facts {
+  margin-top: var(--space-2xl);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--subtle-foreground);
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  gap: var(--space-lg);
+  flex-wrap: wrap;
+}
+@media (max-width: 60rem) {
+  .hero__grid { grid-template-columns: 1fr; align-items: start; }
+}
+
+/* ---------- narrative workflow: numbered stages ---------- */
+.tour { padding-block: var(--space-3xl) var(--space-2xl); }
+.stage {
+  border-top: 2px solid var(--rule-strong);
+  padding-block: var(--space-2xl);
+}
+.stage--tight { padding-block: var(--space-xl); }
+.stage__num {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: 0.14em;
+  color: var(--label);
+  margin-bottom: var(--space-sm);
+}
+.stage h2 {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin-bottom: var(--space-md);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.stage__body {
+  max-width: 60ch;
+  color: var(--muted-foreground);
+}
+.stage__body strong { color: var(--foreground); font-weight: 500; }
+
+/* artifact frame — typographic frame: rule + mono label + rows + rule. Never window chrome. */
+.artifact {
+  margin-top: var(--space-xl);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding-block: var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+.artifact__label {
+  font-size: var(--text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--subtle-foreground);
+  margin-bottom: var(--space-sm);
+}
+.artifact__row {
+  display: grid;
+  grid-template-columns: minmax(0, 14ch) minmax(0, 1fr);
+  gap: var(--space-md);
+  padding-block: var(--space-2xs);
+}
+.artifact__row dt { color: var(--subtle-foreground); }
+.artifact__row dd { color: var(--foreground); overflow-wrap: anywhere; min-width: 0; }
+.artifact .link--receipt { font-size: var(--text-sm); }
+@media (max-width: 40rem) {
+  .artifact__row { grid-template-columns: 1fr; gap: 0; }
+  .artifact__row dd { margin-bottom: var(--space-xs); }
+}
+
+/* ---------- capability matrix ---------- */
+.matrix { padding-block: var(--space-2xl); }
+.matrix__head { margin-bottom: var(--space-xl); max-width: 55ch; }
+.matrix__head h2 {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin-bottom: var(--space-sm);
+  overflow-wrap: anywhere;
+}
+.matrix__head p { color: var(--muted-foreground); }
+.matrix table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+.matrix th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: var(--text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--subtle-foreground);
+  padding: var(--space-sm) var(--space-md) var(--space-sm) 0;
+  border-bottom: 1px solid var(--rule-strong);
+}
+.matrix td {
+  padding: var(--space-sm) var(--space-md) var(--space-sm) 0;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.matrix td:first-child { color: var(--foreground); }
+.matrix .no { color: var(--subtle-foreground); }
+.matrix .partial { color: var(--muted-foreground); }
+.matrix .yes { color: var(--primary); font-weight: 500; }
+.matrix .soon {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px var(--space-xs);
+  white-space: nowrap;
+}
+.matrix__footnote {
+  margin-top: var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--subtle-foreground);
+  max-width: 72ch;
+}
+@media (max-width: 60rem) {
+  .matrix table, .matrix tbody, .matrix tr, .matrix td { display: block; }
+  .matrix thead { display: none; }
+  .matrix tr { padding-block: var(--space-sm); border-bottom: 1px solid var(--border); }
+  .matrix td { border-bottom: none; padding: var(--space-2xs) 0; }
+  .matrix td::before {
+    content: attr(data-label);
+    display: inline-block;
+    min-width: 12ch;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    color: var(--subtle-foreground);
+  }
+}
+
+/* ---------- track board ---------- */
+.tracks { padding-block: var(--space-2xl); }
+.tracks h2 {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: var(--space-xl);
+  overflow-wrap: anywhere;
+}
+.track {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 9fr);
+  gap: var(--space-lg);
+  padding-block: var(--space-lg);
+  border-top: 1px solid var(--border);
+  align-items: baseline;
+}
+.track__name {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+.track__name small { display: block; color: var(--subtle-foreground); font-size: var(--text-xs); }
+.track__status { color: var(--muted-foreground); }
+.track__status strong { color: var(--foreground); font-weight: 500; }
+@media (max-width: 40rem) {
+  .track { grid-template-columns: 1fr; gap: var(--space-2xs); }
+}
+
+/* ---------- integrity ---------- */
+.integrity { padding-block: var(--space-2xl); }
+.integrity h2 {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: var(--space-xl);
+  overflow-wrap: anywhere;
+}
+.integrity__item {
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+  gap: var(--space-lg);
+  padding-block: var(--space-lg);
+  border-top: 1px solid var(--border);
+}
+.integrity__item h3 {
+  font-size: var(--text-md);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.integrity__item p { color: var(--muted-foreground); max-width: 60ch; }
+.integrity__item p code {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--foreground);
+}
+@media (max-width: 60rem) {
+  .integrity__item { grid-template-columns: 1fr; gap: var(--space-2xs); }
+}
+
+/* ---------- final CTA ---------- */
+.cta-final { padding-block: var(--space-3xl); border-top: 1px solid var(--border); }
+.cta-final h2 {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  max-width: 30ch;
+  overflow-wrap: anywhere;
+}
+.cta-final .sub { font-size: var(--text-base); font-weight: 400; color: var(--muted-foreground); max-width: 55ch; margin-top: var(--space-md); margin-bottom: var(--space-lg); }
+
+/* ---------- footer: Ft2 inline single line ---------- */
+.footer {
+  border-top: 1px solid var(--border);
+  padding-block: var(--space-lg);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+.footer .wordmark { font-size: var(--text-xs); color: var(--foreground); }
+.footer a { color: var(--muted-foreground); text-decoration: none; }
+.footer a:hover { color: var(--foreground); }
+</style>
+</head>
+<body>
+
+<nav class="nav" aria-label="Primary">
+  <a class="wordmark" href="#">REXTOR AUDIT</a>
+  <div class="nav__links">
+    <a class="nav__link" href="#tour">Stage tour</a>
+    <a class="nav__link" href="#matrix">Capability matrix</a>
+    <a class="nav__link" href="#tracks">Tracks</a>
+  </div>
+  <a class="btn btn--primary nav__cta" href="#install">Install</a>
+</nav>
+
+<header class="hero container">
+  <div class="hero__grid">
+    <div>
+      <p class="hero__eyebrow">PR-time smart-contract auditing</p>
+      <h1>Audits are point&#8209;in&#8209;time.<br>Code is continuous.</h1>
+    </div>
+    <div>
+      <p class="hero__lede">Every pull request that touches money&#8209;code becomes an audit event. Generic reviewers read code changes — Rextor audits money changes, and anchors the verdict on&#8209;chain.</p>
+      <div class="hero__cta-row">
+        <a class="btn btn--primary" href="#install">Install the GitHub App</a>
+        <a class="link--receipt" href="https://explore.testnet.tempo.xyz/address/0x513707577e4d8925295072df7944b0659228d31f">See a live verdict ↗</a>
+      </div>
+    </div>
+  </div>
+  <div class="hero__facts">
+    <span>Live on Tempo testnet · chainId 42431</span>
+    <span>Contract 0x5137…d31f</span>
+    <span>Agent rextor-audit[bot] · active</span>
+    <span>Attested reviews: 2</span>
+  </div>
+</header>
+
+<main class="container">
+
+  <section class="tour" id="tour" aria-label="How a review runs">
+
+    <div class="stage stage--tight" id="s1">
+      <p class="stage__num">1.0</p>
+      <h2>Scope the diff</h2>
+      <p class="stage__body">The PR diff becomes a <strong>change-set of functions and callsites</strong> — not a vibe read of the whole repo. New external calls, permission changes, and trust&#8209;boundary crossings get flagged for the passes below.</p>
+    </div>
+
+    <div class="stage" id="s2">
+      <p class="stage__num">2.0</p>
+      <h2>Detect deterministically</h2>
+      <p class="stage__body"><strong>Slither and Aderyn</strong> run in a network&#8209;isolated, read&#8209;only container. Tool errors produce an explicit <strong>INCOMPLETE</strong> report — never a fabricated clean pass.</p>
+      <dl class="artifact">
+        <dt class="artifact__label">analyzer pass · sandboxed</dt>
+        <div class="artifact__row"><dt>runtime</dt><dd>Slither 0.11.6 + Aderyn, Docker --network none --cap-drop ALL</dd></div>
+        <div class="artifact__row"><dt>scope</dt><dd>diff-scoped: changed functions, new callsites, trust-boundary deltas</dd></div>
+      </dl>
+    </div>
+
+    <div class="stage" id="s3">
+      <p class="stage__num">3.0</p>
+      <h2>Triage with citations</h2>
+      <p class="stage__body">An LLM constrained to <strong>three cited operations</strong>: reclassify a severity, dedup into an equal&#8209;or&#8209;higher one, or add a finding — only with a cited line range. It assigns <strong>no score</strong>, and any uncited operation is discarded and counted.</p>
+      <dl class="artifact">
+        <dt class="artifact__label">triage policy · temperature 0</dt>
+        <div class="artifact__row"><dt>allowed</dt><dd>reclassify (original preserved) · dedup (never escalates) · add (cited lines only)</dd></div>
+        <div class="artifact__row"><dt>forbidden</dt><dd>scoring · inventing findings · operating without a citation</dd></div>
+      </dl>
+    </div>
+
+    <div class="stage" id="s4">
+      <p class="stage__num">4.0</p>
+      <h2>Prove by execution</h2>
+      <p class="stage__body">Criticals are <strong>reproduced on a fork</strong> of the target chain — Foundry against live state. A finding that survives the fork is <strong>confirmed</strong>; one that doesn't is reported as unproven. Reading code is opinion. Running it is evidence.</p>
+    </div>
+
+    <div class="stage" id="s5">
+      <p class="stage__num">5.0</p>
+      <h2>Anchor the verdict</h2>
+      <p class="stage__body">The verdict lands <strong>on&#8209;chain</strong>: commit hash, findings hash, risk score, agent identity. The score comes from a published rubric — <strong>anyone can recompute it</strong> from the findings alone, then check it against the chain.</p>
+      <dl class="artifact">
+        <dt class="artifact__label">attestation · real record</dt>
+        <div class="artifact__row"><dt>reviewId</dt><dd>keccak256("rextor/review/v1|" + owner/repo + "|" + pr + "|" + headSha)</dd></div>
+        <div class="artifact__row"><dt>findingsHash</dt><dd>sha256 of the canonical findings JSON — printed in every review comment</dd></div>
+        <div class="artifact__row"><dt>score</dt><dd>rubric: critical 60 · high 25 · medium 10 · low 3, cap 100</dd></div>
+        <div class="artifact__row"><dt>agent</dt><dd>rextor-audit[bot] · 0xE690…a122 · reviewCount 2</dd></div>
+        <div class="artifact__row"><dt>chain</dt><dd>Tempo testnet 42431 · <a class="link--receipt" href="https://explore.testnet.tempo.xyz/address/0x513707577e4d8925295072df7944b0659228d31f">verify on the explorer ↗</a></dd></div>
+      </dl>
+    </div>
+
+  </section>
+
+  <section class="matrix" id="matrix" aria-label="Capability matrix">
+    <div class="matrix__head">
+      <h2>What actually ships</h2>
+      <p>Every green check links a live artifact. Dashes mean "not evidenced on public product pages as of 2026&#8209;09&#8209;18" — we date&#8209;stamp the competition instead of guessing about it.</p>
+    </div>
+    <table>
+      <thead>
+        <tr><th scope="col">Capability</th><th scope="col">Generic AI review</th><th scope="col">One&#8209;shot audit bots</th><th scope="col">Rextor Audit</th></tr>
+      </thead>
+      <tbody>
+        <tr><td data-label="Rextor">Built for money&#8209;code — analyzer grounding</td><td class="no" data-label="Generic">—</td><td class="partial" data-label="Bots">◐</td><td class="yes" data-label="Rextor">✔ <a class="link--receipt" href="#s2">stage 2.0</a></td></tr>
+        <tr><td data-label="Rextor">Every PR an audit event (diff&#8209;scoped, continuous)</td><td class="yes" data-label="Generic">✔</td><td class="no" data-label="Bots">—</td><td class="yes" data-label="Rextor">✔ <a class="link--receipt" href="#s1">stage 1.0</a></td></tr>
+        <tr><td data-label="Rextor">Deterministic, recomputable risk score</td><td class="no" data-label="Generic">—</td><td class="partial" data-label="Bots">◐</td><td class="yes" data-label="Rextor">✔ <a class="link--receipt" href="#s5">rubric</a></td></tr>
+        <tr><td data-label="Rextor">Execution&#8209;proof findings (fork&#8209;sim PoC)</td><td class="no" data-label="Generic">—</td><td class="no" data-label="Bots">—</td><td class="yes" data-label="Rextor">✔ <a class="link--receipt" href="#s4">stage 4.0</a></td></tr>
+        <tr><td data-label="Rextor">Verdict on&#8209;chain, native to the target chain</td><td class="no" data-label="Generic">—</td><td class="no" data-label="Bots">—</td><td class="yes" data-label="Rextor">✔ <a class="link--receipt" href="https://explore.testnet.tempo.xyz/address/0x513707577e4d8925295072df7944b0659228d31f">Tempo · live</a> <span class="soon">HyperEVM — Shipping Oct 2026</span> <span class="soon">Solana — Shipping Oct 2026</span></td></tr>
+        <tr><td data-label="Rextor">Integrity rails — INCOMPLETE never silent</td><td class="partial" data-label="Generic">◐</td><td class="no" data-label="Bots">—</td><td class="yes" data-label="Rextor">✔ <a class="link--receipt" href="#s3">stage 3.0</a></td></tr>
+        <tr><td data-label="Rextor">Suggested fix per finding (reviewable diff)</td><td class="yes" data-label="Generic">✔</td><td class="no" data-label="Bots">—</td><td class="yes" data-label="Rextor"><span class="soon">Shipping Oct 2026</span></td></tr>
+        <tr><td data-label="Rextor">Repo config + severity merge gate</td><td class="no" data-label="Generic">—</td><td class="no" data-label="Bots">—</td><td class="yes" data-label="Rextor"><span class="soon">Shipping Oct 2026</span></td></tr>
+        <tr><td data-label="Rextor">Durable full report (IPFS) + anyone&#8209;can&#8209;verify</td><td class="no" data-label="Generic">—</td><td class="no" data-label="Bots">—</td><td class="yes" data-label="Rextor"><span class="soon">Shipping Oct 2026</span></td></tr>
+        <tr><td data-label="Rextor">Verifiable agent identity (ERC&#8209;8004)</td><td class="no" data-label="Generic">—</td><td class="no" data-label="Bots">—</td><td class="yes" data-label="Rextor"><span class="soon">Shipping Oct 2026</span></td></tr>
+        <tr><td data-label="Rextor">Public agent reputation ledger</td><td class="no" data-label="Generic">—</td><td class="no" data-label="Bots">—</td><td class="yes" data-label="Rextor"><span class="soon">Shipping Oct 2026</span></td></tr>
+        <tr><td data-label="Rextor">Cross&#8209;PR memory (dismissals)</td><td class="yes" data-label="Generic">✔</td><td class="no" data-label="Bots">—</td><td class="yes" data-label="Rextor"><span class="soon">Shipping Oct 2026</span></td></tr>
+        <tr><td data-label="Rextor">Chat in PR</td><td class="yes" data-label="Generic">✔</td><td class="no" data-label="Bots">—</td><td class="yes" data-label="Rextor"><span class="soon">Shipping Oct 2026</span></td></tr>
+        <tr><td data-label="Rextor">Chain cost&#8209;model reasoning</td><td class="no" data-label="Generic">—</td><td class="no" data-label="Bots">—</td><td class="yes" data-label="Rextor"><span class="soon">Shipping Oct 2026</span></td></tr>
+        <tr><td data-label="Rextor">Living dashboard — ledger, history, identity</td><td class="yes" data-label="Generic">✔</td><td class="no" data-label="Bots">—</td><td class="yes" data-label="Rextor"><span class="soon">Shipping Oct 2026</span></td></tr>
+      </tbody>
+    </table>
+    <p class="matrix__footnote">✔ = shipped, links to its live artifact. "Shipping Oct 2026" = on the plan, not yet shipped — tracked openly in our repo, never faked. ●◐— relative to public product pages as of 2026&#8209;09&#8209;18.</p>
+  </section>
+
+  <section class="tracks" id="tracks" aria-label="Track board">
+    <h2>Where it runs</h2>
+    <div class="track">
+      <p class="track__name">Tempo <small>flagship · chainId 42431</small></p>
+      <p class="track__status"><strong>Full loop, live.</strong> Slither + Aderyn, fork&#8209;sim, attestation deployed 2026&#8209;09&#8209;17 — <a class="link--receipt" href="https://explore.testnet.tempo.xyz/address/0x513707577e4d8925295072df7944b0659228d31f">contract ↗</a></p>
+    </div>
+    <div class="track">
+      <p class="track__name">HyperEVM <small>primary · chainId 998</small></p>
+      <p class="track__status"><strong>Deploy #2 pending</strong> — same loop, attestation v2 deploys directly.</p>
+    </div>
+    <div class="track">
+      <p class="track__name">Riders <small>config&#8209;level</small></p>
+      <p class="track__status"><strong>Ethereum 1 · Base 8453 · Arbitrum 42161 · Robinhood Chain</strong> — deterministic pass; verdicts anchor home&#8209;chain with a target&#8209;chain field. No per&#8209;rider code paths.</p>
+    </div>
+  </section>
+
+  <section class="integrity" aria-label="Integrity rails">
+    <h2>The integrity rails</h2>
+    <div class="integrity__item">
+      <h3>Findings require citations</h3>
+      <p>Every LLM operation carries a cited line range or it is discarded. The agent never invents findings and never scores anything.</p>
+    </div>
+    <div class="integrity__item">
+      <h3>INCOMPLETE is on&#8209;chain</h3>
+      <p>A broken analyzer produces <code>status = 1</code>, attested — an on&#8209;chain <code>riskScore: 0</code> can never masquerade as a clean pass.</p>
+    </div>
+    <div class="integrity__item">
+      <h3>PR content is untrusted input</h3>
+      <p>PR titles, comments, and code are adversarial by assumption — rendered inert, prompt&#8209;injection hardened, simulation sandboxed.</p>
+    </div>
+    <div class="integrity__item">
+      <h3>The attestation key has no fund path</h3>
+      <p>Worst case from key theft: visible, attributable bogus attestations. There is nothing to steal.</p>
+    </div>
+  </section>
+
+  <section class="cta-final container" id="install">
+    <h2>Install once. Every PR after that is an audit event.</h2>
+    <p class="sub">Two&#8209;click install on GitHub. The agent reviews the PRs that touch money&#8209;code and anchors each verdict on&#8209;chain.</p>
+    <a class="btn btn--primary" href="#install">Install the GitHub App</a>
+  </section>
+
+</main>
+
+<footer class="footer container">
+  <a class="wordmark" href="#">REXTOR AUDIT</a>
+  <span>by <a href="https://rextorsecurity.com">Rextor Security</a></span>
+  <span>Audits are point&#8209;in&#8209;time. Code is continuous.</span>
+  <span>© 2026</span>
+</footer>
+
+</body>
+</html>

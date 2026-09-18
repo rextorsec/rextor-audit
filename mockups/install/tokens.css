@@ -1,0 +1,98 @@
+/* Hallmark · genre: modern-minimal · macrostructure: Narrative Workflow · theme: studied-DNA (source: https://www.coderabbit.ai)
+ * F4 Step sequence knobs: numbering=1.0/2.0/…, layout=vertical stack, connector=thick numbered rule
+ * Nav: N5 Floating pill (knobs: width=content-sized, backdrop=blur+saturate, anchor=top-centred) · Footer: Ft2 Inline single line (knobs: order=wordmark/links/credit, separator=middot, density=spaced)
+ * theme axes: paper=dark oklch(14% 0.008 300) · display=geometric-sans (Geist 700, single-family discipline) · accent=chromatic-other (raptor green oklch(77% 0.16 165), label amber oklch(85% 0.17 95))
+ * iteration vs source: ONE axis changed — brand accent orange #ff570a → raptor green (per RECTOR, 2026-09-18); mauve paper + Geist/Hack register + shadcn token architecture kept
+ * tokens are shadcn/ui-compatible by design (RECTOR stack lock 2026-09-18: Tailwind + shadcn/ui + Radix)
+ * pre-emit critique: P4 H5 E4 S5 R4 V4
+ */
+
+:root {
+  /* surfaces — dark mauve band (CR mauve-1/2/3 lineage, OKLCH re-expressed) */
+  --background: oklch(14% 0.008 300);
+  --card: oklch(17% 0.009 300);
+  --elevated: oklch(21% 0.010 300);
+  --inverse-foreground: oklch(14% 0.008 300);
+
+  /* ink + neutrals (mauve-tinted, never flat grey) */
+  --foreground: oklch(93% 0.006 300);
+  --muted-foreground: oklch(64% 0.009 300);
+  --subtle-foreground: oklch(46% 0.010 300);
+
+  /* lines */
+  --border: oklch(24% 0.010 300);
+  --rule-strong: oklch(34% 0.012 300);
+
+  /* raptor accent — the thing that eats rabbits (replaces CR #ff570a) */
+  --primary: oklch(77% 0.16 165);
+  --primary-strong: oklch(83% 0.15 165);
+  --primary-foreground: oklch(16% 0.03 165);
+
+  /* label amber — stage numerals + eyebrows (CR amber-11 lineage, darkened for contrast) */
+  --label: oklch(82% 0.15 90);
+  --label-foreground: oklch(18% 0.05 90);
+
+  /* status */
+  --success: oklch(77% 0.16 165);
+  --warning: oklch(82% 0.15 90);
+  --danger: oklch(63% 0.19 25);
+
+  /* focus */
+  --ring: oklch(77% 0.16 165);
+
+  /* type — Geist + Geist Mono (Google Fonts), single-family display discipline */
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  /* scale — major third from 16px body */
+  --text-xs: 0.64rem;
+  --text-sm: 0.8rem;
+  --text-base: 1rem;
+  --text-md: 1.25rem;
+  --text-lg: 1.5625rem;
+  --text-xl: 1.9531rem;
+  --text-2xl: 2.4414rem;
+  --text-3xl: 3.0518rem;
+  --text-4xl: 3.8147rem;
+  --text-display: clamp(2.75rem, 5vw + 1rem, 5.25rem);
+  --text-display-s: clamp(2rem, 3.5vw + 0.75rem, 3.25rem);
+
+  /* spacing — 4pt scale, named by role */
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+  --space-3xl: 6rem;
+  --space-4xl: 9rem;
+
+  /* motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 120ms;
+  --dur-med: 220ms;
+
+  /* z scale */
+  --z-base: 1;
+  --z-raised: 10;
+  --z-sticky: 200;
+}
+
+html {
+  overflow-x: clip;
+}
+body {
+  overflow-x: clip;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+/* install additions — same system (stamp: Long Document macro · N1a nav · Ft1 footer) */

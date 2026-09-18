@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>rextorsec/rextor-audit-test — living audit report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="tokens.css">
+<style>
+/* Page styles — tokens.css is the shared system. Dashboard-specific layout only. */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.6;
+  color: var(--foreground);
+  background: var(--background);
+  padding-inline: max(1rem, env(safe-area-inset-left)) max(1rem, env(safe-area-inset-right));
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+.container { max-width: 64rem; margin-inline: auto; }
+a { color: inherit; }
+
+/* ---------- N9 edge-aligned nav (rotation: N5 landing → N9 app surface) ---------- */
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-block: var(--space-lg);
+  border-bottom: 1px solid var(--border);
+}
+.wordmark {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: var(--text-sm);
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  white-space: nowrap;
+}
+.wordmark::before {
+  content: "";
+  width: 0.55rem;
+  height: 0.55rem;
+  background: var(--primary);
+  border-radius: 1px;
+}
+.btn {
+  display: inline-block;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1;
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: 999px;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.btn--ghost { border: 1px solid var(--border); color: var(--foreground); background: transparent; }
+.btn--ghost:hover { border-color: var(--rule-strong); }
+.btn:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+/* ---------- repo header ---------- */
+.repohead { padding-block: var(--space-2xl) var(--space-xl); }
+.repohead__repo {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.repohead h1 {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-top: var(--space-2xs);
+  overflow-wrap: anywhere;
+}
+.repohead__meta {
+  margin-top: var(--space-md);
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px var(--space-sm);
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.chip--live { color: var(--primary); border-color: var(--primary); }
+
+/* ---------- score history ---------- */
+.history { padding-block: var(--space-lg) var(--space-2xl); }
+.history h2 {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--subtle-foreground);
+  margin-bottom: var(--space-md);
+}
+.history__bars { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-md); }
+.history__cell { min-width: 0; }
+.history__bar {
+  height: var(--space-lg);
+  background: var(--elevated);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.history__fill { height: 100%; background: var(--warning); }
+.history__fill--mid { background: var(--warning); width: 34%; }
+.history__fill--app { background: var(--warning); width: 41%; }
+.history__fill--high { background: var(--danger); width: 69%; }
+.history__label {
+  margin-top: var(--space-2xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 40rem) {
+  .history__bars { grid-template-columns: 1fr; }
+}
+
+/* ---------- review ledger ---------- */
+.ledger { padding-block: var(--space-lg) var(--space-2xl); }
+.ledger h2 {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--subtle-foreground);
+  margin-bottom: var(--space-md);
+}
+table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: var(--text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--subtle-foreground);
+  padding: var(--space-sm) var(--space-md) var(--space-sm) 0;
+  border-bottom: 1px solid var(--rule-strong);
+}
+td {
+  padding: var(--space-md) var(--space-md) var(--space-md) 0;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+td.score { font-family: var(--font-mono); font-weight: 500; }
+td.score .of { color: var(--subtle-foreground); font-weight: 400; }
+td .severity { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 1px; margin-right: var(--space-2xs); }
+td .sev-high { background: var(--danger); }
+td .sev-mid { background: var(--warning); }
+td .att { font-family: var(--font-mono); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.link--receipt {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--primary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.link--receipt:hover { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+
+/* verify expander — native details, accessible */
+details.verify { margin-top: var(--space-sm); }
+details.verify summary {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  list-style: none;
+  white-space: nowrap;
+}
+details.verify summary::before { content: "▸ "; color: var(--subtle-foreground); }
+details.verify[open] summary::before { content: "▾ "; }
+details.verify__body {
+  margin-top: var(--space-sm);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding-block: var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.kv { display: grid; grid-template-columns: minmax(0, 14ch) minmax(0, 1fr); gap: var(--space-md); padding-block: var(--space-2xs); }
+.kv dt { color: var(--subtle-foreground); }
+.kv dd { color: var(--foreground); overflow-wrap: anywhere; min-width: 0; }
+@media (max-width: 60rem) {
+  table, tbody, tr, td { display: block; }
+  thead { display: none; }
+  tr { padding-block: var(--space-md); border-bottom: 1px solid var(--border); }
+  td { border-bottom: none; padding: var(--space-2xs) 0; }
+  td::before {
+    content: attr(data-label);
+    display: inline-block;
+    min-width: 11ch;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    color: var(--subtle-foreground);
+  }
+}
+@media (max-width: 40rem) {
+  .kv { grid-template-columns: 1fr; gap: 0; }
+  .kv dd { margin-bottom: var(--space-xs); }
+}
+
+/* ---------- agent identity card ---------- */
+.agent {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: var(--space-lg);
+  margin-block: var(--space-lg) var(--space-2xl);
+}
+.agent__row { display: flex; gap: var(--space-lg); flex-wrap: wrap; align-items: baseline; }
+.agent h2 {
+  font-size: var(--text-md);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.agent h2 .status {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  color: var(--success);
+  letter-spacing: 0.08em;
+  margin-left: var(--space-sm);
+}
+.agent dl {
+  margin-top: var(--space-md);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.agent dt { color: var(--subtle-foreground); letter-spacing: 0.1em; text-transform: uppercase; }
+.agent dd { color: var(--foreground); margin-top: var(--space-2xs); overflow-wrap: anywhere; }
+@media (max-width: 40rem) { .agent dl { grid-template-columns: 1fr; } }
+
+/* ---------- empty state (labelled variant) ---------- */
+.empty {
+  border: 1px dashed var(--rule-strong);
+  border-radius: 8px;
+  padding: var(--space-2xl);
+  text-align: center;
+  margin-block: var(--space-lg) var(--space-2xl);
+}
+.empty__tag {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--label);
+  display: block;
+  margin-bottom: var(--space-sm);
+}
+.empty p { color: var(--muted-foreground); max-width: 46ch; margin-inline: auto; }
+
+/* ---------- Ft5 statement footer (rotation: Ft2 landing → Ft5) ---------- */
+.footer { border-top: 1px solid var(--border); padding-block: var(--space-2xl) var(--space-lg); }
+.footer__statement {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  max-width: 28ch;
+  overflow-wrap: anywhere;
+}
+.footer__statement span { color: var(--primary); }
+.footer__meta {
+  margin-top: var(--space-lg);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+.footer__meta a { color: var(--muted-foreground); text-decoration: none; }
+.footer__meta a:hover { color: var(--foreground); }
+</style>
+</head>
+<body>
+
+<nav class="nav container" aria-label="Primary">
+  <a class="wordmark" href="#">REXTOR AUDIT</a>
+  <a class="btn btn--ghost" href="#">Install on a repo</a>
+</nav>
+
+<main class="container">
+
+  <header class="repohead">
+    <p class="repohead__repo">rextorsec / rextor-audit-test</p>
+    <h1>Living audit report</h1>
+    <div class="repohead__meta">
+      <span class="chip chip--live">Tempo testnet · 42431</span>
+      <span class="chip">Contract 0x5137…d31f</span>
+      <span class="chip">riskScore 0–100 · higher = riskier</span>
+    </div>
+  </header>
+
+  <section class="history" aria-label="Score history">
+    <h2>Score history</h2>
+    <div class="history__bars">
+      <div class="history__cell">
+        <div class="history__bar"><div class="history__fill history__fill--high"></div></div>
+        <p class="history__label">PR #1 · 69 — dry&#8209;loop run</p>
+      </div>
+      <div class="history__cell">
+        <div class="history__bar"><div class="history__fill history__fill--mid"></div></div>
+        <p class="history__label">PR #2 · 34 — attested</p>
+      </div>
+      <div class="history__cell">
+        <div class="history__bar"><div class="history__fill history__fill--app"></div></div>
+        <p class="history__label">PR #2 · 41 — app&#8209;delivered</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="ledger" aria-label="Review ledger">
+    <h2>Review ledger</h2>
+    <table>
+      <thead>
+        <tr><th scope="col">PR</th><th scope="col">Risk score</th><th scope="col">Status</th><th scope="col">Attestation</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td data-label="PR">#2 · App&#8209;delivered run</td>
+          <td class="score" data-label="Risk score"><span class="severity sev-mid" aria-hidden="true"></span>41 <span class="of">/ 100</span></td>
+          <td data-label="Status">complete</td>
+          <td data-label="Attestation">
+            <span class="att">Tempo · 0x62db…f079</span><br>
+            <a class="link--receipt" href="https://explore.testnet.tempo.xyz/tx/0x62db">tx ↗</a>
+            <details class="verify">
+              <summary>Verify</summary>
+              <dl class="verify__body">
+                <div class="kv"><dt>reviewId</dt><dd>keccak256("rextor/review/v1|rextorsec/rextor-audit-test|2|&lt;headSha&gt;")</dd></div>
+                <div class="kv"><dt>findingsHash</dt><dd>sha256 of the canonical findings JSON — printed in the PR comment; recompute it there and compare on&#8209;chain via verify()</dd></div>
+                <div class="kv"><dt>chain</dt><dd>Tempo testnet 42431 · contract 0x5137…d31f</dd></div>
+                <div class="kv"><dt>agent</dt><dd>rextor-audit[bot] · 0xE690…a122</dd></div>
+              </dl>
+            </details>
+          </td>
+        </tr>
+        <tr>
+          <td data-label="PR">#2 · synchronize run</td>
+          <td class="score" data-label="Risk score"><span class="severity sev-mid" aria-hidden="true"></span>34 <span class="of">/ 100</span></td>
+          <td data-label="Status">complete</td>
+          <td data-label="Attestation">
+            <span class="att">Tempo · 0x6cf6…58a0</span><br>
+            <span class="att">first attested review · reviewCount 1 → 2</span>
+          </td>
+        </tr>
+        <tr>
+          <td data-label="PR">#1 · dry&#8209;loop run</td>
+          <td class="score" data-label="Risk score"><span class="severity sev-high" aria-hidden="true"></span>69 <span class="of">/ 100</span></td>
+          <td data-label="Status">complete</td>
+          <td data-label="Attestation">
+            <span class="att">none — pre&#8209;attestation dry run (Phase A)</span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="agent" aria-label="Agent identity">
+    <div class="agent__row">
+      <h2>rextor-audit[bot] <span class="status">ACTIVE</span></h2>
+    </div>
+    <dl>
+      <div><dt>Agent address</dt><dd>0xE690…a122</dd></div>
+      <div><dt>Attested reviews</dt><dd>2</dd></div>
+      <div><dt>Attested incomplete</dt><dd>0</dd></div>
+    </dl>
+  </section>
+
+  <section class="empty" aria-label="Empty state example">
+    <span class="empty__tag">empty state · shown when a repo has no reviews</span>
+    <p>No attested reviews yet for this repo. Install the GitHub App and open a pull request that touches money&#8209;code — the first verdict lands here, with its on&#8209;chain receipt.</p>
+  </section>
+
+</main>
+
+<footer class="footer container">
+  <p class="footer__statement">The verdict lives <span>on&#8209;chain</span> — recomputable by anyone, from the findings alone.</p>
+  <div class="footer__meta">
+    <span>Rextor Security</span>
+    <span>Tempo testnet 42431</span>
+    <span>0x5137…d31f</span>
+    <span>© 2026</span>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Install — Rextor Audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="tokens.css">
+<style>
+/* Page styles — tokens.css is the shared system. Install-page layout only. */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.65;
+  color: var(--foreground);
+  background: var(--background);
+  padding-inline: max(1rem, env(safe-area-inset-left)) max(1rem, env(safe-area-inset-right));
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+.container { max-width: 46rem; margin-inline: auto; }
+a { color: inherit; }
+
+/* ---------- N1a wordmark + 2 links (rotation: N9 dashboard → N1a; page genuinely has 2 destinations) ---------- */
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-block: var(--space-lg);
+}
+.nav__links { display: flex; gap: var(--space-lg); }
+.nav__link {
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.nav__link:hover { color: var(--foreground); }
+.wordmark {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: var(--text-sm);
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  white-space: nowrap;
+}
+.wordmark::before {
+  content: "";
+  width: 0.55rem;
+  height: 0.55rem;
+  background: var(--primary);
+  border-radius: 1px;
+}
+
+/* ---------- document ---------- */
+.doc { padding-block: var(--space-xl) var(--space-2xl); }
+.doc__kicker {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--label);
+  margin-bottom: var(--space-md);
+}
+.doc h1 {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin-bottom: var(--space-lg);
+  overflow-wrap: anywhere;
+}
+.doc .lede { color: var(--muted-foreground); max-width: 58ch; margin-bottom: var(--space-2xl); }
+
+.step { border-top: 1px solid var(--border); padding-block: var(--space-2xl); }
+.step__num {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: 0.14em;
+  color: var(--label);
+  margin-bottom: var(--space-sm);
+}
+.step h2 {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-bottom: var(--space-md);
+  overflow-wrap: anywhere;
+}
+.step p { color: var(--muted-foreground); max-width: 60ch; margin-bottom: var(--space-md); }
+.step p strong { color: var(--foreground); font-weight: 500; }
+.step p code, .step li code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--foreground);
+}
+.step ul { margin: 0 0 var(--space-md) var(--space-lg); color: var(--muted-foreground); max-width: 60ch; }
+.step li { margin-bottom: var(--space-2xs); }
+
+/* config snippet — typographic frame, no window chrome */
+.snippet {
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding-block: var(--space-md);
+  margin-block: var(--space-lg);
+}
+.snippet__label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--subtle-foreground);
+  margin-bottom: var(--space-sm);
+}
+pre {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--foreground);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+/* comment anatomy — annotated facsimile of a real review comment */
+.anatomy { border: 1px solid var(--border); border-radius: 8px; padding: var(--space-lg); margin-block: var(--space-lg); }
+.anatomy__banner {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  padding-block: var(--space-sm);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-md);
+}
+.anatomy__banner strong { color: var(--warning); }
+.anatomy table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.anatomy th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--subtle-foreground);
+  padding: var(--space-2xs) var(--space-md) var(--space-2xs) 0;
+  border-bottom: 1px solid var(--border);
+}
+.anatomy td { padding: var(--space-2xs) var(--space-md) var(--space-2xs) 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+.anatomy td.loc { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted-foreground); white-space: nowrap; }
+.anatomy .footerline {
+  margin-top: var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.anatomy .footerline .link--receipt { color: var(--primary); text-decoration: none; }
+.link--receipt:hover { text-decoration: underline; text-underline-offset: 3px; }
+.annotation {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--label);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 var(--space-xs);
+  margin-left: var(--space-xs);
+  white-space: nowrap;
+}
+
+/* ---------- Ft1 mast-headed footer (rotation: Ft5 dashboard → Ft1) ---------- */
+.footer { border-top: 1px solid var(--border); padding-block: var(--space-2xl) var(--space-lg); text-align: left; }
+.footer .wordmark { font-size: var(--text-md); letter-spacing: 0.08em; }
+.footer__tagline { color: var(--muted-foreground); margin-top: var(--space-2xs); font-size: var(--text-sm); }
+.footer__links { margin-top: var(--space-md); display: flex; gap: var(--space-lg); flex-wrap: wrap; }
+.footer__links a {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.footer__links a:hover { color: var(--foreground); }
+</style>
+</head>
+<body>
+
+<nav class="nav container" aria-label="Primary">
+  <a class="wordmark" href="#">REXTOR AUDIT</a>
+  <div class="nav__links">
+    <a class="nav__link" href="#">Docs</a>
+    <a class="nav__link" href="#">Dashboard</a>
+  </div>
+</nav>
+
+<main class="doc container">
+  <p class="doc__kicker">Setup guide</p>
+  <h1>From zero to an attested review</h1>
+  <p class="lede">Four steps. No YAML ceremony required — the agent works out of the box, and every choice it makes is documented below.</p>
+
+  <section class="step">
+    <p class="step__num">1</p>
+    <h2>Install the GitHub App</h2>
+    <p>Grant exactly what the review needs — <strong>nothing more</strong>:</p>
+    <ul>
+      <li><strong>Pull requests: read &amp; write</strong> — posts the review comment and the check run on each PR.</li>
+      <li><strong>Contents: read&#8209;only</strong> — clones the PR head to run analyzers and fork simulations.</li>
+      <li><strong>Events: <code>pull_request</code> only</strong> — the app ignores everything else.</li>
+    </ul>
+    <p>The app installs per&#8209;repository. Your source never leaves the review pipeline; the only artifacts it publishes are the PR comment and the on&#8209;chain attestation.</p>
+  </section>
+
+  <section class="step">
+    <p class="step__num">2</p>
+    <h2>Optionally add <code>rextor.yaml</code></h2>
+    <p>The agent audits every PR against its default profile. A config file tunes scope and thresholds per repo <span class="annotation">shipping Oct 2026</span>:</p>
+    <div class="snippet">
+      <p class="snippet__label">rextor.yaml — copy&#8209;paste</p>
+      <pre># paths audited on every PR (globs, relative to repo root)
+include:
+  - "contracts/**/*.sol"
+exclude:
+  - "test/**"
+  - "node_modules/**"
+# the check run fails when a finding at or above this severity is present
+severity_gate: high</pre>
+    </div>
+    <p>Without a config, the defaults above apply — Solidity sources audited, tests excluded, no merge gate.</p>
+  </section>
+
+  <section class="step">
+    <p class="step__num">3</p>
+    <h2>Open a pull request</h2>
+    <p>Any PR that touches the audited paths triggers a review: the diff is scoped to changed functions and callsites, deterministic analyzers run sandboxed, the LLM triages with citations, and criticals are reproduced on a fork before anything is reported.</p>
+  </section>
+
+  <section class="step">
+    <p class="step__num">4</p>
+    <h2>What arrives on the PR</h2>
+    <p>A review comment with the verdict — and an attestation footer pointing at the on&#8209;chain record. The anatomy below mirrors a <strong>real comment</strong> from our test repository:</p>
+
+    <div class="anatomy">
+      <p class="anatomy__banner">rextor&#8209;audit[bot] · riskScore <strong>41 / 100</strong> · 1 reclassification, 0 additions</p>
+      <table>
+        <thead>
+          <tr><th scope="col">Severity</th><th scope="col">Finding</th><th scope="col">Location</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>medium</td><td>ETH lock&#8209;in via unguarded <code>setOwner</code> — added by triage, cited lines</td><td class="loc">Vault.sol:L41&#8209;44</td></tr>
+          <tr><td>high</td><td>unchecked send before state finalization — reclassified high→critical, reverted to high on PoC</td><td class="loc">Vault.sol:L19&#8209;23</td></tr>
+        </tbody>
+      </table>
+      <p class="footerline">
+        attested on Tempo testnet (42431) · tx <a class="link--receipt" href="https://explore.testnet.tempo.xyz/tx/0x62db">0x62db…f079 ↗</a><br>
+        reviewId = keccak256("rextor/review/v1|owner/repo|2|&lt;headSha&gt;")<br>
+        findingsHash = sha256 of the exact findings JSON in this comment — recompute it and call verify()
+      </p>
+    </div>
+
+    <p>The check run reports the same verdict, so branch protection can consume it. Every number in the comment is <strong>recomputable from the findings JSON alone</strong> — the rubric is published, the hash is on&#8209;chain, and the PR comment carries the exact recipe.</p>
+  </section>
+
+</main>
+
+<footer class="footer container">
+  <a class="wordmark" href="#">REXTOR AUDIT</a>
+  <p class="footer__tagline">Audits are point&#8209;in&#8209;time. Code is continuous.</p>
+  <div class="footer__links">
+    <a href="#">Docs</a>
+    <a href="#">Dashboard</a>
+    <a href="https://rextorsecurity.com">Rextor Security</a>
+    <span>© 2026</span>
+  </div>
+</footer>
+
+</body>
+</html>
