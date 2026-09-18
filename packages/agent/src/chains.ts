@@ -64,6 +64,17 @@ export const CHAIN_REGISTRY: Record<ChainKey, ChainConfig> = deepFreeze({
 
 export interface ResolvedChain extends ChainConfig { forkRpc: string | null }
 
+/**
+ * SPEC-4 v2 — the targetChainId source: the id of the chain attestation rides
+ * on (attestation slot preferred, testnet fallback), or null when unverified
+ * (unknown key throws in resolveChain; null slots stay null). Null-skip
+ * semantic (shared by attest.ts and review.ts — single recipe): callers SKIP
+ * rather than print or attest 0; on-chain 0 = unresolved.
+ */
+export function attestationChainId(chain: ResolvedChain): number | null {
+  return chain.attestation.chainId ?? chain.testnet.chainId;
+}
+
 export function resolveChain(env: { REXTOR_DEFAULT_CHAIN?: string; REXTOR_FORK_RPC_URL?: string }): ResolvedChain {
   const key = (env.REXTOR_DEFAULT_CHAIN ?? "tempo") as ChainKey;
   if (!Object.hasOwn(CHAIN_REGISTRY, key)) {

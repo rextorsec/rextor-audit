@@ -123,6 +123,11 @@ contract RextorAttestationTest is Test {
         assertFalse(c.verify(REVIEW_ID, COMMIT, FINDINGS, "ipfs://other", 85, 3, 0, TARGET_CHAIN));
     }
 
+    function test_verify_falseOnTargetChainIdMismatch() public {
+        c.attest(REVIEW_ID, COMMIT, FINDINGS, NO_URI, 85, 3, 0, TARGET_CHAIN);
+        assertFalse(c.verify(REVIEW_ID, COMMIT, FINDINGS, NO_URI, 85, 3, 0, TARGET_CHAIN + 1));
+    }
+
     function test_register_gatedToOwner() public {
         vm.prank(address(0xdead));
         vm.expectRevert(RextorAttestation.NotOwner.selector);

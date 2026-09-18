@@ -10,6 +10,7 @@ import { Octokit } from "octokit";
 import { runAnalyzerContainer, type ReviewDeps } from "./review";
 import { generatePocFromEnv, runSimContainer, simTmpBase } from "./sim";
 import { makeAttestDep } from "./attest";
+import { makePinDep } from "./ipfs";
 import { triageFromEnv } from "./triage";
 
 const execFileP = promisify(execFile);
@@ -117,6 +118,10 @@ export function githubDeps(options: GithubDepsOptions = {}): ReviewDeps {
     // SPEC-4 attestation default: env-driven at wiring AND call time; env
     // unset → undefined → the review renders "attestation not configured".
     attest: makeAttestDep(),
+
+    // SPEC-4 v2 (B3): IPFS pin default. JWT unset → undefined → the review
+    // attests with findingsURI "" (degraded mode).
+    pin: makePinDep(),
 
     async postComment(prUrl: string, body: string): Promise<void> {
       const { owner, repo, number } = prParts(prUrl);

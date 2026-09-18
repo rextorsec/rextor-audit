@@ -5,6 +5,7 @@ node_modules/
 # secrets — symlinked to ~/Documents/secret/rextor-audit/.env
 .env
 .env.*
+!.env.example
 
 # build
 dist/

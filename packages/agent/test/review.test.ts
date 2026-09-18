@@ -5,6 +5,7 @@ import {
   summaryCommentBody,
   incompleteCommentBody,
   type ReviewDeps,
+  type ReviewResult,
   type Finding,
 } from "../src/review";
 import type { AttestRecord } from "../src/attest";
@@ -105,6 +106,7 @@ describe("runReview", () => {
       score: 0,
       incomplete: "slither exploded",
       attestation: { skipped: "attestation not configured" },
+      findings: [], // hard-incomplete attests the empty canonical payload
     });
     expect(comments).toHaveLength(1);
     expect(comments[0].body).toContain("INCOMPLETE");
@@ -435,5 +437,119 @@ describe("runReview attestation integration (SPEC-4 §3)", () => {
     // sha256("[]") — EXTERNAL literal shared via ./vectors (printf %s '[]' | shasum -a 256).
     expect(seen[0]?.findingsHash).toBe("0x" + EMPTY_FINDINGS_SHA256);
     expect(seen[0]?.findingCount).toBe(0);
+  });
+});
+
+describe("runReview ipfs pin (SPEC-4 v2 B3)", () => {
+  const findings0 = JSON.stringify({ file: "src/V.sol", line: 10, severity: "high", check: "c", description: "d" });
+  const attestDiff = "diff --git a/src/V.sol b/src/V.sol\n@@ -1 +1 @@\n+x";
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const baseDeps = (over: Partial<ReviewDeps>): ReviewDeps => ({
+    clone: async () => ({ dir: "/tmp/fake", headSha: HEAD_SHA }),
+    fetchDiff: async () => attestDiff,
+    runAnalyzer: async () => findings0,
+    postComment: async () => {},
+    dispose: async () => {},
+    ...over,
+  });
+
+  it("score → pin → attest: pin success feeds findingsURI into the record, footer and result", async () => {
+    vi.stubEnv("REXTOR_DEFAULT_CHAIN", "tempo");
+    const calls: string[] = [];
+    const records: AttestRecord[] = [];
+    const reports: ReviewResult[] = [];
+    const bodies: string[] = [];
+    const deps = baseDeps({
+      postComment: async (_u, body) => { bodies.push(body); },
+      pin: async (report) => {
+        calls.push("pin");
+        reports.push(report);
+        return { uri: "ipfs://bafyREPORT", cid: "bafyREPORT" };
+      },
+      attest: async (rec) => {
+        calls.push("attest");
+        records.push(rec);
+        return { txHash: "0xabc", explorerUrl: "" };
+      },
+    });
+    const res = await runReview("https://github.com/o/r/pull/3", deps);
+    expect(calls).toEqual(["pin", "attest"]); // pin runs BEFORE attest (brief wire order)
+    // The pin dep receives the scored report so far (canonical findings source).
+    expect(reports[0]?.score).toBe(25); // rubric v1: one high finding
+    expect(reports[0]?.findings).toHaveLength(1);
+    expect(records[0]?.findingsURI).toBe("ipfs://bafyREPORT");
+    expect(res.attestation).toMatchObject({ findingsURI: "ipfs://bafyREPORT" });
+    expect(bodies[0]).toContain("findingsURI `ipfs://bafyREPORT`");
+  });
+
+  it("pin failure degrades, never blocks: attest still runs with findingsURI '' and the footer omits the IPFS line", async () => {
+    vi.stubEnv("REXTOR_DEFAULT_CHAIN", "tempo");
+    const records: AttestRecord[] = [];
+    const bodies: string[] = [];
+    const deps = baseDeps({
+      postComment: async (_u, body) => { bodies.push(body); },
+      pin: async () => { throw new Error("pinata down"); },
+      attest: async (rec) => { records.push(rec); return { txHash: "0xabc", explorerUrl: "" }; },
+    });
+    const res = await runReview("https://github.com/o/r/pull/3", deps);
+    expect(res.commented).toBe(true); // the comment posts regardless
+    expect(records).toHaveLength(1); // attest still happens
+    expect(records[0]?.findingsURI).toBe(""); // degraded mode (SPEC-4 v2)
+    expect(bodies[0]).toContain("attested on");
+    expect(bodies[0]).not.toContain("findingsURI"); // empty-uri segment omitted
+  });
+
+  it("no pin dep → attest with findingsURI '' (footer omits the IPFS line)", async () => {
+    vi.stubEnv("REXTOR_DEFAULT_CHAIN", "tempo");
+    const records: AttestRecord[] = [];
+    const bodies: string[] = [];
+    const deps = baseDeps({
+      postComment: async (_u, body) => { bodies.push(body); },
+      attest: async (rec) => { records.push(rec); return { txHash: "0xabc", explorerUrl: "" }; },
+    });
+    await runReview("https://github.com/o/r/pull/3", deps);
+    expect(records[0]?.findingsURI).toBe("");
+    expect(bodies[0]).not.toContain("findingsURI");
+  });
+
+  it("footer renders targetChainId with its VALUE between the findingsHash and the tx link", async () => {
+    vi.stubEnv("REXTOR_DEFAULT_CHAIN", "tempo");
+    const bodies: string[] = [];
+    const deps = baseDeps({
+      postComment: async (_u, body) => { bodies.push(body); },
+      attest: async () => ({ txHash: "0xabc", explorerUrl: "" }),
+    });
+    await runReview("https://github.com/o/r/pull/3", deps);
+    const footerLine = bodies[0].split("\n").find((l) => l.includes("attested on"));
+    expect(footerLine).toBeDefined();
+    // Value assertion (Task 5 concern: tests only checked the label).
+    expect(footerLine).toContain("targetChainId `42431`");
+    expect(footerLine).toContain("findingsHash `0x");
+    expect(footerLine).toContain("reviewId `0x");
+    // Placement: reviewId < findingsHash < targetChainId < tx link.
+    const line = footerLine!;
+    expect(line.indexOf("findingsHash")).toBeGreaterThan(line.indexOf("reviewId"));
+    expect(line.indexOf("targetChainId")).toBeGreaterThan(line.indexOf("findingsHash"));
+    expect(line.indexOf("tx `")).toBeGreaterThan(line.indexOf("targetChainId"));
+  });
+
+  it("unknown chain key → targetChainId omitted from the footer (null-skip, never rendered as 0)", async () => {
+    vi.stubEnv("REXTOR_DEFAULT_CHAIN", "notachain");
+    const records: AttestRecord[] = [];
+    const bodies: string[] = [];
+    const deps = baseDeps({
+      postComment: async (_u, body) => { bodies.push(body); },
+      attest: async (rec) => { records.push(rec); return { txHash: "0xabc", explorerUrl: "" }; },
+    });
+    await runReview("https://github.com/o/r/pull/3", deps);
+    // On-chain record still carries 0 = unresolved (uint32 has no null), but
+    // the FOOTER skips the segment rather than printing `targetChainId `0``.
+    expect(records[0]?.targetChainId).toBe(0);
+    const footerLine = bodies[0].split("\n").find((l) => l.includes("attested on"));
+    expect(footerLine).not.toContain("targetChainId");
   });
 });

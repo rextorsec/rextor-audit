@@ -19,7 +19,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { findingsHash, type Finding } from "./findings";
-import { resolveChain } from "./chains";
+import { resolveChain, attestationChainId } from "./chains";
 import type { ReviewDeps } from "./review";
 
 // Exact contract ABI (SPEC-4 v2 — findingsURI + targetChainId). attest + verify
@@ -105,7 +105,9 @@ export function makeAttestDep(readEnv: () => NodeJS.ProcessEnv = () => process.e
       return Promise.resolve(null);
     }
     const chain = resolveChain(env);
-    const chainId = chain.attestation.chainId ?? chain.testnet.chainId;
+    // SPEC-5 shared null-skip recipe (chains.ts attestationChainId) — also
+    // used by review.ts's targetChainId resolution; null = unverified → skip.
+    const chainId = attestationChainId(chain);
     if (chainId == null || !chain.testnet.rpc) {
       console.error("[rextor] attestation chain params unverified — skipping");
       return Promise.resolve(null);
@@ -139,7 +141,13 @@ export function makeAttestDep(readEnv: () => NodeJS.ProcessEnv = () => process.e
         account,
       });
       // The tx must be mined before the comment cites it: no receipt → no tx line.
-      await publicClient.waitForTransactionReceipt({ hash });
+      // SPEC-4 errata robustness — a MINED-BUT-REVERTED tx must never pass as
+      // success (Conatus anchor.ts pattern): only a success receipt means the
+      // attestation is actually on-chain state worth citing.
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      if (receipt.status !== "success") {
+        throw new Error(`attestation tx reverted: ${hash}`);
+      }
       return { txHash: hash, explorerUrl: chain.explorer ? `${chain.explorer}/tx/${hash}` : "" };
     })();
     let timer: NodeJS.Timeout | undefined;
