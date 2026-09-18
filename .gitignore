@@ -27,3 +27,4 @@ out-diff/
 target/
 .anchor/
 .superpowers/
+.worktrees/
