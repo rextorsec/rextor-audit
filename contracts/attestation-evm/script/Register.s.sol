@@ -11,8 +11,11 @@ import "../src/RextorAttestation.sol";
 ///           REXTOR_AGENT_PRIVATE_KEY         agent key; its address is
 ///                                           derived in-process, never logged
 ///           REXTOR_AGENT_NAME                on-chain agent name
-///         Run with a fixed gas limit: Tempo's storage/creation premiums are
-///         not reflected in eth_estimateGas (see docs/deployments/tempo.md).
+///         Run with a fixed gas limit (`--skip-simulation --gas-limit …`):
+///         chain-specific premiums are not reflected in eth_estimateGas on
+///         every target (Tempo's TIP-1000 state premiums — see
+///         docs/deployments/tempo.md gotcha 2; verify per-chain pre-deploy,
+///         docs/deployments/hyperliquid.md).
 contract Register is Script {
     function run() public {
         uint256 pk = vm.envUint("DEPLOY_PRIVATE_KEY");

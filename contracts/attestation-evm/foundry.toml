@@ -10,3 +10,12 @@ solc_version = "0.8.24"
 [profile.tempo]
 eth_rpc_url = "https://rpc.moderato.tempo.xyz"
 chain_id = 42431
+
+# SPEC-4 §2 — deployment target #2 (HyperEVM testnet, primary track). v2 deploys
+# DIRECT here (no v1 history). Native gas token: HYPE (NOT pathUSD — that is
+# Tempo-only). Verified 2026-09-18: the bare domain 404s; only the `/evm` path
+# serves JSON-RPC (eth_chainId → 0x3e6). Docs: hyperliquid.gitbook.io,
+# for-developers/hyperevm (chainId 998, Cancun, EIP-1559, 18-decimal HYPE).
+[profile.hyperliquid]
+eth_rpc_url = "https://rpc.hyperliquid-testnet.xyz/evm"
+chain_id = 998

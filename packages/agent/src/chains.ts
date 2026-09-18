@@ -1,7 +1,9 @@
 // SPEC-5 — chain registry: the ONLY place chain differences live (invariant
 // 15). Params verified 2026-09-16: Tempo testnet 42431 (tempo.xyz docs),
-// HyperEVM testnet 998 (hyperliquid.gitbook.io). Unverified → null, and null
-// fails loudly downstream (invariant 16) — never a guess.
+// HyperEVM testnet 998 (hyperliquid.gitbook.io, for-developers/hyperevm);
+// HyperEVM RPC corrected 2026-09-18 — the bare domain 404s, only the `/evm`
+// path serves JSON-RPC (live eth_chainId probe → 0x3e6). Unverified → null,
+// and null fails loudly downstream (invariant 16) — never a guess.
 export type ChainKey = "tempo" | "hyperliquid" | "ethereum" | "base" | "arbitrum" | "robinhood";
 
 export interface ChainConfig {
@@ -32,9 +34,9 @@ export const CHAIN_REGISTRY: Record<ChainKey, ChainConfig> = deepFreeze({
   },
   hyperliquid: {
     key: "hyperliquid", name: "HyperEVM testnet",
-    testnet: { chainId: 998, rpc: "https://rpc.hyperliquid-testnet.xyz" },
+    testnet: { chainId: 998, rpc: "https://rpc.hyperliquid-testnet.xyz/evm" },
     attestation: { address: null, chainId: null }, explorer: null,
-    notes: "Primary track: same loop, attestation deploy #2.",
+    notes: "Primary track: same loop, attestation deploy #2 (v2 direct).",
   },
   ethereum: {
     key: "ethereum", name: "Ethereum",
