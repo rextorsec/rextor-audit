@@ -18,6 +18,7 @@ Hallmark-designed static mocks in `mockups/{landing,dashboard,install}/` → REC
 
 - Routes: `/` (landing), `/dashboard/[owner]/[repo]` (living audit report), `/install`, `/docs` (light: concept + config reference rendered from the same content as `docs/rubric`-style pages — static MDX acceptable).
 - TS strict, pnpm workspace member, vitest + Testing Library (Conatus web pattern). Deploy: Vercel. Env: `REXTOR_AGENT_URL`, `REXTOR_AGENT_TOKEN` (service auth), `NEXT_PUBLIC_*` limited to non-secrets (contract addresses, chainIds, explorer base URLs).
+- **UI stack (locked 2026-09-18, RECTOR decision): Tailwind CSS + shadcn/ui + Radix UI** — CodeRabbit's own stack (Wappalyzer-verified), chosen so the studied CodeRabbit design DNA ports natively. Approved mock tokens map 1:1 into Tailwind v4 `@theme` + shadcn/ui CSS variables (`--background`/`--foreground`/`--primary`/… naming adopted in `tokens.css`). Fire the `shadcn` skill when scaffolding or adding components.
 - No login, no billing, no multi-tenant anything (SPEC.md OUT list).
 
 ### 2. Landing (`/`)

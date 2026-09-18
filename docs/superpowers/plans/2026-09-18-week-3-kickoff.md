@@ -6,13 +6,14 @@
 
 **Architecture:** Static Hallmark mocks (`mockups/`) gate all web code. Contract v2 adds `findingsURI` + `targetChainId` to `RextorAttestation` (immutable → redeploy). Agent gains an IPFS pin step and a `reviews` SQLite index served at `GET /reviews/:owner/:repo`. Next.js 14 app-router web renders capabilities from a JSON data file, the dashboard from that index + public RPC reads.
 
-**Tech Stack:** pnpm + turbo · TypeScript strict · vitest · Foundry (contracts) · viem · Next.js 14 (web, Vercel) · Pinata (IPFS) · better-sqlite3 (review index).
+**Tech Stack:** pnpm + turbo · TypeScript strict · vitest · Foundry (contracts) · viem · Next.js 14 (web, Vercel) · **Tailwind CSS + shadcn/ui + Radix UI (web)** · Pinata (IPFS) · better-sqlite3 (review index).
 
 **Spec:** [`docs/specs/SPEC-6-web-surface.md`](../../specs/SPEC-6-web-surface.md) · scope: [`2026-09-18-week-3-scope.md`](2026-09-18-week-3-scope.md) · content: [`2026-09-18-week-3-marketing-matrix.md`](2026-09-18-week-3-marketing-matrix.md)
 
 ## Global Constraints
 
 - TS strict everywhere; `pnpm test:run` green before any merge; one commit per feature, conventional prefixes, GPG signing (never disable), zero AI attribution.
+- **Web UI stack (locked 2026-09-18, RECTOR): Tailwind CSS + shadcn/ui + Radix UI** — mock tokens adopt shadcn-compatible variable names; fire the `shadcn` skill at scaffold/component-add time.
 - **Mockups-before-code is a hard gate** — Tasks 8–11 MUST NOT start before RECTOR approves all three mocks (Task 4).
 - Approved mock `tokens.css` is the web token source of truth — same token names, no re-invention (invariant 20).
 - Honest copy only: real numbers (below) or labelled `—`; no invented metrics/logos/testimonials (invariant 17).
