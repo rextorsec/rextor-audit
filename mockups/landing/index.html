@@ -412,15 +412,15 @@ a:focus-visible {
       <p class="hero__lede">Every pull request that touches money&#8209;code becomes an audit event. Generic reviewers read code changes — Rextor audits money changes, and anchors the verdict on&#8209;chain.</p>
       <div class="hero__cta-row">
         <a class="btn btn--primary" href="#install">Install the GitHub App</a>
-        <a class="link--receipt" href="https://explore.testnet.tempo.xyz/address/0x513707577e4d8925295072df7944b0659228d31f">See a live verdict ↗</a>
+        <a class="link--receipt" href="https://explore.testnet.tempo.xyz/address/0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd">See a live verdict ↗</a>
       </div>
     </div>
   </div>
   <div class="hero__facts">
     <span>Live on Tempo testnet · chainId 42431</span>
-    <span>Contract 0x5137…d31f</span>
+    <span>Contract 0x7fe6…0bcd (v2)</span>
     <span>Agent rextor-audit[bot] · active</span>
-    <span>Attested reviews: 2</span>
+    <span>Attested reviews: 1 · smoke&#8209;proven</span>
   </div>
 </header>
 
@@ -471,8 +471,8 @@ a:focus-visible {
         <div class="artifact__row"><dt>reviewId</dt><dd>keccak256("rextor/review/v1|" + owner/repo + "|" + pr + "|" + headSha)</dd></div>
         <div class="artifact__row"><dt>findingsHash</dt><dd>sha256 of the canonical findings JSON — printed in every review comment</dd></div>
         <div class="artifact__row"><dt>score</dt><dd>rubric: critical 60 · high 25 · medium 10 · low 3, cap 100</dd></div>
-        <div class="artifact__row"><dt>agent</dt><dd>rextor-audit[bot] · 0xE690…a122 · reviewCount 2</dd></div>
-        <div class="artifact__row"><dt>chain</dt><dd>Tempo testnet 42431 · <a class="link--receipt" href="https://explore.testnet.tempo.xyz/address/0x513707577e4d8925295072df7944b0659228d31f">verify on the explorer ↗</a></dd></div>
+        <div class="artifact__row"><dt>agent</dt><dd>rextor-audit[bot] · 0xE690…a122 · reviewCount 1 (v2 · smoke&#8209;proven)</dd></div>
+        <div class="artifact__row"><dt>chain</dt><dd>Tempo testnet 42431 · <a class="link--receipt" href="https://explore.testnet.tempo.xyz/address/0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd">verify on the explorer ↗</a></dd></div>
       </dl>
     </div>
 
@@ -492,7 +492,7 @@ a:focus-visible {
         <tr><td data-label="Rextor">Every PR an audit event (diff&#8209;scoped, continuous)</td><td class="yes" data-label="Generic">✔</td><td class="no" data-label="Bots">—</td><td class="yes" data-label="Rextor">✔ <a class="link--receipt" href="#s1">stage 1.0</a></td></tr>
         <tr><td data-label="Rextor">Deterministic, recomputable risk score</td><td class="no" data-label="Generic">—</td><td class="partial" data-label="Bots">◐</td><td class="yes" data-label="Rextor">✔ <a class="link--receipt" href="#s5">rubric</a></td></tr>
         <tr><td data-label="Rextor">Execution&#8209;proof findings (fork&#8209;sim PoC)</td><td class="no" data-label="Generic">—</td><td class="no" data-label="Bots">—</td><td class="yes" data-label="Rextor">✔ <a class="link--receipt" href="#s4">stage 4.0</a></td></tr>
-        <tr><td data-label="Rextor">Verdict on&#8209;chain, native to the target chain</td><td class="no" data-label="Generic">—</td><td class="no" data-label="Bots">—</td><td class="yes" data-label="Rextor">✔ <a class="link--receipt" href="https://explore.testnet.tempo.xyz/address/0x513707577e4d8925295072df7944b0659228d31f">Tempo · live</a> <span class="soon">HyperEVM — Shipping Oct 2026</span> <span class="soon">Solana — Shipping Oct 2026</span></td></tr>
+        <tr><td data-label="Rextor">Verdict on&#8209;chain, native to the target chain</td><td class="no" data-label="Generic">—</td><td class="no" data-label="Bots">—</td><td class="yes" data-label="Rextor">✔ <a class="link--receipt" href="https://explore.testnet.tempo.xyz/address/0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd">Tempo · live</a> <span class="soon">HyperEVM — Shipping Oct 2026</span> <span class="soon">Solana — Shipping Oct 2026</span></td></tr>
         <tr><td data-label="Rextor">Integrity rails — INCOMPLETE never silent</td><td class="partial" data-label="Generic">◐</td><td class="no" data-label="Bots">—</td><td class="yes" data-label="Rextor">✔ <a class="link--receipt" href="#s3">stage 3.0</a></td></tr>
         <tr><td data-label="Rextor">Suggested fix per finding (reviewable diff)</td><td class="yes" data-label="Generic">✔</td><td class="no" data-label="Bots">—</td><td class="yes" data-label="Rextor"><span class="soon">Shipping Oct 2026</span></td></tr>
         <tr><td data-label="Rextor">Repo config + severity merge gate</td><td class="no" data-label="Generic">—</td><td class="no" data-label="Bots">—</td><td class="yes" data-label="Rextor"><span class="soon">Shipping Oct 2026</span></td></tr>
@@ -512,7 +512,7 @@ a:focus-visible {
     <h2>Where it runs</h2>
     <div class="track">
       <p class="track__name">Tempo <small>flagship · chainId 42431</small></p>
-      <p class="track__status"><strong>Full loop, live.</strong> Slither + Aderyn, fork&#8209;sim, attestation deployed 2026&#8209;09&#8209;17 — <a class="link--receipt" href="https://explore.testnet.tempo.xyz/address/0x513707577e4d8925295072df7944b0659228d31f">contract ↗</a></p>
+      <p class="track__status"><strong>Full loop, live.</strong> Slither + Aderyn, fork&#8209;sim, attestation deployed 2026&#8209;09&#8209;17 — <a class="link--receipt" href="https://explore.testnet.tempo.xyz/address/0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd">contract ↗</a></p>
     </div>
     <div class="track">
       <p class="track__name">HyperEVM <small>primary · chainId 998</small></p>
