@@ -1,0 +1,131 @@
+{
+  "asOf": "2026-09-18",
+  "maxSoonRows": 15,
+  "rows": [
+    {
+      "id": "analyzer-grounding",
+      "capability": "Built for money‑code — analyzer grounding",
+      "generic": "no",
+      "bots": "partial",
+      "rextor": { "shipped": true, "receipt": "#s2", "receiptLabel": "stage 2.0" },
+      "backing": "Week-1 engine"
+    },
+    {
+      "id": "audit-event",
+      "capability": "Every PR an audit event (diff‑scoped, continuous)",
+      "generic": "yes",
+      "bots": "no",
+      "rextor": { "shipped": true, "receipt": "#s1", "receiptLabel": "stage 1.0" },
+      "backing": "Week-1 engine"
+    },
+    {
+      "id": "risk-score",
+      "capability": "Deterministic, recomputable risk score",
+      "generic": "no",
+      "bots": "partial",
+      "rextor": { "shipped": true, "receipt": "#s5", "receiptLabel": "rubric" },
+      "backing": "SPEC-2"
+    },
+    {
+      "id": "fork-sim",
+      "capability": "Execution‑proof findings (fork‑sim PoC)",
+      "generic": "no",
+      "bots": "no",
+      "rextor": { "shipped": true, "receipt": "#s4", "receiptLabel": "stage 4.0" },
+      "backing": "SPEC-3"
+    },
+    {
+      "id": "onchain-verdict",
+      "capability": "Verdict on‑chain, native to the target chain",
+      "generic": "no",
+      "bots": "no",
+      "rextor": {
+        "shipped": true,
+        "receipt": "https://explore.testnet.tempo.xyz/address/0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd",
+        "receiptLabel": "Tempo · live",
+        "soonChips": ["HyperEVM — Shipping Oct 2026", "Solana — Shipping Oct 2026"]
+      },
+      "backing": "B1, B2, B4+B5, B6"
+    },
+    {
+      "id": "integrity-rails",
+      "capability": "Integrity rails — INCOMPLETE never silent",
+      "generic": "partial",
+      "bots": "no",
+      "rextor": { "shipped": true, "receipt": "#s3", "receiptLabel": "stage 3.0" },
+      "backing": "Week-1/2"
+    },
+    {
+      "id": "fix-diffs",
+      "capability": "Suggested fix per finding (reviewable diff)",
+      "generic": "yes",
+      "bots": "no",
+      "rextor": { "shipped": false, "soon": true },
+      "backing": "D1"
+    },
+    {
+      "id": "config-gate",
+      "capability": "Repo config + severity merge gate",
+      "generic": "no",
+      "bots": "no",
+      "rextor": { "shipped": false, "soon": true },
+      "backing": "D2"
+    },
+    {
+      "id": "ipfs-report",
+      "capability": "Durable full report (IPFS) + anyone‑can‑verify",
+      "generic": "no",
+      "bots": "no",
+      "rextor": { "shipped": false, "soon": true },
+      "backing": "B3"
+    },
+    {
+      "id": "agent-identity",
+      "capability": "Verifiable agent identity (ERC‑8004)",
+      "generic": "no",
+      "bots": "no",
+      "rextor": { "shipped": false, "soon": true },
+      "backing": "C1"
+    },
+    {
+      "id": "reputation",
+      "capability": "Public agent reputation ledger",
+      "generic": "no",
+      "bots": "no",
+      "rextor": { "shipped": false, "soon": true },
+      "backing": "C2"
+    },
+    {
+      "id": "dismissals",
+      "capability": "Cross‑PR memory (dismissals)",
+      "generic": "yes",
+      "bots": "no",
+      "rextor": { "shipped": false, "soon": true },
+      "backing": "D4"
+    },
+    {
+      "id": "pr-chat",
+      "capability": "Chat in PR",
+      "generic": "yes",
+      "bots": "no",
+      "rextor": { "shipped": false, "soon": true },
+      "backing": "D5"
+    },
+    {
+      "id": "chain-cost",
+      "capability": "Chain cost‑model reasoning",
+      "generic": "no",
+      "bots": "no",
+      "rextor": { "shipped": false, "soon": true },
+      "backing": "E1"
+    },
+    {
+      "id": "dashboard",
+      "capability": "Living dashboard — ledger, history, identity",
+      "generic": "yes",
+      "bots": "no",
+      "rextor": { "shipped": false, "soon": true },
+      "backing": "A3/A4"
+    }
+  ]
+}
