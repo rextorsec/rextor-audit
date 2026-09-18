@@ -29,8 +29,8 @@ export const CHAIN_REGISTRY: Record<ChainKey, ChainConfig> = deepFreeze({
   tempo: {
     key: "tempo", name: "Tempo testnet",
     testnet: { chainId: 42431, rpc: "https://rpc.moderato.tempo.xyz" },
-    attestation: { address: "0x513707577e4d8925295072df7944b0659228d31f", chainId: 42431 }, explorer: null,
-    notes: "Flagship track: full loop — Slither+Aderyn, fork-sim, attestation deploy #1.",
+    attestation: { address: "0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd", chainId: 42431 }, explorer: null,
+    notes: "Flagship track: full loop — Slither+Aderyn, fork-sim, attestation deploy #2 (v2: findingsURI + targetChainId).",
   },
   hyperliquid: {
     key: "hyperliquid", name: "HyperEVM testnet",

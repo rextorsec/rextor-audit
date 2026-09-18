@@ -6,7 +6,7 @@
 
 | Track | Key | Name | Chain ID | Fork RPC (testnet) | Analyzers | Fork-sim | Attestation | Deployment doc |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Flagship | `tempo` | Tempo testnet | 42431 | `https://rpc.moderato.tempo.xyz` | Slither + Aderyn | yes | deployed — `0x5137…d31f` (deploy #1) | [`docs/deployments/tempo.md`](deployments/tempo.md) |
+| Flagship | `tempo` | Tempo testnet | 42431 | `https://rpc.moderato.tempo.xyz` | Slither + Aderyn | yes | deployed — `0x7fe6…0bcd` (deploy #2, v2) | [`docs/deployments/tempo.md`](deployments/tempo.md) |
 | Primary | `hyperliquid` | HyperEVM testnet | 998 | `https://rpc.hyperliquid-testnet.xyz/evm` (bare domain 404s — `/evm` required) | Slither + Aderyn | yes | pending — deploy #2 (v2 direct) | [`docs/deployments/hyperliquid.md`](deployments/hyperliquid.md) |
 | Rider | `ethereum` | Ethereum | 1 | — | deterministic pass | no (config-level) | once deployed (config-level) | pending |
 | Rider | `base` | Base | 8453 | — | deterministic pass | no (config-level) | once deployed (config-level) | pending |

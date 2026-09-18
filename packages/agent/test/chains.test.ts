@@ -26,7 +26,7 @@ describe("CHAIN_REGISTRY", () => {
     // SPEC-4 §2: slots start null and are filled by recorded deployments —
     // docs/deployments/tempo.md is the anchor for this literal.
     expect(CHAIN_REGISTRY.tempo.attestation).toEqual({
-      address: "0x513707577e4d8925295072df7944b0659228d31f",
+      address: "0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd",
       chainId: 42431,
     });
     for (const key of Object.keys(CHAIN_REGISTRY) as ChainKey[]) {
