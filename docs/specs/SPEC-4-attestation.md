@@ -56,3 +56,27 @@ Verdict identity & hashes (binding, shared with the agent):
 - Forge suite: register/activate gates; happy attest; idempotent no-op; conflict revert; inactive-agent revert; incomplete-status round-trip; `reviewCount` increments; `verify()` true/false paths.
 - Agent unit (fakes): canonical-hash vector + reviewId vector (fixed, documented); injected attest success → footer rendered; attest throws → comment still posted, no tx line; env-unset → skipped note.
 - Deployments recorded per §2; a smoke attestation of the fixtures/vault review readable back via `verify`.
+
+---
+
+## Errata (2026-09-18 — post-T10 roadmap session)
+
+This document describes **v1** as implemented (Tempo testnet @ `0x5137…d31f`, 2 live
+attestations). The Week-3 roadmap session locked **v2** decisions that supersede §1/§2 at
+v2 authoring:
+
+- **Schema:** v2 adds `findingsURI` (IPFS-pinned full report; agent pins before attest) and
+  `targetChainId` (the chain the audited code targets) — chain-neutral verdict identity,
+  enabling home-chain anchoring for rider-target audits. Immutable-by-design → **redeploy**
+  on Tempo; testnet `reviewCount` reset acceptable and documented. HyperEVM deploys v2
+  directly (no v1 deploy there).
+- **Architecture ruling:** home-chain attestation + native deploys only for demo chains
+  (Tempo, HyperEVM, Solana-devnet Anchor program iff the Solana pair ships); riders never
+  get native deploys. Solana pair (verdict program + review slice) inseparable.
+- **ERC-8004:** identity chain-neutral (Tempo registry if present, else Ethereum-mainnet
+  canonical registries), verdicts chain-native; reputation ingestion operator-seeded with
+  honest disclosure (Conatus pattern).
+- **Robustness:** attest path gains receipt-status assertion (mined-but-reverted tx must
+  never pass as success — Conatus `anchor.ts` pattern); Tempo estimate unreliability
+  (`--skip-simulation` lesson) stands.
+- Scope/decision record: `docs/superpowers/plans/2026-09-18-week-3-scope.md` (B1–B6, C1–C2).
