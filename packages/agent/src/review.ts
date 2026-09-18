@@ -11,7 +11,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve } from "node:path";
 import { scopeDiff, type DiffScopeResult } from "./diff-scope";
-import { buildAttestRecord, type AttestRecord } from "./attest";
+import { buildAttestRecord, reviewIdFor, type AttestRecord } from "./attest";
+import type { ReviewRow } from "./db";
 import { resolveChain, attestationChainId } from "./chains";
 import { NO_TRIAGE_MODEL, rawFindingsResult, type TriageResult } from "./triage";
 import { runSimStage, sanitizePocSource, type PocRequest, type SimOutcomeMap } from "./sim";
@@ -37,8 +38,9 @@ export interface ReviewDeps {
   fetchDiff(prUrl: string): Promise<string>;
   /** Analyzer run over the repo → NDJSON stdout (SPEC-1 §1). */
   runAnalyzer(repoDir: string): Promise<string>;
-  /** Posts ONE PR comment. */
-  postComment(prUrl: string, body: string): Promise<void>;
+  /** Posts ONE PR comment; resolves the comment html_url when the adapter
+   *  can produce it (the review index's comment_url, SPEC-6 §3). */
+  postComment(prUrl: string, body: string): Promise<void | string>;
   /** Releases the clone dir; runReview calls it in a finally, exactly once per clone. */
   dispose(repoDir: string): Promise<void>;
   /** PoC generation (SPEC-3) — frontier LLM seam; absent → sim skipped. */
@@ -51,6 +53,8 @@ export interface ReviewDeps {
    *  attest (score → pin → attest → postComment). Absent or throwing → the
    *  attestation proceeds with findingsURI "" (degrade, never block). */
   pin?: (report: ReviewResult) => Promise<{ uri: string; cid: string }>;
+  /** SPEC-6 §3 review-index write-through; absent → no row recorded. */
+  recordReview?: (row: ReviewRow) => void;
 }
 
 export interface ReviewResult {
@@ -335,6 +339,40 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
   const { dir: repoDir, headSha } = await deps.clone(prUrl);
   const identity = prIdentity(prUrl);
 
+  // SPEC-6 §3 — review-index write-through: one row per settled review
+  // (complete, hard-incomplete, attested or skipped). Absent attestation is
+  // stored as empty chain/tx fields — never fake values. Best-effort: the
+  // comment has already settled, so an index failure never fails the review.
+  const recordIndexRow = (
+    riskScore: number,
+    findingCount: number,
+    incomplete: boolean,
+    att: AttestationInfo,
+    commentUrl: string | void,
+  ): void => {
+    if (!deps.recordReview) return;
+    try {
+      deps.recordReview({
+        repo: identity.repoFullName,
+        pr: identity.prNumber,
+        head_sha: headSha,
+        review_id: "reviewId" in att
+          ? att.reviewId
+          : reviewIdFor(identity.repoFullName, identity.prNumber, headSha),
+        chain: "chain" in att ? att.chain : "",
+        tx_hash: "txHash" in att ? att.txHash : "",
+        explorer_url: "explorerUrl" in att ? att.explorerUrl : "",
+        risk_score: riskScore,
+        finding_count: findingCount,
+        status: incomplete ? 1 : 0,
+        comment_url: typeof commentUrl === "string" ? commentUrl : "",
+        created_at: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error("[rextor] review index write failed:", err instanceof Error ? err.message : err);
+    }
+  };
+
   // SPEC-4 §3 — attestation runs BEFORE the comment on EVERY verdict path and
   // can never block or fail the review: every failure (no dep, throw, null)
   // degrades to a "skipped" footer. Hard-incomplete reviews attest status=1
@@ -403,8 +441,9 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       const { att, findingsHash } = await attestStage([], 0, true);
-      await deps.postComment(prUrl,
+      const commentUrl = await deps.postComment(prUrl,
         withFooter(incompleteCommentBody(`analyzer failed: ${reason}`), att, findingsHash));
+      recordIndexRow(0, 0, true, att, commentUrl);
       return { commented: true, score: 0, incomplete: reason, attestation: att, findings: [] };
     }
 
@@ -417,8 +456,9 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
           ? err.reason
           : `unparseable analyzer report: ${err instanceof Error ? err.message : String(err)}`;
       const { att, findingsHash } = await attestStage([], 0, true);
-      await deps.postComment(prUrl,
+      const commentUrl = await deps.postComment(prUrl,
         withFooter(incompleteCommentBody(reason), att, findingsHash));
+      recordIndexRow(0, 0, true, att, commentUrl);
       return { commented: true, score: 0, incomplete: reason, attestation: att, findings: [] };
     }
 
@@ -445,9 +485,10 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
       { generatePoc: deps.generatePoc, runSim: deps.runSim }, process.env);
     const scoreValue = scoreV1(simmed.findings);
     const { att, findingsHash } = await attestStage(simmed.findings, scoreValue, false);
-    await deps.postComment(prUrl, withFooter(
+    const commentUrl = await deps.postComment(prUrl, withFooter(
       summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote),
       att, findingsHash));
+    recordIndexRow(scoreValue, simmed.findings.length, false, att, commentUrl);
     return { commented: true, score: scoreValue, attestation: att, findings: simmed.findings };
   } finally {
     // The clone dir must not outlive the review on any path (token-free but

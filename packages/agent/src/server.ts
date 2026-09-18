@@ -14,6 +14,7 @@ import { pathToFileURL } from "node:url";
 import { runReview, type ReviewDeps } from "./review";
 import { githubDeps } from "./github";
 import { MAX_BODY_BYTES, ReviewQueue } from "./queue";
+import { createReviewStore, type ReviewStore } from "./db";
 
 export function verifySignature(rawBody: string, sig: string, secret: string): boolean {
   if (!sig.startsWith("sha256=")) return false;
@@ -28,6 +29,11 @@ export interface ReviewServerOptions {
   deps?: ReviewDeps;
   /** Default: env GITHUB_APP_SECRET, read per request. */
   secret?: string;
+  /** SPEC-6 §3 review index; default: store at env REXTOR_DB_PATH (read at
+   *  server creation), or none — GET /reviews then reports the misconfiguration. */
+  store?: ReviewStore;
+  /** GET /reviews bearer token; default: env REXTOR_AGENT_TOKEN, read per request. */
+  apiToken?: string;
 }
 
 /** HTTP server exposing the review queue drain as a test/ops affordance. */
@@ -37,9 +43,31 @@ export interface ReviewServer extends Server {
 }
 
 export function createReviewServer(options: ReviewServerOptions = {}): ReviewServer {
-  const deps = options.deps ?? githubDeps();
+  // SPEC-6 §3 review index: an injected store wins; otherwise the store is
+  // opened once at REXTOR_DB_PATH (the store owns its file for the server's
+  // lifetime); env unset → no index — GET /reviews then fails honestly.
+  const store =
+    options.store ?? (process.env.REXTOR_DB_PATH ? createReviewStore(process.env.REXTOR_DB_PATH) : undefined);
+  const base = options.deps ?? githubDeps();
+  // Write-through wiring: queued reviews land in the index after they settle.
+  // A caller-provided recordReview dep takes precedence over the store.
+  const deps: ReviewDeps =
+    store && !base.recordReview ? { ...base, recordReview: (row) => store.insert(row) } : base;
   const queue = new ReviewQueue();
   const server = createServer((req, res) => {
+    const pathname = (req.url ?? "/").split("?")[0];
+    if (req.method === "GET" && /^\/reviews\/[^/]+\/[^/]+\/?$/.test(pathname)) {
+      void handleReviews(req, res, store, options.apiToken).catch((err) => {
+        console.error("[rextor] reviews handler crashed:", err);
+        if (!res.headersSent) {
+          res.statusCode = 500;
+          json(res, { error: "internal error" });
+        } else {
+          res.end();
+        }
+      });
+      return;
+    }
     void handleWebhook(req, res, options.secret, deps, queue).catch((err) => {
       console.error("[rextor] webhook handler crashed:", err);
       if (!res.headersSent) {
@@ -52,6 +80,47 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
   }) as ReviewServer;
   server.idle = () => queue.idle();
   return server;
+}
+
+// Timing-safe token comparison: same length-guard pattern as verifySignature.
+function tokensEqual(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided, "utf8");
+  const b = Buffer.from(expected, "utf8");
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+// SPEC-6 §3 — dashboard data source. Token-gated (X-API-Token vs
+// REXTOR_AGENT_TOKEN); an unset token fails closed (401 for everything).
+// Unknown repo → 200 { reviews: [] } — the dashboard's empty state, not an
+// error. Path segments are PR-derived untrusted strings: stored verbatim and
+// JSON-encoded on the way out (JSON escapes — inert data, no rendering here).
+async function handleReviews(
+  req: IncomingMessage,
+  res: ServerResponse,
+  store: ReviewStore | undefined,
+  apiTokenOpt: string | undefined,
+): Promise<void> {
+  const expected = apiTokenOpt ?? process.env.REXTOR_AGENT_TOKEN;
+  const provided = header(req, "x-api-token");
+  if (!expected || !provided || !tokensEqual(provided, expected)) {
+    res.statusCode = 401;
+    json(res, { error: "unauthorized" });
+    return;
+  }
+  if (!store) {
+    console.error("[rextor] REXTOR_DB_PATH is not configured");
+    res.statusCode = 500;
+    json(res, { error: "server misconfigured: no review index" });
+    return;
+  }
+  const match = (req.url ?? "/").split("?")[0].match(/^\/reviews\/([^/]+)\/([^/]+)\/?$/);
+  if (!match) {
+    res.statusCode = 404;
+    json(res, { error: "not found" });
+    return;
+  }
+  const repo = `${decodeURIComponent(match[1])}/${decodeURIComponent(match[2])}`;
+  json(res, { reviews: store.listForRepo(repo) });
 }
 
 async function handleWebhook(

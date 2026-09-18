@@ -123,10 +123,12 @@ export function githubDeps(options: GithubDepsOptions = {}): ReviewDeps {
     // attests with findingsURI "" (degraded mode).
     pin: makePinDep(),
 
-    async postComment(prUrl: string, body: string): Promise<void> {
+    async postComment(prUrl: string, body: string): Promise<string | undefined> {
       const { owner, repo, number } = prParts(prUrl);
       const octokit = new Octokit({ auth: token(), request: { timeout: OCTOKIT_TIMEOUT_MS } });
-      await octokit.rest.issues.createComment({ owner, repo, issue_number: number, body });
+      const res = await octokit.rest.issues.createComment({ owner, repo, issue_number: number, body });
+      // SPEC-6 §3 — the comment html_url is the review index's comment_url.
+      return res.data.html_url ?? undefined;
     },
 
     async dispose(repoDir: string): Promise<void> {
