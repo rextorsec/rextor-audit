@@ -57,7 +57,7 @@ export interface ReviewResult {
   /** SPEC-4 §3 — on-chain anchoring outcome; set on every commented path
    *  (success shapes when attested, { skipped } when not configured or failed). */
   attestation?:
-    | { chain: string; reviewId: string; txHash: string; explorerUrl: string }
+    | { chain: string; reviewId: string; findingsURI: string; targetChainId: number; txHash: string; explorerUrl: string }
     | { skipped: string };
 }
 
@@ -283,17 +283,29 @@ function activeChainName(): string {
   }
 }
 
-// The comment footer (SPEC-4 §3): chain, reviewId, tx/explorer link and the
-// findingsHash — the reproducibility recipe sitting next to the <details>
-// findings JSON it hashes. Free-text interpolations (chain name, skip reason)
-// pass through cell(); reviewId/txHash/findingsHash are agent-generated hex.
+// SPEC-4 v2 — targetChainId: the chain the audited code targets, per the SPEC-5
+// registry the engine is pointed at. 0 = unresolved (degraded, shown as-is);
+// resolveChain throws on an unknown chain key, so degrade exactly like the name.
+
+// The comment footer (SPEC-4 §3, v2): chain, reviewId, targetChainId, tx/explorer
+// link and the findingsHash — the reproducibility recipe sitting next to the
+// <details> findings JSON it hashes. findingsURI renders only when non-empty
+// ("" = degraded mode — B3 wires IPFS pinning). reviewId recipe is UNCHANGED;
+// targetChainId is its own field, never folded into the identity derivation.
+// Free-text interpolations (chain name, skip reason) pass through cell();
+// reviewId/txHash/findingsHash are agent-generated hex.
 function attestationFooter(att: AttestationInfo, findingsHash?: string): string[] {
   if ("skipped" in att) return ["", `_attestation skipped: ${cell(att.skipped)}_`];
   const link = att.explorerUrl
     ? `[tx \`${att.txHash.slice(0, 10)}…\`](${att.explorerUrl})`
     : `tx \`${att.txHash}\``;
   const hashPart = findingsHash ? ` · findingsHash \`${findingsHash}\`` : "";
-  return ["", "---", `⚖ attested on ${cell(att.chain)} · reviewId \`${att.reviewId}\`${hashPart} · ${link}`];
+  const uriPart = att.findingsURI ? ` · findingsURI \`${att.findingsURI}\`` : "";
+  return [
+    "",
+    "---",
+    `⚖ attested on ${cell(att.chain)} · reviewId \`${att.reviewId}\`${hashPart} · targetChainId \`${att.targetChainId}\`${uriPart} · ${link}`,
+  ];
 }
 
 // Append the footer to a comment body (footer's first row is a blank line).
@@ -323,6 +335,14 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
   ): Promise<{ att: AttestationInfo; findingsHash?: string }> => {
     if (!deps.attest) return { att: { skipped: "attestation not configured" } };
     try {
+      // SPEC-4 v2 — targetChainId resolves from the SPEC-5 registry chain
+      // (degrade to 0 exactly like activeChainName does on an unknown key);
+      // findingsURI stays "" until B3 wires IPFS pinning (degraded mode).
+      let targetChainId = 0;
+      try {
+        const chain = resolveChain(process.env);
+        targetChainId = chain.attestation.chainId ?? chain.testnet.chainId ?? 0;
+      } catch { /* unknown chain key — 0 */ }
       const record = buildAttestRecord({
         repoFullName: identity.repoFullName,
         prNumber: identity.prNumber,
@@ -330,6 +350,7 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
         findings,
         riskScore,
         incomplete,
+        targetChainId,
       });
       const res = await deps.attest(record);
       if (!res) return { att: { skipped: "attestation attempt failed" }, findingsHash: record.findingsHash };
@@ -337,6 +358,8 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
         att: {
           chain: activeChainName(),
           reviewId: record.reviewId,
+          findingsURI: record.findingsURI,
+          targetChainId: record.targetChainId,
           txHash: res.txHash,
           explorerUrl: res.explorerUrl,
         },

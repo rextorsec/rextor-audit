@@ -22,21 +22,26 @@ import { findingsHash, type Finding } from "./findings";
 import { resolveChain } from "./chains";
 import type { ReviewDeps } from "./review";
 
-// Exact T6 contract ABI. attest + verify share the payload. parseAbi is NOT
-// optional: viem's writeContract/getAbiItem need parsed items — raw
-// human-readable strings throw `'name' in …` at call time (T10 Phase C live).
+// Exact contract ABI (SPEC-4 v2 — findingsURI + targetChainId). attest + verify
+// share the payload. parseAbi is NOT optional: viem's writeContract/getAbiItem
+// need parsed items — raw human-readable strings throw `'name' in …` at call
+// time (T10 Phase C live).
 export const REXTOR_ATTESTATION_ABI = parseAbi([
-  "function attest(bytes32 reviewId, bytes32 commitHash, bytes32 findingsHash, uint16 riskScore, uint16 findingCount, uint8 status)",
-  "function verify(bytes32 reviewId, bytes32 commitHash, bytes32 findingsHash, uint16 riskScore, uint16 findingCount, uint8 status) view returns (bool)",
+  "function attest(bytes32 reviewId, bytes32 commitHash, bytes32 findingsHash, string findingsURI, uint16 riskScore, uint16 findingCount, uint8 status, uint32 targetChainId)",
+  "function verify(bytes32 reviewId, bytes32 commitHash, bytes32 findingsHash, string findingsURI, uint16 riskScore, uint16 findingCount, uint8 status, uint32 targetChainId) view returns (bool)",
 ]);
 
 export interface AttestRecord {
   reviewId: `0x${string}`;
   commitHash: `0x${string}`;
   findingsHash: `0x${string}`;
+  /** SPEC-4 v2 — IPFS-pinned full report; "" = degraded (pin unavailable, B3 wires). */
+  findingsURI: string;
   riskScore: number;
   findingCount: number;
   status: 0 | 1;
+  /** SPEC-4 v2 — the chain the audited code targets; 0 = unresolved. */
+  targetChainId: number;
 }
 
 /** SPEC-4 §1 — keccak256 over the published derivation string. */
@@ -57,6 +62,10 @@ export function buildAttestRecord(input: {
   findings: Finding[];
   riskScore: number;
   incomplete: boolean;
+  /** IPFS-pinned full report; omitted → "" (degraded mode, SPEC-4 v2 ruling). */
+  findingsURI?: string;
+  /** The chain the audited code targets; omitted/unresolved → 0. */
+  targetChainId?: number;
 }): AttestRecord {
   return {
     reviewId: reviewIdFor(input.repoFullName, input.prNumber, input.headSha),
@@ -64,9 +73,11 @@ export function buildAttestRecord(input: {
     // T1's findingsHash directly — the SAME sha256-over-canonical-form the PR
     // comment publishes, so verify() recomputes from the comment alone.
     findingsHash: ("0x" + findingsHash(input.findings)) as `0x${string}`,
+    findingsURI: input.findingsURI ?? "",
     riskScore: input.riskScore,
     findingCount: input.findings.length,
     status: input.incomplete ? 1 : 0,
+    targetChainId: input.targetChainId ?? 0,
   };
 }
 
@@ -117,10 +128,12 @@ export function makeAttestDep(readEnv: () => NodeJS.ProcessEnv = () => process.e
           record.reviewId,
           record.commitHash,
           record.findingsHash,
-          // viem types uint16/uint8 as number — only uint256+ takes bigint.
+          record.findingsURI,
+          // viem types uint16/uint8/uint32 as number — only uint256+ takes bigint.
           record.riskScore,
           record.findingCount,
           record.status,
+          record.targetChainId,
         ],
         chain: viemChain,
         account,

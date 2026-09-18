@@ -377,6 +377,7 @@ describe("runReview attestation integration (SPEC-4 §3)", () => {
     const body = bodies[0];
     expect(body).toContain("---");
     expect(body).toContain("attested on");
+    expect(body).toContain("targetChainId");
     expect(body).toContain("[tx `0xabc…`](https://explorer.example/tx/0xabc)");
   });
 

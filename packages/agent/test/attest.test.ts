@@ -42,11 +42,25 @@ describe("verdict identity (SPEC-4 §1 vectors)", () => {
     expect(rec.findingCount).toBe(1);
     expect(rec.status).toBe(0);
     expect(rec.commitHash).toBe("0x" + sha40 + "0".repeat(24));
+    // SPEC-4 v2 degraded defaults: no URI pinned, no target chain resolved.
+    expect(rec.findingsURI).toBe("");
+    expect(rec.targetChainId).toBe(0);
     const hard = buildAttestRecord({
       repoFullName: "o/r", prNumber: 2, headSha: sha40, findings: [], riskScore: 0, incomplete: true,
     });
     expect(hard.status).toBe(1);
     expect(hard.findingCount).toBe(0);
+  });
+
+  it("buildAttestRecord carries v2 findingsURI and targetChainId when supplied", () => {
+    const rec = buildAttestRecord({
+      repoFullName: "o/r", prNumber: 2, headSha: sha40, findings: [], riskScore: 5, incomplete: false,
+      findingsURI: "ipfs://bafytest/report.json", targetChainId: 42431,
+    });
+    expect(rec.findingsURI).toBe("ipfs://bafytest/report.json");
+    expect(rec.targetChainId).toBe(42431);
+    // reviewId recipe is UNCHANGED — v2 fields never touch the derivation string.
+    expect(rec.reviewId).toBe(reviewIdFor("o/r", 2, sha40));
   });
 });
 describe("REXTOR_ATTESTATION_ABI (viem-ready)", () => {
@@ -56,8 +70,14 @@ describe("REXTOR_ATTESTATION_ABI (viem-ready)", () => {
   it("resolves attest/verify via viem getAbiItem — parsed items, not HRABI strings", () => {
     const attest = getAbiItem({ abi: REXTOR_ATTESTATION_ABI, name: "attest" });
     expect(attest.type).toBe("function");
-    expect(attest.inputs).toHaveLength(6);
+    // SPEC-4 v2: findingsURI + targetChainId added to the payload.
+    expect(attest.inputs).toHaveLength(8);
+    expect(attest.inputs.map((i) => i.name)).toEqual([
+      "reviewId", "commitHash", "findingsHash", "findingsURI",
+      "riskScore", "findingCount", "status", "targetChainId",
+    ]);
     const verify = getAbiItem({ abi: REXTOR_ATTESTATION_ABI, name: "verify" });
+    expect(verify.inputs).toHaveLength(8);
     expect(verify.outputs).toHaveLength(1);
   });
 });
