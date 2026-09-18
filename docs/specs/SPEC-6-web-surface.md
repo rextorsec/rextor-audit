@@ -51,7 +51,7 @@ Four steps, each verifiable: (1) install the GitHub App (real install link; perm
 
 ## Cross-cutting invariants (numbering continues from SPEC-5)
 
-17. The web surface never claims a capability whose backing work is unshipped: capabilities render from the status data file; shipped = receipt link present; `soon` ≤ 2 rows visible.
+17. The web surface never claims a capability whose backing work is unshipped: capabilities render from the status data file; shipped = receipt link present. `soon` presentation budget is configurable via the data file (`maxSoonRows`) — the RECTOR-approved 2026-09-18 mock runs the full table with de-emphasized badges and an honest footnote; a reduced budget is the post-CWF default.
 18. Dashboard data = agent review index (SQLite) + public chain reads via server route handlers; no browser-held keys, no unauthenticated chain writes.
 19. No secrets in the client bundle; `NEXT_PUBLIC_` limited to addresses/chainIds/explorer URLs.
 20. `tokens.css` from the approved mockups is the implementation token source; divergent inline colors/fonts in `packages/web` are a spec violation.
