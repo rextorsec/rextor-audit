@@ -12,7 +12,7 @@ import { promisify } from "node:util";
 import { resolve } from "node:path";
 import { scopeDiff, type DiffScopeResult } from "./diff-scope";
 import { buildAttestRecord, reviewIdFor, type AttestRecord } from "./attest";
-import type { ReviewRow } from "./db";
+import type { ReviewRow, RepoMemory } from "./db";
 import { resolveChain, attestationChainId } from "./chains";
 import { NO_TRIAGE_MODEL, rawFindingsResult, type TriageResult } from "./triage";
 import { runSimStage, sanitizePocSource, type PocRequest, type SimOutcomeMap } from "./sim";
@@ -25,12 +25,21 @@ import {
   type Finding,
   type Severity,
 } from "./findings";
+import {
+  DEFAULT_CONFIG,
+  dismissalKey,
+  gateConclusion,
+  inScope,
+  parseRepoConfig,
+  type RepoConfig,
+} from "./config";
 
 export type { Finding };
 
 export interface ReviewDeps {
-  /** LLM triage (SPEC-2); absent or failing → soft-incomplete. */
-  triage?: (findings: Finding[], scope: DiffScopeResult) => Promise<TriageResult>;
+  /** LLM triage (SPEC-2); absent or failing → soft-incomplete. SPEC-7 §2:
+   *  receives the raw PR diff as fix-authoring context (prompt-side only). */
+  triage?: (findings: Finding[], scope: DiffScopeResult, prDiff?: string) => Promise<TriageResult>;
   /** Clones the PR head; returns the working dir AND the head sha (SPEC-4 §3 —
    *  the attestation record needs the commit identity, and the clone has it locally). */
   clone(prUrl: string): Promise<{ dir: string; headSha: string }>;
@@ -55,6 +64,24 @@ export interface ReviewDeps {
   pin?: (report: ReviewResult) => Promise<{ uri: string; cid: string }>;
   /** SPEC-6 §3 review-index write-through; absent → no row recorded. */
   recordReview?: (row: ReviewRow) => void;
+  /** SPEC-7 §1 — reads `rextor.yaml` from the PR's BASE branch inside the
+   *  clone dir (base-branch config is the only trusted silencing channel,
+   *  invariant 21; resolving the base ref is the adapter's job). null = no
+   *  config file → defaults. Throwing = infrastructure failure → defaults,
+   *  logged (never repo-content errors — those return via parse). */
+  readBaseConfig?(repoDir: string, prUrl: string): Promise<string | null>;
+  /** SPEC-7 §1 — check-run conclusion from the severity gate. Best-effort:
+   *  a failing check-run never fails the review (the comment is the product). */
+  postCheckRun?(
+    prUrl: string,
+    headSha: string,
+    conclusion: "success" | "failure" | "neutral",
+    summary: string,
+  ): Promise<void>;
+  /** SPEC-7 §4 — server-side dismissals + learnings (repo-keyed SQLite).
+   *  Absent → yaml dismissals alone drive the gate, no annotations. All
+   *  memory failures degrade: the review never blocks on the ledger. */
+  repoMemory?: RepoMemory;
 }
 
 export interface ReviewResult {
@@ -166,7 +193,8 @@ export async function runAnalyzerContainer(repoDir: string): Promise<string> {
 // forge headings inside the bot's own comment, and unescaped `[link](url)`,
 // `![img]`, `@mention` would render live phishing links / fire bot-identity
 // notifications (SPEC-1 invariant 3).
-const cell = (s: string): string =>
+// Exported for chat.ts — same inert-rendering discipline across every comment surface.
+export const cell = (s: string): string =>
   s.replace(/[|\r\n]+/g, " ").replace(/[[\]!@]/g, (c) => `\\${c}`);
 
 // GitHub's hard comment limit; findings beyond the cap are suppressed, never
@@ -185,13 +213,15 @@ const countOps = (t: TriageResult) => ({
   dedup: t.ops.filter((o) => o.op === "dedup").length,
   reclassify: t.ops.filter((o) => o.op === "reclassify").length,
   add: t.ops.filter((o) => o.op === "add").length,
+  suggest: t.ops.filter((o) => o.op === "suggest_fix").length,
 });
 
 function triageLine(t: TriageResult): string {
   if (t.triageStatus === "complete") {
     const c = countOps(t);
     const rej = t.rejectedOps.length > 0 ? ` · ${t.rejectedOps.length} non-conforming op(s) rejected` : "";
-    return `Triaged by \`${cell(t.modelUsed)}\` @ temp 0 · ops: ${c.dedup} dedup · ${c.reclassify} reclassify · ${c.add} added${rej}`;
+    const sug = c.suggest > 0 ? ` · ${c.suggest} suggest` : "";
+    return `Triaged by \`${cell(t.modelUsed)}\` @ temp 0 · ops: ${c.dedup} dedup · ${c.reclassify} reclassify · ${c.add} added${sug}${rej}`;
   }
   if (t.modelUsed !== NO_TRIAGE_MODEL) {
     return `Triage with \`${cell(t.modelUsed)}\` did not complete — raw analyzer findings shown.`;
@@ -200,13 +230,74 @@ function triageLine(t: TriageResult): string {
 }
 
 function findingRow(f: Finding): string {
-  const note = f.triageNote
+  const baseNote = f.triageNote
     ?? (f.mergedChecks ? `merged: ${f.mergedChecks.join(", ")}` : "");
+  // SPEC-7 §4 — recurrence annotation rides the note column.
+  const note = f.learningNote
+    ? (baseNote ? `${baseNote} · ${f.learningNote}` : f.learningNote)
+    : baseNote;
   const sev = `${f.severity}${f.poc ? ` [poc:${f.poc.status}]` : ""}`;
   return `| #${f.id ?? "—"} | ${sev} | ${cell(f.check)} | ${cell(f.file)}:${f.line} | ${cell(note)} |`;
 }
 
-export function summaryCommentBody(scoreValue: number, triaged: TriageResult, simNote = ""): string {
+// SPEC-7 §3 — quoted cited lines: extracted VERBATIM from the PR diff (never
+// LLM-written code). Parses the + side of hunks into (newLine → text) per
+// file; returns a ±1 window around the cited line, or null when the line is
+// outside the diff — absence renders no evidence, never an invention.
+export function citedLinesFromDiff(
+  diff: string,
+  file: string,
+  line: number,
+): Array<[number, string]> | null {
+  const byNewLine = new Map<number, string>();
+  let currentFile: string | null = null;
+  let newLine = 0;
+  for (const raw of diff.split("\n")) {
+    if (raw.startsWith("diff --git ")) {
+      currentFile = null;
+      continue;
+    }
+    if (raw.startsWith("+++ ")) {
+      const p = raw.slice(4);
+      currentFile = p.startsWith('"b/') ? p.slice(3, -1) : p.startsWith("b/") ? p.slice(2) : p;
+      continue;
+    }
+    if (raw.startsWith("--- ") || raw.startsWith("index ") || raw.startsWith("new file") ||
+        raw.startsWith("deleted file") || raw.startsWith("similarity ") || raw.startsWith("rename ")) {
+      continue;
+    }
+    const hunk = raw.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (hunk) {
+      newLine = Number(hunk[1]);
+      continue;
+    }
+    if (currentFile === null) continue;
+    if (raw.startsWith("+")) {
+      byNewLine.set(newLine, raw.slice(1));
+      newLine += 1;
+    } else if (raw.startsWith("-") || raw.startsWith("\\")) {
+      // old-side / no-newline marker: absent from the new file
+    } else if (raw.startsWith(" ")) {
+      byNewLine.set(newLine, raw.slice(1));
+      newLine += 1;
+    }
+    // any other line (e.g. "\ No newline at end of file" handled above) ignored
+  }
+  const window: Array<[number, string]> = [];
+  for (let n = line - 1; n <= line + 1; n++) {
+    const text = byNewLine.get(n);
+    if (text !== undefined) window.push([n, text]);
+  }
+  return window.length > 0 ? window : null;
+}
+
+export function summaryCommentBody(
+  scoreValue: number,
+  triaged: TriageResult,
+  simNote = "",
+  att?: AttestationInfo,
+  prDiff?: string,
+): string {
   const findings = triaged.finalFindings;
   const sorted = [...findings].sort(
     (a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity),
@@ -239,8 +330,28 @@ export function summaryCommentBody(scoreValue: number, triaged: TriageResult, si
       "````",
       "</details>",
     ].join("\n"));
+  // SPEC-7 §2 — suggested fixes render as collapsed, INERT diff blocks
+  // (suggested-only, never auto-applied; invariant 23). Same sanitization
+  // discipline as PoC sources: no CR, no 3+ backtick runs inside a
+  // 4-backtick fence, so model output can never escape into live markdown.
+  const suggestionBlocks = findings
+    .filter((f) => f.suggestedDiff)
+    .map((f) => [
+      "",
+      `<details><summary>Suggestion — review before applying (finding #${f.id})</summary>`,
+      "",
+      "````diff",
+      sanitizePocSource(f.suggestedDiff!),
+      "````",
+      "</details>",
+    ].join("\n"));
   return [
     `## rextor audit — risk score: ${scoreValue}/100`,
+    // SPEC-7 §3 — the verdict banner leads with the on-chain anchor and the
+    // anyone-can-verify path (the footer carries the full recipe).
+    ...(att && "chain" in att
+      ? [`> ⚖ attested on ${cell(att.chain)} · [tx \`${att.txHash.slice(0, 10)}…\`](${att.explorerUrl}) · verify: recompute sha256 of the findings JSON below and compare with the on-chain findingsHash.`]
+      : []),
     "",
     ...banner,
     `**${findings.length} finding(s)** in changed contract code.`,
@@ -259,6 +370,23 @@ export function summaryCommentBody(scoreValue: number, triaged: TriageResult, si
     "",
     "</details>",
     ...pocBlocks,
+    ...suggestionBlocks,
+    // SPEC-7 §3 — per-finding verbatim citations from the diff itself, only
+    // for the findings actually rendered. Untrusted content: same inert
+    // discipline (sanitize inside a 4-backtick fence).
+    ...(prDiff
+      ? rendered.flatMap((f) => {
+          const lines = citedLinesFromDiff(prDiff, f.file, f.line);
+          if (!lines) return [];
+          return [
+            "",
+            `### Evidence — finding #${f.id} (${cell(f.check)} @ ${cell(f.file)}:${f.line})`,
+            "````",
+            ...lines.map(([n, text]) => sanitizePocSource(`${n} | ${text}`.slice(0, 180)).trimEnd()),
+            "````",
+          ];
+        })
+      : []),
   ].join("\n");
 }
 
@@ -338,6 +466,65 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
 
   const { dir: repoDir, headSha } = await deps.clone(prUrl);
   const identity = prIdentity(prUrl);
+
+  // SPEC-7 §1 — base-branch config, loaded once per review. Missing file →
+  // defaults (normal case, no note); parse violations → defaults + VISIBLE
+  // note in the comment (a half-applied config would make the gate's meaning
+  // depend on which lines happened to parse); infrastructure failure (git
+  // transport) → defaults, logged — infra is not repo content.
+  let repoConfig: RepoConfig = DEFAULT_CONFIG;
+  let configError: string | undefined;
+  if (deps.readBaseConfig) {
+    try {
+      const text = await deps.readBaseConfig(repoDir, prUrl);
+      const parsed = parseRepoConfig(text);
+      repoConfig = parsed.config;
+      configError = parsed.error;
+    } catch (err) {
+      console.error("[rextor] rextor.yaml read failed (infrastructure):",
+        err instanceof Error ? err.message : err);
+    }
+  }
+  const yamlDismissalKeys = new Set(
+    repoConfig.dismissals.map((d) => dismissalKey(d.ruleId, d.path)),
+  );
+  let dismissedKeys = yamlDismissalKeys;
+  // SPEC-7 §4 — sync the base-branch yaml into the server-side store (the
+  // yaml is the truth; removals propagate), then take the store's key set as
+  // the gate input, unioned with yaml keys for the memory-less fallback path.
+  if (deps.repoMemory) {
+    try {
+      deps.repoMemory.syncDismissals(identity.repoFullName, repoConfig.dismissals, headSha);
+      dismissedKeys = new Set([
+        ...yamlDismissalKeys,
+        ...deps.repoMemory.dismissedKeys(identity.repoFullName),
+      ]);
+    } catch (err) {
+      console.error("[rextor] dismissals memory sync failed — yaml keys only:",
+        err instanceof Error ? err.message : err);
+    }
+  }
+  // Config errors contain yaml-derived repo content — untrusted text renders
+  // inert (same escaping discipline as the findings table).
+  const withConfigNote = (body: string): string =>
+    configError ? `> ⚠️ ${cell(configError)} — defaults applied.\n\n${body}` : body;
+
+  // SPEC-7 §1 + invariant 24 — check-run conclusion from the severity gate.
+  // INCOMPLETE ⇒ neutral (a broken tool is not a code verdict); otherwise the
+  // pure gate answers failure|success over the in-scope, dismissal-aware set.
+  // Best-effort: a failing check-run never fails the review.
+  const checkRunStage = async (
+    conclusion: "success" | "failure" | "neutral",
+    summary: string,
+  ): Promise<void> => {
+    if (!deps.postCheckRun) return;
+    try {
+      await deps.postCheckRun(prUrl, headSha, conclusion, summary);
+    } catch (err) {
+      console.error("[rextor] check-run post failed:",
+        err instanceof Error ? err.message : err);
+    }
+  };
 
   // SPEC-6 §3 — review-index write-through: one row per settled review
   // (complete, hard-incomplete, attested or skipped). Absent attestation is
@@ -442,7 +629,8 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
       const reason = err instanceof Error ? err.message : String(err);
       const { att, findingsHash } = await attestStage([], 0, true);
       const commentUrl = await deps.postComment(prUrl,
-        withFooter(incompleteCommentBody(`analyzer failed: ${reason}`), att, findingsHash));
+        withConfigNote(withFooter(incompleteCommentBody(`analyzer failed: ${reason}`), att, findingsHash)));
+      await checkRunStage("neutral", `review incomplete: ${reason}`);
       recordIndexRow(0, 0, true, att, commentUrl);
       return { commented: true, score: 0, incomplete: reason, attestation: att, findings: [] };
     }
@@ -457,10 +645,15 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
           : `unparseable analyzer report: ${err instanceof Error ? err.message : String(err)}`;
       const { att, findingsHash } = await attestStage([], 0, true);
       const commentUrl = await deps.postComment(prUrl,
-        withFooter(incompleteCommentBody(reason), att, findingsHash));
+        withConfigNote(withFooter(incompleteCommentBody(reason), att, findingsHash)));
+      await checkRunStage("neutral", `review incomplete: ${reason}`);
       recordIndexRow(0, 0, true, att, commentUrl);
       return { commented: true, score: 0, incomplete: reason, attestation: att, findings: [] };
     }
+
+    // SPEC-7 §1 paths — one in-scope definition feeds comment, score,
+    // attestation payload AND gate alike.
+    findings = inScope(findings, repoConfig);
 
     // SPEC-2 pipeline: analyze → normalize → [triage] → [sim] → score(rubric
     // v1) → ONE PR comment. Triage is soft: a missing or throwing dep degrades
@@ -468,7 +661,7 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     let triaged: TriageResult;
     if (deps.triage) {
       try {
-        triaged = await deps.triage(withIds(findings), scope);
+        triaged = await deps.triage(withIds(findings), scope, diff);
       } catch (err) {
         console.error("[rextor] triage dep threw:", err instanceof Error ? err.message : err);
         triaged = rawFindingsResult(withIds(findings));
@@ -483,11 +676,28 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     // pipeline failure.
     const simmed = await runSimStage(triaged.finalFindings, repoDir,
       { generatePoc: deps.generatePoc, runSim: deps.runSim }, process.env);
+    // SPEC-7 §4 — learnings ledger: recurrence counts + annotation attach
+    // (annotations only; a learning never silences or re-scores a finding).
+    if (deps.repoMemory) {
+      for (const fnd of simmed.findings) {
+        try {
+          const { occurrences } = deps.repoMemory.recordOccurrence(
+            identity.repoFullName, fnd.check, fnd.file, `${fnd.check}@${fnd.file}:${fnd.line}`,
+          );
+          if (occurrences >= 2) fnd.learningNote = `rextor ledger: fired ${occurrences}× in this repo`;
+        } catch (err) {
+          console.error("[rextor] learnings record failed:", err instanceof Error ? err.message : err);
+        }
+      }
+    }
     const scoreValue = scoreV1(simmed.findings);
     const { att, findingsHash } = await attestStage(simmed.findings, scoreValue, false);
-    const commentUrl = await deps.postComment(prUrl, withFooter(
-      summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote),
-      att, findingsHash));
+    const conclusion = gateConclusion(simmed.findings, repoConfig, dismissedKeys);
+    const commentUrl = await deps.postComment(prUrl, withConfigNote(withFooter(
+      summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote, att, diff),
+      att, findingsHash)));
+    await checkRunStage(conclusion,
+      `rextor audit: riskScore ${scoreValue}/100 — severity gate ${conclusion}`);
     recordIndexRow(scoreValue, simmed.findings.length, false, att, commentUrl);
     return { commented: true, score: scoreValue, attestation: att, findings: simmed.findings };
   } finally {

@@ -7,7 +7,11 @@ import type { DiffScopeResult } from "./diff-scope";
 export type TriageOp =
   | { op: "reclassify"; id: number; severity: Severity; reason: string }
   | { op: "dedup"; canonicalId: number; duplicateIds: number[] }
-  | { op: "add"; file: string; line: number; severity: Severity; check: string; description: string };
+  | { op: "add"; file: string; line: number; severity: Severity; check: string; description: string }
+  | { op: "suggest_fix"; id: number; diff: string };
+
+/** SPEC-7 §2 — a suggested diff beyond this is noise, not a reviewable fix. */
+export const SUGGEST_DIFF_MAX_CHARS = 2_000;
 
 export interface UniverseEntry { file: string; lines: Array<[number, number]> }
 export interface TriageOutcome {
@@ -72,6 +76,15 @@ export function validateOps(raw: unknown, findings: Finding[], universe: Univers
       if (typeof el.description !== "string" || el.description.length === 0) { push(el, "add: empty description"); continue; }
       if (!inUniverse(el.file, el.line)) { push(el, `add: ${el.file}:${String(el.line)} outside citation universe`); continue; }
       valid.push({ op: "add", file: el.file, line: el.line, severity: el.severity, check: el.check, description: el.description });
+    } else if (el.op === "suggest_fix") {
+      if (!isId(el.id) || !live.has(el.id) || removed.has(el.id)) { push(el, `suggest_fix: unknown or removed id ${String(el.id)}`); continue; }
+      if (typeof el.diff !== "string" || el.diff.trim().length === 0) { push(el, "suggest_fix: empty diff"); continue; }
+      if (el.diff.length > SUGGEST_DIFF_MAX_CHARS) { push(el, `suggest_fix: diff exceeds ${SUGGEST_DIFF_MAX_CHARS} chars`); continue; }
+      // Grounding (SPEC-7 §2): the fix must reference the OWNING finding's
+      // file — a "fix" for code in another file is fabrication, rejected.
+      const target = findings.find((f) => f.id === el.id);
+      if (target && !el.diff.includes(target.file)) { push(el, `suggest_fix: diff does not reference ${target.file}`); continue; }
+      valid.push({ op: "suggest_fix", id: el.id, diff: el.diff });
     } else {
       push(el, `op: unknown kind ${String(el.op)}`);
     }
@@ -109,6 +122,13 @@ export function applyTriage(findings: Finding[], ops: TriageOp[]): Finding[] {
     target.severity = op.severity;
     target.triageNote = op.reason;
   }
+  // SPEC-7 §2 — attach suggested fixes (last one wins: the model revising its
+  // own diff is refinement, not contradiction).
+  for (const op of ops) {
+    if (op.op !== "suggest_fix") continue;
+    const target = byId.get(op.id);
+    if (target) target.suggestedDiff = op.diff;
+  }
   let nextId = order.length ? Math.max(...order) + 1 : 0;
   for (const op of ops.filter(isAdd)) {
     const added: Finding = {
@@ -145,8 +165,8 @@ export function rawFindingsResult(findings: Finding[]): TriageResult {
 export function triageFromEnv(
   readEnv: () => NodeJS.ProcessEnv = () => process.env,
   opts: { fetchFn?: typeof fetch } = {},
-): (findings: Finding[], scope: DiffScopeResult) => Promise<TriageResult> {
-  return async (findingsIn, scope) => {
+): (findings: Finding[], scope: DiffScopeResult, prDiff?: string) => Promise<TriageResult> {
+  return async (findingsIn, scope, prDiff) => {
     const env = readEnv();
     const model = triageModelFor(findingsIn, env);
     const apiKey = env.OPENROUTER_API_KEY;
@@ -162,7 +182,7 @@ export function triageFromEnv(
     const universe = buildCitationUniverse(findings, scope);
     const messages: ChatMessage[] = [
       { role: "system", content: PROFILE_V1_SYSTEM },
-      { role: "user", content: buildTriageUserMessage(findings, universe) },
+      { role: "user", content: buildTriageUserMessage(findings, universe, prDiff) },
     ];
     try {
       let raw = await chatCompletion({ apiKey, model, fetchFn: opts.fetchFn }, messages);

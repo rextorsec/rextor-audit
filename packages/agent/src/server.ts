@@ -15,6 +15,16 @@ import { runReview, type ReviewDeps } from "./review";
 import { githubDeps } from "./github";
 import { MAX_BODY_BYTES, ReviewQueue } from "./queue";
 import { createReviewStore, type ReviewStore } from "./db";
+import {
+  buildChatReply,
+  createChatRateLimiter,
+  createChatReviewCache,
+  NO_REVIEW_YET_REPLY,
+  THROTTLED_REPLY,
+  parseCommentEvent,
+  type ChatReviewCache,
+  type ChatRateLimiter,
+} from "./chat";
 
 // SPEC-6 §3 — the one /reviews route shape, shared by the dispatcher and the
 // handler (capture groups feed the owner/repo decode).
@@ -38,6 +48,8 @@ export interface ReviewServerOptions {
   store?: ReviewStore;
   /** GET /reviews bearer token; default: env REXTOR_AGENT_TOKEN, read per request. */
   apiToken?: string;
+  /** SPEC-7 §5 — @rextor-audit replies per PR per hour; default 5. */
+  chatRateLimitPerHour?: number;
 }
 
 /** HTTP server exposing the review queue drain as a test/ops affordance. */
@@ -55,8 +67,18 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
   const base = options.deps ?? githubDeps();
   // Write-through wiring: queued reviews land in the index after they settle.
   // A caller-provided recordReview dep takes precedence over the store.
+  // SPEC-7 §4 — the same store serves as the repo memory (dismissals +
+  // learnings); ReviewStore structurally satisfies RepoMemory.
   const deps: ReviewDeps =
-    store && !base.recordReview ? { ...base, recordReview: (row) => store.insert(row) } : base;
+    store && !base.recordReview
+      ? { ...base, recordReview: (row) => store.insert(row), repoMemory: store }
+      : base;
+  // SPEC-7 §5 — chat state lives with the server (cache dies on restart; the
+  // reply says so honestly).
+  const chat: { cache: ChatReviewCache; limiter: ChatRateLimiter } = {
+    cache: createChatReviewCache(),
+    limiter: createChatRateLimiter(options.chatRateLimitPerHour),
+  };
   const queue = new ReviewQueue();
   const server = createServer((req, res) => {
     const pathname = (req.url ?? "/").split("?")[0];
@@ -72,7 +94,7 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
       });
       return;
     }
-    void handleWebhook(req, res, options.secret, deps, queue).catch((err) => {
+    void handleWebhook(req, res, options.secret, deps, queue, chat).catch((err) => {
       console.error("[rextor] webhook handler crashed:", err);
       if (!res.headersSent) {
         res.statusCode = 500;
@@ -133,6 +155,7 @@ async function handleWebhook(
   secretOpt: string | undefined,
   deps: ReviewDeps,
   queue: ReviewQueue,
+  chat: { cache: ChatReviewCache; limiter: ChatRateLimiter },
 ): Promise<void> {
   // Cap the pre-signature buffer: stop accumulating the moment the ceiling is
   // crossed and answer 413 — signature work (and any review) never sees it.
@@ -172,7 +195,13 @@ async function handleWebhook(
     return;
   }
 
-  let payload: { action?: string; pull_request?: { html_url?: string } };
+  let payload: {
+    action?: string;
+    pull_request?: { html_url?: string };
+    issue?: { pull_request?: unknown; html_url?: string };
+    comment?: { body?: unknown; user?: { login?: string } };
+    sender?: { login?: string };
+  };
   try {
     payload = (JSON.parse(rawBody) ?? {}) as typeof payload;
   } catch {
@@ -182,6 +211,40 @@ async function handleWebhook(
   }
 
   const event = header(req, "x-github-event");
+  const deliveryId = header(req, "x-github-delivery") ?? randomUUID();
+
+  // SPEC-7 §5 — @rextor-audit chat on issue_comment (PRs only). The reply is
+  // a deterministic template over the CACHED review: comment text never
+  // enters any prompt or output (invariant 22 by construction). Replies go
+  // through the same queue (delivery dedup) and are best-effort.
+  if (event === "issue_comment") {
+    const evt = parseCommentEvent(payload, process.env.REXTOR_BOT_LOGIN);
+    if (!evt) {
+      json(res, { ignored: true });
+      return;
+    }
+    const ctx = chat.cache.get(evt.prUrl);
+    let reply: string;
+    if (!ctx) {
+      reply = NO_REVIEW_YET_REPLY;
+    } else if (!chat.limiter.allow(evt.prUrl)) {
+      reply = chat.limiter.needsThrottleNotice(evt.prUrl) ? THROTTLED_REPLY : "";
+    } else {
+      reply = buildChatReply(ctx);
+    }
+    if (reply !== "") {
+      void queue.enqueue(deliveryId, async () => {
+        try {
+          await deps.postComment(evt.prUrl, reply);
+        } catch (err) {
+          console.error("[rextor] chat reply failed:", err instanceof Error ? err.message : err);
+        }
+      });
+    }
+    json(res, { queued: true });
+    return;
+  }
+
   const prUrl = payload.pull_request?.html_url;
   const actionable =
     event === "pull_request" &&
@@ -204,9 +267,10 @@ async function handleWebhook(
   // Hardening: acknowledge BEFORE the review runs. The queue dedups by
   // delivery id (GitHub redelivers after ~10s of silence) and contains
   // worker errors, so the enqueue promise is intentionally not awaited.
-  const deliveryId = header(req, "x-github-delivery") ?? randomUUID();
+  // SPEC-7 §5 — the settled review becomes the chat answer source.
   void queue.enqueue(deliveryId, async () => {
-    await runReview(prUrl as string, deps);
+    const result = await runReview(prUrl as string, deps);
+    if (result.commented) chat.cache.record(prUrl as string, result);
   });
   json(res, { queued: true });
 }
