@@ -6,6 +6,14 @@ declare module "better-sqlite3" {
     all(...params: unknown[]): unknown[];
     get(...params: unknown[]): unknown;
   }
+  // SPEC-7 §4 — transaction(fn) wraps fn's statements in BEGIN/COMMIT with
+  // automatic ROLLBACK on throw; fn receives the db and returns a value.
+  export interface Transaction<Args extends unknown[], R> {
+    (...args: Args): R;
+    deferred(...args: Args): R;
+    immediate(...args: Args): R;
+    exclusive(...args: Args): R;
+  }
   export interface DatabaseOptions {
     readonly?: boolean;
   }
@@ -15,5 +23,6 @@ declare module "better-sqlite3" {
     exec(sql: string): void;
     pragma(source: string, options?: { simple?: boolean }): unknown;
     close(): void;
+    transaction<Args extends unknown[], R>(fn: (...args: Args) => R): Transaction<Args, R>;
   }
 }

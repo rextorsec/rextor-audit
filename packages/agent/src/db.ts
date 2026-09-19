@@ -8,6 +8,7 @@
 // The DB file path is injectable (REXTOR_DB_PATH in production, one temp
 // file per test) and every statement is prepared once at creation.
 import Database from "better-sqlite3";
+import { dismissalKey, type DismissalEntry } from "./config";
 
 // Column names are the binding SPEC-6 §3 schema. `status` mirrors the
 // on-chain encoding (0 = complete, 1 = incomplete); empty tx/chain fields
@@ -32,6 +33,24 @@ export interface ReviewStore {
   /** Rows for `repo` ("owner/repo"), newest first; unknown repo → []. */
   listForRepo(repo: string): ReviewRow[];
   close(): void;
+  /** SPEC-7 §4 — dismissals are repo-keyed, server-side (invariant 21): the
+   *  base-branch yaml is synced in wholesale per review (the yaml IS the
+   *  truth, so removals propagate), `source` records the syncing review's
+   *  head sha as provenance. */
+  syncDismissals(repo: string, entries: DismissalEntry[], source: string): void;
+  /** Gate input: the repo's silenced (ruleId, path) keys. */
+  dismissedKeys(repo: string): Set<string>;
+  /** Learnings ledger: recurrence counter for one (ruleId, path) in a repo.
+   *  Annotations only — a learning NEVER silences or re-scores a finding. */
+  recordOccurrence(repo: string, ruleId: string, path: string, sample: string): { occurrences: number; lastSeenAt: string };
+}
+
+/** SPEC-7 §4 — what the review pipeline needs from the server-side memory.
+ *  ReviewStore satisfies this structurally; tests inject fakes. */
+export interface RepoMemory {
+  syncDismissals(repo: string, entries: DismissalEntry[], source: string): void;
+  dismissedKeys(repo: string): Set<string>;
+  recordOccurrence(repo: string, ruleId: string, path: string, sample: string): { occurrences: number; lastSeenAt: string };
 }
 
 // The store owns the SQL — rows cross back out as plain typed objects, so
@@ -87,6 +106,65 @@ export function createReviewStore(dbPath: string): ReviewStore {
   const listStmt = db.prepare(
     `SELECT ${COLUMNS} FROM reviews WHERE repo = ? ORDER BY created_at DESC, rowid DESC`,
   );
+
+  // SPEC-7 §4 — server-side silencing memory (repo-file stores are an
+  // injection vector; scope decision 5).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dismissals (
+      repo TEXT NOT NULL,
+      rule_id TEXT NOT NULL,
+      path TEXT NOT NULL,
+      line_hint INTEGER,
+      reason TEXT NOT NULL,
+      source TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (repo, rule_id, path)
+    );
+    CREATE TABLE IF NOT EXISTS learnings (
+      repo TEXT NOT NULL,
+      rule_id TEXT NOT NULL,
+      path TEXT NOT NULL,
+      occurrences INTEGER NOT NULL,
+      last_seen_at TEXT NOT NULL,
+      sample TEXT NOT NULL,
+      PRIMARY KEY (repo, rule_id, path)
+    );
+  `);
+  const clearDismissalsStmt = db.prepare(`DELETE FROM dismissals WHERE repo = ?`);
+  const insertDismissalStmt = db.prepare(
+    `INSERT INTO dismissals (repo, rule_id, path, line_hint, reason, source, created_at)
+     VALUES (@repo, @rule_id, @path, @line_hint, @reason, @source, @created_at)`,
+  );
+  const listDismissalsStmt = db.prepare(
+    `SELECT rule_id, path FROM dismissals WHERE repo = ?`,
+  );
+  const upsertOccurrenceStmt = db.prepare(
+    `INSERT INTO learnings (repo, rule_id, path, occurrences, last_seen_at, sample)
+     VALUES (@repo, @rule_id, @path, 1, @last_seen_at, @sample)
+     ON CONFLICT (repo, rule_id, path) DO UPDATE SET
+       occurrences = occurrences + 1,
+       last_seen_at = excluded.last_seen_at,
+       sample = excluded.sample
+     RETURNING occurrences, last_seen_at`,
+  );
+
+  const syncTransaction = db.transaction(
+    (repo: string, entries: DismissalEntry[], source: string) => {
+      clearDismissalsStmt.run(repo);
+      const now = new Date().toISOString();
+      for (const e of entries) {
+        insertDismissalStmt.run({
+          repo,
+          rule_id: e.ruleId,
+          path: e.path,
+          line_hint: e.lineHint ?? null,
+          reason: e.reason,
+          source,
+          created_at: now,
+        });
+      }
+    },
+  );
   return {
     insert(row: ReviewRow): void {
       insertStmt.run(row);
@@ -96,6 +174,23 @@ export function createReviewStore(dbPath: string): ReviewStore {
     },
     close(): void {
       db.close();
+    },
+    syncDismissals(repo: string, entries: DismissalEntry[], source: string): void {
+      syncTransaction(repo, entries, source);
+    },
+    dismissedKeys(repo: string): Set<string> {
+      const rows = listDismissalsStmt.all(repo) as Array<{ rule_id: string; path: string }>;
+      return new Set(rows.map((r) => dismissalKey(r.rule_id, r.path)));
+    },
+    recordOccurrence(repo: string, ruleId: string, path: string, sample: string): { occurrences: number; lastSeenAt: string } {
+      const row = upsertOccurrenceStmt.get({
+        repo,
+        rule_id: ruleId,
+        path,
+        last_seen_at: new Date().toISOString(),
+        sample,
+      }) as { occurrences: number; last_seen_at: string };
+      return { occurrences: row.occurrences, lastSeenAt: row.last_seen_at };
     },
   };
 }

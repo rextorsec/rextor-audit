@@ -12,7 +12,7 @@ import { promisify } from "node:util";
 import { resolve } from "node:path";
 import { scopeDiff, type DiffScopeResult } from "./diff-scope";
 import { buildAttestRecord, reviewIdFor, type AttestRecord } from "./attest";
-import type { ReviewRow } from "./db";
+import type { ReviewRow, RepoMemory } from "./db";
 import { resolveChain, attestationChainId } from "./chains";
 import { NO_TRIAGE_MODEL, rawFindingsResult, type TriageResult } from "./triage";
 import { runSimStage, sanitizePocSource, type PocRequest, type SimOutcomeMap } from "./sim";
@@ -78,6 +78,10 @@ export interface ReviewDeps {
     conclusion: "success" | "failure" | "neutral",
     summary: string,
   ): Promise<void>;
+  /** SPEC-7 §4 — server-side dismissals + learnings (repo-keyed SQLite).
+   *  Absent → yaml dismissals alone drive the gate, no annotations. All
+   *  memory failures degrade: the review never blocks on the ledger. */
+  repoMemory?: RepoMemory;
 }
 
 export interface ReviewResult {
@@ -225,8 +229,12 @@ function triageLine(t: TriageResult): string {
 }
 
 function findingRow(f: Finding): string {
-  const note = f.triageNote
+  const baseNote = f.triageNote
     ?? (f.mergedChecks ? `merged: ${f.mergedChecks.join(", ")}` : "");
+  // SPEC-7 §4 — recurrence annotation rides the note column.
+  const note = f.learningNote
+    ? (baseNote ? `${baseNote} · ${f.learningNote}` : f.learningNote)
+    : baseNote;
   const sev = `${f.severity}${f.poc ? ` [poc:${f.poc.status}]` : ""}`;
   return `| #${f.id ?? "—"} | ${sev} | ${cell(f.check)} | ${cell(f.file)}:${f.line} | ${cell(note)} |`;
 }
@@ -476,9 +484,25 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
         err instanceof Error ? err.message : err);
     }
   }
-  const dismissedKeys = new Set(
+  const yamlDismissalKeys = new Set(
     repoConfig.dismissals.map((d) => dismissalKey(d.ruleId, d.path)),
   );
+  let dismissedKeys = yamlDismissalKeys;
+  // SPEC-7 §4 — sync the base-branch yaml into the server-side store (the
+  // yaml is the truth; removals propagate), then take the store's key set as
+  // the gate input, unioned with yaml keys for the memory-less fallback path.
+  if (deps.repoMemory) {
+    try {
+      deps.repoMemory.syncDismissals(identity.repoFullName, repoConfig.dismissals, headSha);
+      dismissedKeys = new Set([
+        ...yamlDismissalKeys,
+        ...deps.repoMemory.dismissedKeys(identity.repoFullName),
+      ]);
+    } catch (err) {
+      console.error("[rextor] dismissals memory sync failed — yaml keys only:",
+        err instanceof Error ? err.message : err);
+    }
+  }
   // Config errors contain yaml-derived repo content — untrusted text renders
   // inert (same escaping discipline as the findings table).
   const withConfigNote = (body: string): string =>
@@ -651,6 +675,20 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     // pipeline failure.
     const simmed = await runSimStage(triaged.finalFindings, repoDir,
       { generatePoc: deps.generatePoc, runSim: deps.runSim }, process.env);
+    // SPEC-7 §4 — learnings ledger: recurrence counts + annotation attach
+    // (annotations only; a learning never silences or re-scores a finding).
+    if (deps.repoMemory) {
+      for (const fnd of simmed.findings) {
+        try {
+          const { occurrences } = deps.repoMemory.recordOccurrence(
+            identity.repoFullName, fnd.check, fnd.file, `${fnd.check}@${fnd.file}:${fnd.line}`,
+          );
+          if (occurrences >= 2) fnd.learningNote = `rextor ledger: fired ${occurrences}× in this repo`;
+        } catch (err) {
+          console.error("[rextor] learnings record failed:", err instanceof Error ? err.message : err);
+        }
+      }
+    }
     const scoreValue = scoreV1(simmed.findings);
     const { att, findingsHash } = await attestStage(simmed.findings, scoreValue, false);
     const conclusion = gateConclusion(simmed.findings, repoConfig, dismissedKeys);

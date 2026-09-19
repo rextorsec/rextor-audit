@@ -55,8 +55,12 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
   const base = options.deps ?? githubDeps();
   // Write-through wiring: queued reviews land in the index after they settle.
   // A caller-provided recordReview dep takes precedence over the store.
+  // SPEC-7 §4 — the same store serves as the repo memory (dismissals +
+  // learnings); ReviewStore structurally satisfies RepoMemory.
   const deps: ReviewDeps =
-    store && !base.recordReview ? { ...base, recordReview: (row) => store.insert(row) } : base;
+    store && !base.recordReview
+      ? { ...base, recordReview: (row) => store.insert(row), repoMemory: store }
+      : base;
   const queue = new ReviewQueue();
   const server = createServer((req, res) => {
     const pathname = (req.url ?? "/").split("?")[0];
