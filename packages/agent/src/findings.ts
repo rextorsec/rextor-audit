@@ -24,6 +24,10 @@ export interface Finding {
   triageNote?: string;
   mergedChecks?: string[];
   poc?: PocInfo;
+  /** SPEC-7 §2 — triage-proposed fix (presentation only). NEVER enters the
+   *  canonical attestation payload: the on-chain hash covers finding
+   *  evidence, not suggested remediations (canonicalFindingsJson strips it). */
+  suggestedDiff?: string;
 }
 
 export const SEVERITIES: readonly Severity[] = ["critical", "high", "medium", "low"];
@@ -93,9 +97,13 @@ function stableValue(v: unknown): unknown {
   return v;
 }
 
-/** SPEC-2 §2 canonical form: sorted keys, compact, backticks escaped as \u0060. */
+/** SPEC-2 §2 canonical form: sorted keys, compact, backticks escaped as \u0060.
+ *  SPEC-7 §2 — suggestedDiff is stripped here: the attested findingsHash covers
+ *  finding EVIDENCE; suggested fixes are presentation, and their size would
+ *  blow the 20k comment budget that keeps the hash recomputable from the PR. */
 export function canonicalFindingsJson(findings: Finding[]): string {
-  return JSON.stringify(stableValue(findings)).replaceAll("`", "\\u0060");
+  const attestable = findings.map(({ suggestedDiff: _stripped, ...rest }) => rest);
+  return JSON.stringify(stableValue(attestable)).replaceAll("`", "\\u0060");
 }
 
 export function findingsHash(findings: Finding[]): string {

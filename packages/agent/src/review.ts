@@ -37,8 +37,9 @@ import {
 export type { Finding };
 
 export interface ReviewDeps {
-  /** LLM triage (SPEC-2); absent or failing → soft-incomplete. */
-  triage?: (findings: Finding[], scope: DiffScopeResult) => Promise<TriageResult>;
+  /** LLM triage (SPEC-2); absent or failing → soft-incomplete. SPEC-7 §2:
+   *  receives the raw PR diff as fix-authoring context (prompt-side only). */
+  triage?: (findings: Finding[], scope: DiffScopeResult, prDiff?: string) => Promise<TriageResult>;
   /** Clones the PR head; returns the working dir AND the head sha (SPEC-4 §3 —
    *  the attestation record needs the commit identity, and the clone has it locally). */
   clone(prUrl: string): Promise<{ dir: string; headSha: string }>;
@@ -207,13 +208,15 @@ const countOps = (t: TriageResult) => ({
   dedup: t.ops.filter((o) => o.op === "dedup").length,
   reclassify: t.ops.filter((o) => o.op === "reclassify").length,
   add: t.ops.filter((o) => o.op === "add").length,
+  suggest: t.ops.filter((o) => o.op === "suggest_fix").length,
 });
 
 function triageLine(t: TriageResult): string {
   if (t.triageStatus === "complete") {
     const c = countOps(t);
     const rej = t.rejectedOps.length > 0 ? ` · ${t.rejectedOps.length} non-conforming op(s) rejected` : "";
-    return `Triaged by \`${cell(t.modelUsed)}\` @ temp 0 · ops: ${c.dedup} dedup · ${c.reclassify} reclassify · ${c.add} added${rej}`;
+    const sug = c.suggest > 0 ? ` · ${c.suggest} suggest` : "";
+    return `Triaged by \`${cell(t.modelUsed)}\` @ temp 0 · ops: ${c.dedup} dedup · ${c.reclassify} reclassify · ${c.add} added${sug}${rej}`;
   }
   if (t.modelUsed !== NO_TRIAGE_MODEL) {
     return `Triage with \`${cell(t.modelUsed)}\` did not complete — raw analyzer findings shown.`;
@@ -261,6 +264,21 @@ export function summaryCommentBody(scoreValue: number, triaged: TriageResult, si
       "````",
       "</details>",
     ].join("\n"));
+  // SPEC-7 §2 — suggested fixes render as collapsed, INERT diff blocks
+  // (suggested-only, never auto-applied; invariant 23). Same sanitization
+  // discipline as PoC sources: no CR, no 3+ backtick runs inside a
+  // 4-backtick fence, so model output can never escape into live markdown.
+  const suggestionBlocks = findings
+    .filter((f) => f.suggestedDiff)
+    .map((f) => [
+      "",
+      `<details><summary>Suggestion — review before applying (finding #${f.id})</summary>`,
+      "",
+      "````diff",
+      sanitizePocSource(f.suggestedDiff!),
+      "````",
+      "</details>",
+    ].join("\n"));
   return [
     `## rextor audit — risk score: ${scoreValue}/100`,
     "",
@@ -281,6 +299,7 @@ export function summaryCommentBody(scoreValue: number, triaged: TriageResult, si
     "",
     "</details>",
     ...pocBlocks,
+    ...suggestionBlocks,
   ].join("\n");
 }
 
@@ -539,7 +558,7 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     let triaged: TriageResult;
     if (deps.triage) {
       try {
-        triaged = await deps.triage(withIds(findings), scope);
+        triaged = await deps.triage(withIds(findings), scope, diff);
       } catch (err) {
         console.error("[rextor] triage dep threw:", err instanceof Error ? err.message : err);
         triaged = rawFindingsResult(withIds(findings));
