@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-09-18",
+  "asOf": "2026-09-19",
   "maxSoonRows": 15,
   "rows": [
     {
@@ -7,7 +7,11 @@
       "capability": "Built for money‑code — analyzer grounding",
       "generic": "no",
       "bots": "partial",
-      "rextor": { "shipped": true, "receipt": "#s2", "receiptLabel": "stage 2.0" },
+      "rextor": {
+        "shipped": true,
+        "receipt": "#s2",
+        "receiptLabel": "stage 2.0"
+      },
       "backing": "Week-1 engine"
     },
     {
@@ -15,7 +19,11 @@
       "capability": "Every PR an audit event (diff‑scoped, continuous)",
       "generic": "yes",
       "bots": "no",
-      "rextor": { "shipped": true, "receipt": "#s1", "receiptLabel": "stage 1.0" },
+      "rextor": {
+        "shipped": true,
+        "receipt": "#s1",
+        "receiptLabel": "stage 1.0"
+      },
       "backing": "Week-1 engine"
     },
     {
@@ -23,7 +31,11 @@
       "capability": "Deterministic, recomputable risk score",
       "generic": "no",
       "bots": "partial",
-      "rextor": { "shipped": true, "receipt": "#s5", "receiptLabel": "rubric" },
+      "rextor": {
+        "shipped": true,
+        "receipt": "#s5",
+        "receiptLabel": "rubric"
+      },
       "backing": "SPEC-2"
     },
     {
@@ -31,7 +43,11 @@
       "capability": "Execution‑proof findings (fork‑sim PoC)",
       "generic": "no",
       "bots": "no",
-      "rextor": { "shipped": true, "receipt": "#s4", "receiptLabel": "stage 4.0" },
+      "rextor": {
+        "shipped": true,
+        "receipt": "#s4",
+        "receiptLabel": "stage 4.0"
+      },
       "backing": "SPEC-3"
     },
     {
@@ -43,7 +59,10 @@
         "shipped": true,
         "receipt": "https://explore.testnet.tempo.xyz/address/0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd",
         "receiptLabel": "Tempo · live",
-        "soonChips": ["HyperEVM — Shipping Oct 2026", "Solana — Shipping Oct 2026"]
+        "soonChips": [
+          "HyperEVM — Shipping Oct 2026",
+          "Solana — Shipping Oct 2026"
+        ]
       },
       "backing": "B1, B2, B4+B5, B6"
     },
@@ -52,7 +71,11 @@
       "capability": "Integrity rails — INCOMPLETE never silent",
       "generic": "partial",
       "bots": "no",
-      "rextor": { "shipped": true, "receipt": "#s3", "receiptLabel": "stage 3.0" },
+      "rextor": {
+        "shipped": true,
+        "receipt": "#s3",
+        "receiptLabel": "stage 3.0"
+      },
       "backing": "Week-1/2"
     },
     {
@@ -60,7 +83,11 @@
       "capability": "Suggested fix per finding (reviewable diff)",
       "generic": "yes",
       "bots": "no",
-      "rextor": { "shipped": false, "soon": true },
+      "rextor": {
+        "shipped": true,
+        "receipt": "https://github.com/rextorsec/rextor-audit-test/pull/3#issuecomment-5742103944",
+        "receiptLabel": "smoke PR · suggested diff"
+      },
       "backing": "D1"
     },
     {
@@ -68,7 +95,10 @@
       "capability": "Repo config + severity merge gate",
       "generic": "no",
       "bots": "no",
-      "rextor": { "shipped": false, "soon": true },
+      "rextor": {
+        "shipped": false,
+        "soon": true
+      },
       "backing": "D2"
     },
     {
@@ -76,7 +106,10 @@
       "capability": "Durable full report (IPFS) + anyone‑can‑verify",
       "generic": "no",
       "bots": "no",
-      "rextor": { "shipped": false, "soon": true },
+      "rextor": {
+        "shipped": false,
+        "soon": true
+      },
       "backing": "B3"
     },
     {
@@ -84,7 +117,10 @@
       "capability": "Verifiable agent identity (ERC‑8004)",
       "generic": "no",
       "bots": "no",
-      "rextor": { "shipped": false, "soon": true },
+      "rextor": {
+        "shipped": false,
+        "soon": true
+      },
       "backing": "C1"
     },
     {
@@ -92,7 +128,10 @@
       "capability": "Public agent reputation ledger",
       "generic": "no",
       "bots": "no",
-      "rextor": { "shipped": false, "soon": true },
+      "rextor": {
+        "shipped": false,
+        "soon": true
+      },
       "backing": "C2"
     },
     {
@@ -100,7 +139,11 @@
       "capability": "Cross‑PR memory (dismissals)",
       "generic": "yes",
       "bots": "no",
-      "rextor": { "shipped": false, "soon": true },
+      "rextor": {
+        "shipped": true,
+        "receipt": "https://github.com/rextorsec/rextor-audit-test/pull/3#issuecomment-5742103944",
+        "receiptLabel": "smoke PR · learnings ledger"
+      },
       "backing": "D4"
     },
     {
@@ -108,7 +151,11 @@
       "capability": "Chat in PR",
       "generic": "yes",
       "bots": "no",
-      "rextor": { "shipped": false, "soon": true },
+      "rextor": {
+        "shipped": true,
+        "receipt": "https://github.com/rextorsec/rextor-audit-test/pull/3#issuecomment-5742416145",
+        "receiptLabel": "smoke PR · bot reply"
+      },
       "backing": "D5"
     },
     {
@@ -116,7 +163,10 @@
       "capability": "Chain cost‑model reasoning",
       "generic": "no",
       "bots": "no",
-      "rextor": { "shipped": false, "soon": true },
+      "rextor": {
+        "shipped": false,
+        "soon": true
+      },
       "backing": "E1"
     },
     {
@@ -124,7 +174,11 @@
       "capability": "Living dashboard — ledger, history, identity",
       "generic": "yes",
       "bots": "no",
-      "rextor": { "shipped": false, "soon": true },
+      "rextor": {
+        "shipped": true,
+        "receipt": "https://rextor-audit-web-rectors-primary-workspace.vercel.app/dashboard/rextorsec/rextor-audit-test",
+        "receiptLabel": "live dashboard"
+      },
       "backing": "A3/A4"
     }
   ]
