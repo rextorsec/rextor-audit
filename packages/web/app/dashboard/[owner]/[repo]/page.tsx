@@ -9,6 +9,7 @@ import { Wordmark } from "@/components/pill-nav";
 import { readAgentIdentity } from "@/lib/chain-read";
 import { DEFAULT_CHAIN_KEY, shortHex, webChainByName, WEB_CHAINS } from "@/lib/chains";
 import { fetchReviews } from "@/lib/reviews";
+import identityData from "@/content/identity.json";
 
 export const dynamic = "force-dynamic";
 
@@ -112,6 +113,7 @@ export default async function DashboardPage({
           reviewCount={identity?.reviewCount ?? null}
           attestedIncomplete={attestedIncomplete}
           agentAddress={chain.agent}
+          erc8004={identityData.erc8004}
           unavailableReason={identity ? undefined : "rpc read failed"}
         />
       </main>

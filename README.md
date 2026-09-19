@@ -20,6 +20,8 @@ On every PR to a Solana program or EVM contract repo:
 4. **Verdict** — deterministic rubric → `riskScore`, recomputable by anyone from the findings
 5. **Anchor** — attestation on-chain: commit hash + findings hash + agent identity + reputation
 
+Agent identity: canonical ERC-8004 registry, `agentId 50891` on `eip155:1:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` — mint tx [`0xc4c0565c1f07e42cbd9524dadc7a033079ac0d4f7d497cb70abd7ba0dcec3d64`](https://etherscan.io/tx/0xc4c0565c1f07e42cbd9524dadc7a033079ac0d4f7d497cb70abd7ba0dcec3d64); chain-native verdicts on Tempo (`0x7fe6…0bcd`) and Solana devnet (`Aj6Nx…kMDs`).
+
 ## Status
 
 See [SPEC.md](./SPEC.md) for the product spec and [PLAN.md](./PLAN.md) for the execution plan.
