@@ -11,8 +11,9 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve } from "node:path";
 import { scopeDiff, type DiffScopeResult } from "./diff-scope";
-import { buildAttestRecord, type AttestRecord } from "./attest";
-import { resolveChain } from "./chains";
+import { buildAttestRecord, reviewIdFor, type AttestRecord } from "./attest";
+import type { ReviewRow } from "./db";
+import { resolveChain, attestationChainId } from "./chains";
 import { NO_TRIAGE_MODEL, rawFindingsResult, type TriageResult } from "./triage";
 import { runSimStage, sanitizePocSource, type PocRequest, type SimOutcomeMap } from "./sim";
 import {
@@ -37,8 +38,9 @@ export interface ReviewDeps {
   fetchDiff(prUrl: string): Promise<string>;
   /** Analyzer run over the repo → NDJSON stdout (SPEC-1 §1). */
   runAnalyzer(repoDir: string): Promise<string>;
-  /** Posts ONE PR comment. */
-  postComment(prUrl: string, body: string): Promise<void>;
+  /** Posts ONE PR comment; resolves the comment html_url when the adapter
+   *  can produce it (the review index's comment_url, SPEC-6 §3). */
+  postComment(prUrl: string, body: string): Promise<void | string>;
   /** Releases the clone dir; runReview calls it in a finally, exactly once per clone. */
   dispose(repoDir: string): Promise<void>;
   /** PoC generation (SPEC-3) — frontier LLM seam; absent → sim skipped. */
@@ -47,17 +49,27 @@ export interface ReviewDeps {
   runSim?: (repoDir: string, testSource: string, forkUrl: string) => Promise<SimOutcomeMap>;
   /** SPEC-4 on-chain attestation; absent or failing → "skipped" footer, comment still posts. */
   attest?: (record: AttestRecord) => Promise<{ txHash: string; explorerUrl: string } | null>;
+  /** SPEC-4 v2 (B3) — IPFS pin of the canonical findings report; runs BEFORE
+   *  attest (score → pin → attest → postComment). Absent or throwing → the
+   *  attestation proceeds with findingsURI "" (degrade, never block). */
+  pin?: (report: ReviewResult) => Promise<{ uri: string; cid: string }>;
+  /** SPEC-6 §3 review-index write-through; absent → no row recorded. */
+  recordReview?: (row: ReviewRow) => void;
 }
 
 export interface ReviewResult {
   commented: boolean;
   score: number;
+  /** Final findings (SPEC-2/3 output) — the canonical-JSON source for the
+   *  IPFS pin + findingsHash (SPEC-4 v2 B3). Set on every commented path;
+   *  [] on hard-incomplete. Absent when nothing was analyzed. */
+  findings?: Finding[];
   /** Set iff the analyzer could not produce a complete report — the PR comment says so. */
   incomplete?: string;
   /** SPEC-4 §3 — on-chain anchoring outcome; set on every commented path
    *  (success shapes when attested, { skipped } when not configured or failed). */
   attestation?:
-    | { chain: string; reviewId: string; txHash: string; explorerUrl: string }
+    | { chain: string; reviewId: string; findingsURI: string; targetChainId: number; txHash: string; explorerUrl: string }
     | { skipped: string };
 }
 
@@ -283,17 +295,33 @@ function activeChainName(): string {
   }
 }
 
-// The comment footer (SPEC-4 §3): chain, reviewId, tx/explorer link and the
-// findingsHash — the reproducibility recipe sitting next to the <details>
-// findings JSON it hashes. Free-text interpolations (chain name, skip reason)
-// pass through cell(); reviewId/txHash/findingsHash are agent-generated hex.
+// SPEC-4 v2 — targetChainId: the chain the audited code targets, per the SPEC-5
+// registry the engine is pointed at. 0 = unresolved (degraded, shown as-is);
+// resolveChain throws on an unknown chain key, so degrade exactly like the name.
+
+// The comment footer (SPEC-4 §3, v2): chain, reviewId, targetChainId, tx/explorer
+// link and the findingsHash — the reproducibility recipe sitting next to the
+// <details> findings JSON it hashes. findingsURI renders only when non-empty
+// ("" = degraded mode — B3 wires IPFS pinning). reviewId recipe is UNCHANGED;
+// targetChainId is its own field, never folded into the identity derivation.
+// Free-text interpolations (chain name, skip reason) pass through cell();
+// reviewId/txHash/findingsHash are agent-generated hex.
+// SPEC-4 v2 — the record's targetChainId 0 = unresolved (SPEC-5 null-skip
+// semantic): the footer SKIPS the segment rather than printing 0. Same rule
+// as uriPart ("" = degraded, omitted).
 function attestationFooter(att: AttestationInfo, findingsHash?: string): string[] {
   if ("skipped" in att) return ["", `_attestation skipped: ${cell(att.skipped)}_`];
   const link = att.explorerUrl
     ? `[tx \`${att.txHash.slice(0, 10)}…\`](${att.explorerUrl})`
     : `tx \`${att.txHash}\``;
   const hashPart = findingsHash ? ` · findingsHash \`${findingsHash}\`` : "";
-  return ["", "---", `⚖ attested on ${cell(att.chain)} · reviewId \`${att.reviewId}\`${hashPart} · ${link}`];
+  const chainIdPart = att.targetChainId ? ` · targetChainId \`${att.targetChainId}\`` : "";
+  const uriPart = att.findingsURI ? ` · findingsURI \`${att.findingsURI}\`` : "";
+  return [
+    "",
+    "---",
+    `⚖ attested on ${cell(att.chain)} · reviewId \`${att.reviewId}\`${hashPart}${chainIdPart}${uriPart} · ${link}`,
+  ];
 }
 
 // Append the footer to a comment body (footer's first row is a blank line).
@@ -311,6 +339,40 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
   const { dir: repoDir, headSha } = await deps.clone(prUrl);
   const identity = prIdentity(prUrl);
 
+  // SPEC-6 §3 — review-index write-through: one row per settled review
+  // (complete, hard-incomplete, attested or skipped). Absent attestation is
+  // stored as empty chain/tx fields — never fake values. Best-effort: the
+  // comment has already settled, so an index failure never fails the review.
+  const recordIndexRow = (
+    riskScore: number,
+    findingCount: number,
+    incomplete: boolean,
+    att: AttestationInfo,
+    commentUrl: string | void,
+  ): void => {
+    if (!deps.recordReview) return;
+    try {
+      deps.recordReview({
+        repo: identity.repoFullName,
+        pr: identity.prNumber,
+        head_sha: headSha,
+        review_id: "reviewId" in att
+          ? att.reviewId
+          : reviewIdFor(identity.repoFullName, identity.prNumber, headSha),
+        chain: "chain" in att ? att.chain : "",
+        tx_hash: "txHash" in att ? att.txHash : "",
+        explorer_url: "explorerUrl" in att ? att.explorerUrl : "",
+        risk_score: riskScore,
+        finding_count: findingCount,
+        status: incomplete ? 1 : 0,
+        comment_url: typeof commentUrl === "string" ? commentUrl : "",
+        created_at: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error("[rextor] review index write failed:", err instanceof Error ? err.message : err);
+    }
+  };
+
   // SPEC-4 §3 — attestation runs BEFORE the comment on EVERY verdict path and
   // can never block or fail the review: every failure (no dep, throw, null)
   // degrades to a "skipped" footer. Hard-incomplete reviews attest status=1
@@ -323,6 +385,26 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
   ): Promise<{ att: AttestationInfo; findingsHash?: string }> => {
     if (!deps.attest) return { att: { skipped: "attestation not configured" } };
     try {
+      // SPEC-4 v2 (B3) — pin runs BEFORE attest (score → pin → attest):
+      // the record's findingsURI must exist before the write. A pin failure
+      // degrades to findingsURI "" — the pin enhances, never blocks.
+      let findingsURI = "";
+      if (deps.pin) {
+        try {
+          const pinned = await deps.pin({ commented: true, score: riskScore, findings });
+          findingsURI = pinned.uri;
+        } catch (err) {
+          console.error("[rextor] ipfs pin failed — attesting without findingsURI:",
+            err instanceof Error ? err.message : err);
+        }
+      }
+      // SPEC-4 v2 — targetChainId resolves from the SPEC-5 registry chain via
+      // the SHARED null-skip helper (same recipe as makeAttestDep); 0 on the
+      // record = unresolved (uint32 has no null), the footer skips rendering.
+      let targetChainId = 0;
+      try {
+        targetChainId = attestationChainId(resolveChain(process.env)) ?? 0;
+      } catch { /* unknown chain key — 0 */ }
       const record = buildAttestRecord({
         repoFullName: identity.repoFullName,
         prNumber: identity.prNumber,
@@ -330,6 +412,8 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
         findings,
         riskScore,
         incomplete,
+        findingsURI,
+        targetChainId,
       });
       const res = await deps.attest(record);
       if (!res) return { att: { skipped: "attestation attempt failed" }, findingsHash: record.findingsHash };
@@ -337,6 +421,8 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
         att: {
           chain: activeChainName(),
           reviewId: record.reviewId,
+          findingsURI: record.findingsURI,
+          targetChainId: record.targetChainId,
           txHash: res.txHash,
           explorerUrl: res.explorerUrl,
         },
@@ -355,9 +441,10 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       const { att, findingsHash } = await attestStage([], 0, true);
-      await deps.postComment(prUrl,
+      const commentUrl = await deps.postComment(prUrl,
         withFooter(incompleteCommentBody(`analyzer failed: ${reason}`), att, findingsHash));
-      return { commented: true, score: 0, incomplete: reason, attestation: att };
+      recordIndexRow(0, 0, true, att, commentUrl);
+      return { commented: true, score: 0, incomplete: reason, attestation: att, findings: [] };
     }
 
     let findings: Finding[];
@@ -369,9 +456,10 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
           ? err.reason
           : `unparseable analyzer report: ${err instanceof Error ? err.message : String(err)}`;
       const { att, findingsHash } = await attestStage([], 0, true);
-      await deps.postComment(prUrl,
+      const commentUrl = await deps.postComment(prUrl,
         withFooter(incompleteCommentBody(reason), att, findingsHash));
-      return { commented: true, score: 0, incomplete: reason, attestation: att };
+      recordIndexRow(0, 0, true, att, commentUrl);
+      return { commented: true, score: 0, incomplete: reason, attestation: att, findings: [] };
     }
 
     // SPEC-2 pipeline: analyze → normalize → [triage] → [sim] → score(rubric
@@ -397,10 +485,11 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
       { generatePoc: deps.generatePoc, runSim: deps.runSim }, process.env);
     const scoreValue = scoreV1(simmed.findings);
     const { att, findingsHash } = await attestStage(simmed.findings, scoreValue, false);
-    await deps.postComment(prUrl, withFooter(
+    const commentUrl = await deps.postComment(prUrl, withFooter(
       summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote),
       att, findingsHash));
-    return { commented: true, score: scoreValue, attestation: att };
+    recordIndexRow(scoreValue, simmed.findings.length, false, att, commentUrl);
+    return { commented: true, score: scoreValue, attestation: att, findings: simmed.findings };
   } finally {
     // The clone dir must not outlive the review on any path (token-free but
     // still disk growth); cleanup failure never masks the review result.

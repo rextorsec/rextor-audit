@@ -19,24 +19,29 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { findingsHash, type Finding } from "./findings";
-import { resolveChain } from "./chains";
+import { resolveChain, attestationChainId } from "./chains";
 import type { ReviewDeps } from "./review";
 
-// Exact T6 contract ABI. attest + verify share the payload. parseAbi is NOT
-// optional: viem's writeContract/getAbiItem need parsed items — raw
-// human-readable strings throw `'name' in …` at call time (T10 Phase C live).
+// Exact contract ABI (SPEC-4 v2 — findingsURI + targetChainId). attest + verify
+// share the payload. parseAbi is NOT optional: viem's writeContract/getAbiItem
+// need parsed items — raw human-readable strings throw `'name' in …` at call
+// time (T10 Phase C live).
 export const REXTOR_ATTESTATION_ABI = parseAbi([
-  "function attest(bytes32 reviewId, bytes32 commitHash, bytes32 findingsHash, uint16 riskScore, uint16 findingCount, uint8 status)",
-  "function verify(bytes32 reviewId, bytes32 commitHash, bytes32 findingsHash, uint16 riskScore, uint16 findingCount, uint8 status) view returns (bool)",
+  "function attest(bytes32 reviewId, bytes32 commitHash, bytes32 findingsHash, string findingsURI, uint16 riskScore, uint16 findingCount, uint8 status, uint32 targetChainId)",
+  "function verify(bytes32 reviewId, bytes32 commitHash, bytes32 findingsHash, string findingsURI, uint16 riskScore, uint16 findingCount, uint8 status, uint32 targetChainId) view returns (bool)",
 ]);
 
 export interface AttestRecord {
   reviewId: `0x${string}`;
   commitHash: `0x${string}`;
   findingsHash: `0x${string}`;
+  /** SPEC-4 v2 — IPFS-pinned full report; "" = degraded (pin unavailable, B3 wires). */
+  findingsURI: string;
   riskScore: number;
   findingCount: number;
   status: 0 | 1;
+  /** SPEC-4 v2 — the chain the audited code targets; 0 = unresolved. */
+  targetChainId: number;
 }
 
 /** SPEC-4 §1 — keccak256 over the published derivation string. */
@@ -57,6 +62,10 @@ export function buildAttestRecord(input: {
   findings: Finding[];
   riskScore: number;
   incomplete: boolean;
+  /** IPFS-pinned full report; omitted → "" (degraded mode, SPEC-4 v2 ruling). */
+  findingsURI?: string;
+  /** The chain the audited code targets; omitted/unresolved → 0. */
+  targetChainId?: number;
 }): AttestRecord {
   return {
     reviewId: reviewIdFor(input.repoFullName, input.prNumber, input.headSha),
@@ -64,9 +73,11 @@ export function buildAttestRecord(input: {
     // T1's findingsHash directly — the SAME sha256-over-canonical-form the PR
     // comment publishes, so verify() recomputes from the comment alone.
     findingsHash: ("0x" + findingsHash(input.findings)) as `0x${string}`,
+    findingsURI: input.findingsURI ?? "",
     riskScore: input.riskScore,
     findingCount: input.findings.length,
     status: input.incomplete ? 1 : 0,
+    targetChainId: input.targetChainId ?? 0,
   };
 }
 
@@ -94,9 +105,23 @@ export function makeAttestDep(readEnv: () => NodeJS.ProcessEnv = () => process.e
       return Promise.resolve(null);
     }
     const chain = resolveChain(env);
-    const chainId = chain.attestation.chainId ?? chain.testnet.chainId;
+    // SPEC-5 shared null-skip recipe (chains.ts attestationChainId) — also
+    // used by review.ts's targetChainId resolution; null = unverified → skip.
+    const chainId = attestationChainId(chain);
     if (chainId == null || !chain.testnet.rpc) {
       console.error("[rextor] attestation chain params unverified — skipping");
+      return Promise.resolve(null);
+    }
+    // SPEC-5 #16 — the resolved chain's registry attestation slot is null
+    // until a deploy is recorded. The env address may be a stale override for
+    // a DIFFERENT chain (e.g. Tempo's live contract with default chain
+    // hyperliquid): a call to a non-contract address on HyperEVM mines
+    // status=success as a no-op and slips past the receipt guard below. The
+    // null slot must fail loudly BEFORE any tx is sent. (Deliberately not
+    // comparing env address to registry address — a legitimate env override
+    // for a NEW deploy precedes the registry commit.)
+    if (chain.attestation.address == null) {
+      console.error(`[rextor] attestation registry slot unverified for ${chain.key} — skipping`);
       return Promise.resolve(null);
     }
     const viemChain = defineChain({
@@ -117,16 +142,24 @@ export function makeAttestDep(readEnv: () => NodeJS.ProcessEnv = () => process.e
           record.reviewId,
           record.commitHash,
           record.findingsHash,
-          // viem types uint16/uint8 as number — only uint256+ takes bigint.
+          record.findingsURI,
+          // viem types uint16/uint8/uint32 as number — only uint256+ takes bigint.
           record.riskScore,
           record.findingCount,
           record.status,
+          record.targetChainId,
         ],
         chain: viemChain,
         account,
       });
       // The tx must be mined before the comment cites it: no receipt → no tx line.
-      await publicClient.waitForTransactionReceipt({ hash });
+      // SPEC-4 errata robustness — a MINED-BUT-REVERTED tx must never pass as
+      // success (Conatus anchor.ts pattern): only a success receipt means the
+      // attestation is actually on-chain state worth citing.
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      if (receipt.status !== "success") {
+        throw new Error(`attestation tx reverted: ${hash}`);
+      }
       return { txHash: hash, explorerUrl: chain.explorer ? `${chain.explorer}/tx/${hash}` : "" };
     })();
     let timer: NodeJS.Timeout | undefined;

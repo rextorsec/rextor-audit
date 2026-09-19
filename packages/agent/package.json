@@ -10,6 +10,7 @@
     "dev": "tsx --env-file-if-exists=../../.env src/server.ts"
   },
   "dependencies": {
+    "better-sqlite3": "13.0.3",
     "octokit": "^5.0.5",
     "viem": "^2.56.5"
   },

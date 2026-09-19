@@ -1,0 +1,109 @@
+@import "tailwindcss";
+/* Approved mock tokens — verbatim source of truth (SPEC-6 invariant 20). Same names, same OKLCH values. */
+@import "../tokens.css";
+
+/*
+ * shadcn/ui slot aliases — every value derives from an approved token via var();
+ * no new colors are invented. The mock's token set already covers --background,
+ * --foreground, --card, --primary*, --border, --ring, --muted-foreground.
+ */
+:root {
+  --muted: var(--card);
+  --secondary: var(--elevated);
+  --accent: var(--elevated);
+  --popover: var(--card);
+  --input: var(--border);
+  --destructive: var(--danger);
+  --secondary-foreground: var(--foreground);
+  --accent-foreground: var(--foreground);
+  --popover-foreground: var(--foreground);
+}
+
+/* Approved tokens exposed as Tailwind utilities (bg-background, text-subtle-foreground, …). */
+@theme inline {
+  --color-background: var(--background);
+  --color-card: var(--card);
+  --color-elevated: var(--elevated);
+  --color-inverse-foreground: var(--inverse-foreground);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-border: var(--border);
+  --color-rule-strong: var(--rule-strong);
+  --color-primary: var(--primary);
+  --color-primary-strong: var(--primary-strong);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-label: var(--label);
+  --color-label-foreground: var(--label-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-ring: var(--ring);
+  --color-muted: var(--muted);
+  --color-secondary: var(--secondary);
+  --color-accent: var(--accent);
+  --color-popover: var(--popover);
+  --color-input: var(--input);
+  --color-destructive: var(--destructive);
+
+  /* Fonts: Geist + Geist Mono via next/font; fallback stacks verbatim from tokens.css. */
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+
+/* Type scale — major third from 16px body (mock values, unchanged). */
+@theme {
+  --text-xs: 0.64rem;
+  --text-sm: 0.8rem;
+  --text-base: 1rem;
+  --text-md: 1.25rem;
+  --text-lg: 1.5625rem;
+  --text-xl: 1.9531rem;
+  --text-2xl: 2.4414rem;
+  --text-3xl: 3.0518rem;
+  --text-4xl: 3.8147rem;
+  --text-display: clamp(2.75rem, 5vw + 1rem, 5.25rem);
+  --text-display-s: clamp(2rem, 3.5vw + 0.75rem, 3.25rem);
+
+  /* 4pt spacing scale, named by role. */
+  --spacing-3xs: 0.125rem;
+  --spacing-2xs: 0.25rem;
+  --spacing-xs: 0.5rem;
+  --spacing-sm: 0.75rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2.5rem;
+  --spacing-2xl: 4rem;
+  --spacing-3xl: 6rem;
+  --spacing-4xl: 9rem;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+@layer base {
+  body {
+    @apply bg-background font-sans text-foreground text-base leading-normal;
+    line-height: 1.6;
+    padding-inline: max(1rem, env(safe-area-inset-left)) max(1rem, env(safe-area-inset-right));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+  a {
+    color: inherit;
+  }
+  a:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* N5 floating pill surface — backdrop tokens live here because they combine
+     var() + relative-color syntax that utilities cannot express. */
+  .nav-pill {
+    background: oklch(from var(--background) l c h / 0.72);
+    -webkit-backdrop-filter: blur(14px) saturate(1.4);
+    backdrop-filter: blur(14px) saturate(1.4);
+  }
+}
