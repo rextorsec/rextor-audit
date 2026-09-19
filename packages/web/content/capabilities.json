@@ -57,11 +57,18 @@
       "bots": "no",
       "rextor": {
         "shipped": true,
-        "receipt": "https://explore.testnet.tempo.xyz/address/0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd",
-        "receiptLabel": "Tempo · live",
         "soonChips": [
-          "HyperEVM — Shipping Oct 2026",
-          "Solana — Shipping Oct 2026"
+          "HyperEVM — Shipping Oct 2026"
+        ],
+        "receipts": [
+          {
+            "href": "https://explore.testnet.tempo.xyz/address/0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd",
+            "label": "Tempo · live"
+          },
+          {
+            "href": "https://explorer.solana.com/address/Aj6NxH8Ptjn7v3QVCZEQ9dPNWx8DjmaE2oPMNvnikMDs?cluster=devnet",
+            "label": "Solana devnet · live"
+          }
         ]
       },
       "backing": "B1, B2, B4+B5, B6"

@@ -44,6 +44,7 @@ The product contract (this file) stays small and stable. Subsystem contracts liv
 | [SPEC-5](docs/specs/SPEC-5-chain-adapters.md) | Chain adapters & track profiles: Tempo flagship, Hyperliquid deep; riders config-level | Wk 2–3 | **ACTIVE** — EVM-first per Gates A/B |
 | SPEC-6 | Product surface: landing, install flow, dashboard, money demo | Wk 3 | planned — mockup approval gates content |
 | [SPEC-7](docs/specs/SPEC-7-review-experience.md) | Review experience: `rextor.yaml` gate, fix diffs, dismissals/learnings, PR chat | Wk 4 | **ACTIVE** |
+| [SPEC-8](docs/specs/SPEC-8-solana-adapter.md) | Solana adapter: semgrep-over-Anchor slice + devnet verdict program (B4+B5, inseparable) | Wk 4 | **ACTIVE** |
 
 ## Architecture
 

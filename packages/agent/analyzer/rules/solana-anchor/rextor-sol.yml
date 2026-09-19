@@ -1,0 +1,30 @@
+rules:
+  # SPEC-8 §1 rule pack v1 — deterministic, fixture-anchored, real audit
+  # classes. Severity authority: metadata.rextor_severity (solana.sh maps it
+  # verbatim; the semgrep `severity` key only feeds semgrep's own exit codes).
+  - id: REXTOR-SOL-001
+    languages: [rust]
+    severity: ERROR
+    metadata:
+      rextor_severity: high
+    message: 'Manual lamport mutation on a context account (`try_borrow_mut_lamports`). Authority bypass / drain surface — Anchor programs move lamports via system-program CPIs or behind validated constraints; direct lamport arithmetic with no signer check lets any caller move funds.'
+    patterns:
+      - pattern: $ACC.try_borrow_mut_lamports()
+
+  - id: REXTOR-SOL-002
+    languages: [rust]
+    severity: ERROR
+    metadata:
+      rextor_severity: high
+    message: 'Direct write to `ctx.accounts.<x>.owner` inside a program instruction. Ownership-takeover surface — ownership changes must be gated by a signer/constraint check on the current owner (e.g. `#[account(constraint = ...)]`, `has_one`, or an explicit authority Signer).'
+    patterns:
+      - pattern: ctx.accounts.$A.owner = $VAL
+
+  - id: REXTOR-SOL-003
+    languages: [rust]
+    severity: WARNING
+    metadata:
+      rextor_severity: low
+    message: '`.unwrap()` on `checked_*` arithmetic involving an instruction argument. Panic/griefing DoS surface — a caller-supplied amount that fails the checked operation aborts the transaction with a panic; validate and return a typed error instead.'
+    patterns:
+      - pattern: $X.checked_sub($AMT).unwrap()

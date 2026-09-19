@@ -4,13 +4,15 @@
 // HyperEVM RPC corrected 2026-09-18 — the bare domain 404s, only the `/evm`
 // path serves JSON-RPC (live eth_chainId probe → 0x3e6). Unverified → null,
 // and null fails loudly downstream (invariant 16) — never a guess.
-export type ChainKey = "tempo" | "hyperliquid" | "ethereum" | "base" | "arbitrum" | "robinhood";
+export type ChainKey = "tempo" | "hyperliquid" | "ethereum" | "base" | "arbitrum" | "robinhood" | "solana";
 
 export interface ChainConfig {
   key: ChainKey;
   name: string;
   testnet: { chainId: number | null; rpc: string | null };
-  attestation: { address: `0x${string}` | null; chainId: number | null };
+  // SPEC-8 §3 — address is widened beyond `0x${string}`: the Solana slot
+  // holds a base58 programId. Both families stay `null` until recorded.
+  attestation: { address: string | null; chainId: number | null };
   explorer: string | null; // null until verified — footer omits the link
   notes: string;
 }
@@ -61,6 +63,19 @@ export const CHAIN_REGISTRY: Record<ChainKey, ChainConfig> = deepFreeze({
     testnet: { chainId: null, rpc: null },
     attestation: { address: null, chainId: null }, explorer: null,
     notes: "Rider: params captured at integration — never fabricated.",
+  },
+  solana: {
+    key: "solana", name: "Solana devnet",
+    // Non-EVM: no EVM chainId exists — a VERIFIED semantic null (SPEC-8 §3,
+    // invariant 27), not a gap; targetChainId skips via the null-skip recipe.
+    // RPC verified live 2026-09-19 (getHealth → ok).
+    testnet: { chainId: null, rpc: "https://api.devnet.solana.com" },
+    // B4 deployed 2026-09-19 — deploy tx n5SVHDzZ…TaCjoSMA, smoke tx
+    // 5iognq3W…J3QEkZ (docs/deployments/solana.md is the anchor for these
+    // literals).
+    attestation: { address: "Aj6NxH8Ptjn7v3QVCZEQ9dPNWx8DjmaE2oPMNvnikMDs", chainId: null },
+    explorer: null,
+    notes: "Adapter tier (SPEC-8): semgrep-over-Anchor slice; verdict program live on devnet (B4).",
   },
 });
 

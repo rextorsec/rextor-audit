@@ -1,0 +1,21 @@
+[features]
+seeds = false
+skip-lint = false
+
+# SPEC-8 §6 — programId generated 2026-09-19; keypair lives in the iCloud
+# secret store (~/Documents/secret/rextor-audit/attestation-solana-devnet.json),
+# never committed.
+[programs.localnet]
+attestation_solana = "Aj6NxH8Ptjn7v3QVCZEQ9dPNWx8DjmaE2oPMNvnikMDs"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+# Tests run on a throwaway localnet; the wallet is only a signer there.
+# Devnet deploy (🔴 RECTOR gate) overrides cluster + wallet on the CLI.
+cluster = "localnet"
+wallet = "~/Documents/secret/solana-devnet.json"
+
+[scripts]
+test = "pnpm exec ts-mocha -p ./tsconfig.json tests/**/*.ts"

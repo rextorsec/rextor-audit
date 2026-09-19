@@ -214,3 +214,82 @@ describe("parseForgeJson", () => {
     expect(() => parseForgeJson("Error: Compiler run failed:\n…")).toThrow();
   });
 });
+
+// SPEC-8 §4 — Anchor repo detection + the fork-sim guard. The production
+// runner carries a fork env, so the guard must key on repo SHAPE, not env
+// absence; skipped ≠ unproven (no rubric change), visible note, never silent.
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { isAnchorRepo } from "../src/sim";
+
+describe("isAnchorRepo (SPEC-8 §4)", () => {
+  const makeTree = async (files: Record<string, string>): Promise<string> => {
+    const dir = await mkdtemp(join(tmpdir(), "rextor-anchor-"));
+    for (const [rel, content] of Object.entries(files)) {
+      const target = join(dir, rel);
+      await mkdir(join(target, ".."), { recursive: true });
+      await writeFile(target, content);
+    }
+    return dir;
+  };
+
+  it("Anchor.toml at the root → true", async () => {
+    const dir = await makeTree({ "Anchor.toml": "" });
+    try {
+      expect(isAnchorRepo(dir)).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("anchor-lang under programs/*/Cargo.toml → true (no root Anchor.toml)", async () => {
+    const dir = await makeTree({ "programs/vault/Cargo.toml": '[dependencies]\nanchor-lang = "0.30.1"\n' });
+    try {
+      expect(isAnchorRepo(dir)).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("programs crate WITHOUT anchor-lang → false (dispatch must not guess)", async () => {
+    const dir = await makeTree({ "programs/vault/Cargo.toml": "[dependencies]\nserde = \"1\"\n" });
+    try {
+      expect(isAnchorRepo(dir)).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("plain EVM tree → false", async () => {
+    const dir = await makeTree({ "foundry.toml": "[profile.default]\nsrc = \"src\"\n", "src/Vault.sol": "contract V {}\n" });
+    try {
+      expect(isAnchorRepo(dir)).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("missing dir → false (never throws)", () => {
+    expect(isAnchorRepo(join(tmpdir(), "rextor-does-not-exist-8f3d"))).toBe(false);
+  });
+});
+
+describe("runSimStage × Anchor repos (SPEC-8 §4)", () => {
+  it("Anchor-shaped repo → skipped with the visible SPEC-8 note, even with fork env AND seams wired", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rextor-anchor-"));
+    try {
+      await writeFile(join(dir, "Anchor.toml"), "");
+      const generatePoc = async (): Promise<string> => "contract RextorPocTest {}";
+      const runSim = async (): Promise<SimOutcomeMap> => ({ block: 1, results: { testRextorPoc_0: true } });
+      const out = await runSimStage(withIds([crit(0)]), dir, { generatePoc, runSim }, {
+        REXTOR_FORK_RPC_URL: "https://fork.example",
+      });
+      expect(out.findings[0].poc?.status).toBe("skipped"); // NOT unproven — no rubric change
+      expect(out.findings[0].poc?.testSource).toBeUndefined(); // generation never ran
+      expect(out.simNote).toContain("Anchor (Solana) repo");
+      expect(out.simNote).toContain("EVM-only");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

@@ -11,6 +11,21 @@ describe("CHAIN_REGISTRY", () => {
     expect(CHAIN_REGISTRY.base.testnet.chainId).toBe(8453);
     expect(CHAIN_REGISTRY.arbitrum.testnet.chainId).toBe(42161);
     expect(CHAIN_REGISTRY.robinhood.testnet.chainId).toBeNull(); // never fabricated (SPEC-5 #16)
+    // SPEC-8 §3 — non-EVM: no EVM chainId exists (verified semantic null,
+    // invariant 27); RPC verified live 2026-09-19 (getHealth → ok).
+    expect(CHAIN_REGISTRY.solana.testnet).toEqual({ chainId: null, rpc: "https://api.devnet.solana.com" });
+    // B4 deployed 2026-09-19 (docs/deployments/solana.md anchors this literal):
+    // address = the devnet programId (base58 — the widened slot's first use),
+    // chainId stays the verified semantic null.
+    expect(CHAIN_REGISTRY.solana.attestation).toEqual({
+      address: "Aj6NxH8Ptjn7v3QVCZEQ9dPNWx8DjmaE2oPMNvnikMDs",
+      chainId: null,
+    });
+  });
+  it("solana resolves and nulls the targetChainId source (SPEC-8 §3 null-skip)", () => {
+    const resolved = resolveChain({ REXTOR_DEFAULT_CHAIN: "solana" });
+    expect(resolved.key).toBe("solana");
+    expect(attestationChainId(resolved)).toBeNull();
   });
   it("hyperliquid attestation slot stays null until deploy #2 — testnet fallback resolves chainId (SPEC-4 §2 / SPEC-5 #16)", () => {
     // Fail-loudly preserved: no address exists yet, so attest.ts SKIPS rather
@@ -31,7 +46,11 @@ describe("CHAIN_REGISTRY", () => {
     });
     for (const key of Object.keys(CHAIN_REGISTRY) as ChainKey[]) {
       expect(CHAIN_REGISTRY[key].notes.length).toBeGreaterThan(0);
-      if (key !== "tempo") expect(CHAIN_REGISTRY[key].attestation.address).toBeNull();
+      // Deployed slots: tempo (SPEC-4 #2) + solana (SPEC-8 B4). Everything
+      // else stays null until a recorded deployment fills it.
+      if (key !== "tempo" && key !== "solana") {
+        expect(CHAIN_REGISTRY[key].attestation.address).toBeNull();
+      }
     }
   });
   it("registry and entries are deeply frozen — spread can't share mutable state", () => {
@@ -56,12 +75,12 @@ describe("resolveChain", () => {
     expect(resolveChain({}).forkRpc).toBe("https://rpc.moderato.tempo.xyz");
   });
   it("unknown key → explicit error listing known keys", () => {
-    expect(() => resolveChain({ REXTOR_DEFAULT_CHAIN: "solana" })).toThrow(/unknown chain: solana/);
+    expect(() => resolveChain({ REXTOR_DEFAULT_CHAIN: "sui" })).toThrow(/unknown chain: sui/);
   });
   it("prototype keys are rejected, not resolved (fail-loud regression)", () => {
     for (const evil of ["toString", "valueOf", "constructor", "__proto__"]) {
       expect(() => resolveChain({ REXTOR_DEFAULT_CHAIN: evil })).toThrow(
-        `unknown chain: ${evil} (known: tempo, hyperliquid, ethereum, base, arbitrum, robinhood)`,
+        `unknown chain: ${evil} (known: tempo, hyperliquid, ethereum, base, arbitrum, robinhood, solana)`,
       );
     }
   });

@@ -53,17 +53,17 @@ to the Week-3 scope menu (roadmap session 2026-09-18).
 | 2 | Every PR an audit event (diff-scoped, continuous) | ✔ | — | ✔ | Week-1 engine | ✅ shipped |
 | 3 | Deterministic, recomputable risk score | — | ◐ | ✔ | SPEC-2 | ✅ shipped |
 | 4 | Execution-proof findings (fork-sim PoC) | — | — | ✔ | SPEC-3 | ✅ shipped — receipt: fork-sim run |
-| 5 | Verdict on-chain, native to the target chain | — | — | ✔ Tempo · soon HyperEVM · soon Solana | B1, B2, B4+B5, B6 | ◐ partial — Tempo live (`0x5137…d31f`), rest pending |
+| 5 | Verdict on-chain, native to the target chain | — | — | ✔ Tempo · ✔ Solana devnet · soon HyperEVM | B1, B2, B4+B5, B6 | ◐ partial — Tempo v2 live (`0x7fe6…0bcd`) + Solana devnet verdict program live (`Aj6Nx…kMDs`), HyperEVM pending |
 | 6 | Integrity rails (`INCOMPLETE` never silent) | — | — | ✔ | Week-1/2 | ✅ shipped |
-| 7 | Suggested fix per finding (reviewable diff) | ✔ | — | ✔ | D1 | 🔜 soon |
-| 8 | Repo config + severity merge gate | — | — | ✔ | D2 | 🔜 soon |
-| 9 | Durable full report (IPFS) + anyone-can-verify | — | — | ✔ | B3 | 🔜 soon |
+| 7 | Suggested fix per finding (reviewable diff) | ✔ | — | ✔ | D1 | ✅ shipped — receipt: test-repo PR fix-diff blocks |
+| 8 | Repo config + severity merge gate | — | — | ✔ | D2 | 🔜 soon — check-run receipt rides F5 installation-token swap |
+| 9 | Durable full report (IPFS) + anyone-can-verify | — | — | ✔ | B3 | ✅ shipped — receipt: `ipfs://QmUqtDrt…`, gateway sha256 == on-chain hash |
 | 10 | Verifiable agent identity (ERC-8004) | — | — | ✔ | C1 | 🔜 soon |
 | 11 | Public agent reputation ledger | — | — | ✔ | C2 | 🔜 soon |
-| 12 | Cross-PR memory (dismissals) | ✔ | — | ✔ | D4 | 🔜 soon |
-| 13 | Chat in PR (`@rextor-audit`) | ✔ | — | ✔ | D5 | 🔜 soon or hide |
+| 12 | Cross-PR memory (dismissals) | ✔ | — | ✔ | D4 | ✅ shipped — server-side store, learnings ledger accruing |
+| 13 | Chat in PR (`@rextor-audit`) | ✔ | — | ✔ | D5 | ✅ shipped — deterministic reply receipt 5742416145 |
 | 14 | Chain cost-model reasoning | — | — | ✔ | E1 | 🔜 soon or hide |
-| 15 | Living dashboard (ledger, history, identity card) | ✔ | — | ✔ | A3/A4 | 🔜 soon (Wk-3 build) |
+| 15 | Living dashboard (ledger, history, identity card) | ✔ | — | ✔ | A3/A4 | ✅ shipped — live on Vercel |
 
 Competitor columns carry the dated "not evidenced" footnote, not claims about their internals.
 `soon` renders as a "Shipping Oct 2026" badge.

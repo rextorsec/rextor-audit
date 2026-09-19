@@ -1,0 +1,8 @@
+[workspace]
+members = ["programs/*"]
+resolver = "2"
+
+# anchor build requires this (SBF runtime relies on trapping overflow checks —
+# arithmetic never silently wraps on-chain).
+[profile.release]
+overflow-checks = true
