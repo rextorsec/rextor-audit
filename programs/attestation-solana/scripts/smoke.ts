@@ -13,13 +13,12 @@ describe("smoke: devnet attestation receipt", () => {
   anchor.setProvider(anchor.AnchorProvider.env());
   const program = anchor.workspace.AttestationSolana as Program<AttestationSolana>;
 
-  // "smoke"-namespaced: first byte 0x00 + "smoke:" marker — never collides
-  // with a real review's id (same convention as the Tempo smoke namespace).
-  const reviewId = Buffer.concat([
-    Buffer.alloc(1, 0),
-    Buffer.from("smoke:rextor-b4-receipt"),
-    Buffer.alloc(6, 0),
-  ]).subarray(0, 32);
+  // "smoke"-namespaced: byte 0 = 0x00 + "smoke:" marker, zero-padded to
+  // exactly 32 — never collides with a real review's id (same convention as
+  // the Tempo smoke namespace). MUST be exactly 32 bytes or the client-side
+  // PDA derivation diverges from the program's (caught live on devnet).
+  const reviewId = Buffer.alloc(32, 0);
+  Buffer.from("smoke:rextor-b4-receipt").copy(reviewId, 1);
   const [reviewPda] = anchor.web3.PublicKey.findProgramAddressSync(
     [Buffer.from("review"), reviewId],
     program.programId,

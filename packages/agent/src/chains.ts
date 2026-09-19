@@ -70,8 +70,12 @@ export const CHAIN_REGISTRY: Record<ChainKey, ChainConfig> = deepFreeze({
     // invariant 27), not a gap; targetChainId skips via the null-skip recipe.
     // RPC verified live 2026-09-19 (getHealth → ok).
     testnet: { chainId: null, rpc: "https://api.devnet.solana.com" },
-    attestation: { address: null, chainId: null }, explorer: null,
-    notes: "Adapter tier (SPEC-8): semgrep-over-Anchor slice; native verdict program on devnet post-gate (B4).",
+    // B4 deployed 2026-09-19 — deploy tx n5SVHDzZ…TaCjoSMA, smoke tx
+    // 5iognq3W…J3QEkZ (docs/deployments/solana.md is the anchor for these
+    // literals).
+    attestation: { address: "Aj6NxH8Ptjn7v3QVCZEQ9dPNWx8DjmaE2oPMNvnikMDs", chainId: null },
+    explorer: null,
+    notes: "Adapter tier (SPEC-8): semgrep-over-Anchor slice; verdict program live on devnet (B4).",
   },
 });
 

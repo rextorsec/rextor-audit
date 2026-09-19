@@ -14,7 +14,13 @@ describe("CHAIN_REGISTRY", () => {
     // SPEC-8 §3 — non-EVM: no EVM chainId exists (verified semantic null,
     // invariant 27); RPC verified live 2026-09-19 (getHealth → ok).
     expect(CHAIN_REGISTRY.solana.testnet).toEqual({ chainId: null, rpc: "https://api.devnet.solana.com" });
-    expect(CHAIN_REGISTRY.solana.attestation).toEqual({ address: null, chainId: null });
+    // B4 deployed 2026-09-19 (docs/deployments/solana.md anchors this literal):
+    // address = the devnet programId (base58 — the widened slot's first use),
+    // chainId stays the verified semantic null.
+    expect(CHAIN_REGISTRY.solana.attestation).toEqual({
+      address: "Aj6NxH8Ptjn7v3QVCZEQ9dPNWx8DjmaE2oPMNvnikMDs",
+      chainId: null,
+    });
   });
   it("solana resolves and nulls the targetChainId source (SPEC-8 §3 null-skip)", () => {
     const resolved = resolveChain({ REXTOR_DEFAULT_CHAIN: "solana" });
@@ -40,7 +46,11 @@ describe("CHAIN_REGISTRY", () => {
     });
     for (const key of Object.keys(CHAIN_REGISTRY) as ChainKey[]) {
       expect(CHAIN_REGISTRY[key].notes.length).toBeGreaterThan(0);
-      if (key !== "tempo") expect(CHAIN_REGISTRY[key].attestation.address).toBeNull();
+      // Deployed slots: tempo (SPEC-4 #2) + solana (SPEC-8 B4). Everything
+      // else stays null until a recorded deployment fills it.
+      if (key !== "tempo" && key !== "solana") {
+        expect(CHAIN_REGISTRY[key].attestation.address).toBeNull();
+      }
     }
   });
   it("registry and entries are deeply frozen — spread can't share mutable state", () => {

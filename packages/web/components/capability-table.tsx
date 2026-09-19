@@ -6,6 +6,9 @@ export interface RextorCell {
   shipped: boolean;
   receipt?: string;
   receiptLabel?: string;
+  /** Multiple live receipts for one claim (e.g. Tempo + Solana on
+   *  onchain-verdict). When present, renders INSTEAD of the single receipt. */
+  receipts?: Array<{ href: string; label: string }>;
   soon?: boolean;
   soonChips?: string[];
 }
@@ -87,14 +90,26 @@ function RextorCellView({ rextor }: { rextor: CapabilityRow["rextor"] }) {
   return (
     <>
       ✔{" "}
-      {rextor.receipt && (
-        <a
-          className="font-mono text-sm no-underline whitespace-nowrap text-primary hover:underline hover:decoration-2 hover:underline-offset-[3px]"
-          href={rextor.receipt}
-        >
-          {rextor.receiptLabel ?? rextor.receipt}
-        </a>
-      )}
+      {rextor.receipts
+        ? rextor.receipts.map((r, i) => (
+            <span key={r.href}>
+              {i > 0 && " · "}
+              <a
+                className="font-mono text-sm no-underline whitespace-nowrap text-primary hover:underline hover:decoration-2 hover:underline-offset-[3px]"
+                href={r.href}
+              >
+                {r.label}
+              </a>
+            </span>
+          ))
+        : rextor.receipt && (
+            <a
+              className="font-mono text-sm no-underline whitespace-nowrap text-primary hover:underline hover:decoration-2 hover:underline-offset-[3px]"
+              href={rextor.receipt}
+            >
+              {rextor.receiptLabel ?? rextor.receipt}
+            </a>
+          )}
       {rextor.soonChips?.map((chip) => (
         <span key={chip} className="ml-2">
           <SoonBadge>{chip}</SoonBadge>

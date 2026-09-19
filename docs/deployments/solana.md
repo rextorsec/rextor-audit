@@ -1,18 +1,20 @@
 # AttestationSolana — Solana devnet verdict program (B4)
 
-**Status: PRE-GATE (2026-09-19).** Program built + localnet-tested per SPEC-8 §6.
-**🔴 Devnet deploy is a RECTOR gate (week-4 plan, global constraints) — this page records the deployment once RECTOR's go lands.**
+**Status: LIVE on devnet (2026-09-19).** 🔴 gate cleared by RECTOR ("GO — deploy now"); deployed via direct `solana program deploy` (anchor 0.31.1's deploy wrapper mis-parses agave 3.x CLI output — bypass documented below).
 
 | Field | Value |
 |---|---|
-| Program | [`AttestationSolana`](../../programs/attestation-solana/) — anchor-lang 0.30.1 (pinned to the installed CLI) |
-| ProgramId | `Aj6NxH8Ptjn7v3QVCZEQ9dPNWx8DjmaE2oPMNvnikMDs` |
+| Program | [`AttestationSolana`](../../programs/attestation-solana/) — anchor-lang 0.31.1 (pinned) |
+| ProgramId | [`Aj6NxH8Ptjn7v3QVCZEQ9dPNWx8DjmaE2oPMNvnikMDs`](https://explorer.solana.com/address/Aj6NxH8Ptjn7v3QVCZEQ9dPNWx8DjmaE2oPMNvnikMDs?cluster=devnet) |
 | Keypair | `~/Documents/secret/rextor-audit/attestation-solana-devnet.json` (iCloud secret store, never committed) |
-| Cluster | Solana devnet — `https://api.devnet.solana.com` (verified live 2026-09-19, getHealth → ok) |
-| Fee payer / upgrade authority | shared devnet wallet `FGSkt8MwXH83daNNW8ZkoqhL1KLcLoZLcdGJz84BWWr` (`~/Documents/secret/solana-devnet.json`, ~5 SOL at pre-gate) |
-| Deploy tx | — |
-| Slot | — |
-| Explorer | — |
+| Cluster | Solana devnet — `https://api.devnet.solana.com` |
+| Fee payer / upgrade authority | shared devnet wallet `FGSkt8MwXH83daNNW8ZkoqhL1KLcLoZLcdGJz84BWWr` |
+| Deploy tx | [`n5SVHDzZKfmrxTQoJvB4LUGu8yAevaYovuuxY5X6vfV8sa2Lx2g9zoA4mhPMUgjPmT2RxauBid7ocizTaCjoSMA`](https://explorer.solana.com/tx/n5SVHDzZKfmrxTQoJvB4LUGu8yAevaYovuuxY5X6vfV8sa2Lx2g9zoA4mhPMUgjPmT2RxauBid7ocizTaCjoSMA?cluster=devnet) — slot 500929335 |
+| ProgramData | `72Ytr4U4cfT97z1fLTjwhZdNVXW8VrHoLnAFY3Vnm78Z` |
+| Data length | 206,472 bytes · program balance 1.0498 SOL (min rent) |
+| Smoke tx | [`5iognq3WL7uKdYGqHJvjv1kUUEPZAKqP3bnu5LC6psA2LQ4C8mKDV7JtKHM9ajAmNw7L84G121JFdkRUbhJ3QEkZ`](https://explorer.solana.com/tx/5iognq3WL7uKdYGqHJvjv1kUUEPZAKqP3bnu5LC6psA2LQ4C8mKDV7JtKHM9ajAmNw7L84G121JFdkRUbhJ3QEkZ?cluster=devnet) — slot 500929671 |
+| Smoke PDA | `BqpVueaAJBW7s69yhMrzoWbmdg5jvLhSaPLRQW4Sswkb` = `["review", "smoke:rextor-b4-receipt"-namespaced id]` — riskScore 7, status 0, `findingsUri ipfs://smoke-nonprod-placeholder` (synthetic smoke namespace, same convention as the Tempo smoke) |
+| Wallet after deploy | 4.1925 SOL remaining |
 
 ## Semantics (SPEC-8 §6)
 
@@ -22,23 +24,30 @@
 - Idempotency mirrors the EVM contract (invariant 28): identical replay → no-op Ok; conflicting verdict or agent → `IdempotencyConflict`.
 - `status` vocabulary: 0 = complete, 1 = incomplete (same as Tempo). `risk_score` ≤ 100 enforced.
 
-## Steps (after RECTOR's go)
+## Steps as executed (2026-09-19)
 
-1. Sanity: `solana balance --url devnet` on the shared wallet (≥ ~0.5 SOL for deploy + rent; a program's min rent ≈ 0.22 SOL at 174+8 bytes of data... program size dominates: expect ≈ 3–5 SOL total — check `ls -l target/deploy/attestation_solana.so` and fund accordingly).
-2. From `programs/attestation-solana/`:
+1. Sanity: `solana balance --url devnet` — 5.244 SOL on the shared wallet.
+2. Deploy — `anchor deploy` (0.31.1) FAILED twice with a phantom
+   `AccountNotFound … error sending request`: its wrapper mis-parses agave 3.x
+   CLI output. Bypassed with the CLI directly:
    ```sh
-   anchor deploy --provider.cluster devnet \
-     --provider.wallet ~/Documents/secret/solana-devnet.json
+   solana program deploy target/deploy/attestation_solana.so --url devnet \
+     --keypair ~/Documents/secret/rextor-audit/attestation-solana-devnet.json \
+     --fee-payer ~/Documents/secret/solana-devnet.json \
+     --upgrade-authority ~/Documents/secret/solana-devnet.json
+   # → Program Id Aj6Nx…kMDs, tx n5SVHDzZ…TaCjoSMA
    ```
-   (The provider wallet in Anchor.toml stays localnet; the CLI override wins.)
-3. Smoke (ops, deterministic — mirrors the Tempo Smoke.s.sol receipt):
-   `ts-node`-style one-off via ts-mocha-free script or `anchor run` — post one
-   `attestReview` with a namespaced `review_id` (prefix `smoke:`-equivalent bytes),
-   verify `program.account.review.fetch` returns the fields, and record the tx.
-4. Record ProgramId + tx + slot in the table above; flip `chains.ts`
-   `solana.attestation.address` to the ProgramId literal + update
-   `chains.test.ts` (mirror the Tempo `5019723` pattern); flip the
-   `solana-program` capabilities/matrix row with the receipt.
+   (`anchor deploy` may work again once the CLI/agave output formats re-align;
+   the direct path is deterministic and needs nothing from anchor.)
+3. Smoke: `scripts/smoke.ts` via ts-mocha with `ANCHOR_PROVIDER_URL` +
+   `ANCHOR_WALLET` env — tx 5iognq3W…J3QEkZ, PDA BqpVuea…4Sswkb read back with
+   the exact fields. GOTCHA: the smoke `review_id` must be EXACTLY 32 bytes —
+   a 30-byte buffer passed the TS layer silently and failed on-chain as
+   `ConstraintSeeds` (client-derived PDA ≠ program-derived).
+4. Receipt flips: `chains.ts` solana slot ← ProgramId (test literal updated,
+   incl. the null-address exception list), `capabilities.json` onchain-verdict
+   row ← two receipts (Tempo + Solana), HyperEVM chip only remaining, matrix
+   row 5, this page.
 
 ## Notes
 

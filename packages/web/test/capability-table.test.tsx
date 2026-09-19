@@ -93,16 +93,23 @@ describe("CapabilityTable", () => {
     expect(tempoReceipt).toBeDefined();
     expect(tempoReceipt!.getAttribute("href")).toContain(`${tempoExplorer}/address/`);
 
-    // Row 5 partial — Tempo live receipt plus dated chips for HyperEVM + Solana.
+    // Multi-chain row — HyperEVM chip remains; Solana flipped to a live
+    // receipt (B4 devnet deploy), rendered via the row's receipts array.
     expect(screen.getByText("HyperEVM — Shipping Oct 2026")).toBeInTheDocument();
-    expect(screen.getByText("Solana — Shipping Oct 2026")).toBeInTheDocument();
+    expect(screen.queryByText("Solana — Shipping Oct 2026")).not.toBeInTheDocument();
+    const solanaReceipt = receiptLinks.find((a) =>
+      a.getAttribute("href")?.includes("explorer.solana.com/address/Aj6NxH8Ptjn7v3QVCZEQ9dPNWx8DjmaE2oPMNvnikMDs"),
+    );
+    expect(solanaReceipt).toBeDefined();
 
-    // Rows 7-15 carry the dated-soon badge (approved-mock budget) + 2 chips on row 5.
+    // Receipt state 676dcf4+: 11 rows shipped, 4 soon (config-gate,
+    // agent-identity, reputation, chain-cost) + the HyperEVM dated chip.
+    // Pins updated with the flip commits — the data file is the receipt
+    // ledger, the test follows it.
     const body = screen.getAllByRole("rowgroup").at(-1)!;
-    expect(within(body).getAllByText("Shipping Oct 2026")).toHaveLength(9);
-    expect(within(body).getAllByText(/Shipping Oct 2026/)).toHaveLength(11);
+    expect(within(body).getAllByText("Shipping Oct 2026")).toHaveLength(4);
+    expect(within(body).getAllByText(/Shipping Oct 2026/)).toHaveLength(5);
 
-    // All 15 rows visible.
     // All 15 rows visible.
     expect(within(body).getAllByRole("row")).toHaveLength(15);
   });
