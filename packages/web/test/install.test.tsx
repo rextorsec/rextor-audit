@@ -133,8 +133,8 @@ describe("install page — step 4: comment-anatomy facsimile (real artifacts)", 
 
     // Attestation footer — the real receipt link and recipe lines.
     expect(within(anatomy).getByText(/attested on Tempo testnet \(42431\)/)).toBeInTheDocument();
-    const receipt = within(anatomy).getByRole("link", { name: "0x62db…f079 ↗" });
-    expect(receipt).toHaveAttribute("href", "https://explore.testnet.tempo.xyz/tx/0x62db");
+    const receipt = within(anatomy).getByRole("link", { name: "0x6456…9e20 ↗" });
+    expect(receipt).toHaveAttribute("href", "https://explore.testnet.tempo.xyz/tx/0x64569102970c3c841ce2d656438fbbb1373feb9305bc5aaeab41cd3275db9e20");
     expect(
       within(anatomy).getByText(/reviewId = keccak256\("rextor\/review\/v1\|owner\/repo\|2\|<headSha>"\)/),
     ).toBeInTheDocument();

@@ -202,9 +202,9 @@ export default function InstallPage() {
               attested on Tempo testnet (42431) · tx{" "}
               <a
                 className="text-primary no-underline whitespace-nowrap hover:underline hover:underline-offset-[3px]"
-                href="https://explore.testnet.tempo.xyz/tx/0x62db"
+                href="https://explore.testnet.tempo.xyz/tx/0x64569102970c3c841ce2d656438fbbb1373feb9305bc5aaeab41cd3275db9e20"
               >
-                0x62db…f079 ↗
+                0x6456…9e20 ↗
               </a>
               <br />
               reviewId = keccak256("rextor/review/v1|owner/repo|2|&lt;headSha&gt;")
