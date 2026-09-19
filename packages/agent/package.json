@@ -7,9 +7,12 @@
     "test": "vitest",
     "test:run": "vitest run",
     "typecheck": "tsc --noEmit",
-    "dev": "tsx --env-file-if-exists=../../.env src/server.ts"
+    "dev": "tsx --env-file-if-exists=../../.env src/server.ts",
+    "solana:smoke": "tsx scripts/solana-smoke.ts"
   },
   "dependencies": {
+    "@coral-xyz/anchor": "0.31.1",
+    "@solana/web3.js": "1.99.0",
     "better-sqlite3": "13.0.3",
     "octokit": "^5.0.5",
     "picomatch": "^4.0.7",

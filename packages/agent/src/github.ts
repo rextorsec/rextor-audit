@@ -10,6 +10,7 @@ import { Octokit } from "octokit";
 import { runAnalyzerContainer, type ReviewDeps } from "./review";
 import { generatePocFromEnv, runSimContainer, simTmpBase } from "./sim";
 import { makeAttestDep } from "./attest";
+import { makeSolanaVerdictDep } from "./solana";
 import { makePinDep } from "./ipfs";
 import { triageFromEnv } from "./triage";
 
@@ -118,6 +119,10 @@ export function githubDeps(options: GithubDepsOptions = {}): ReviewDeps {
     // SPEC-4 attestation default: env-driven at wiring AND call time; env
     // unset → undefined → the review renders "attestation not configured".
     attest: makeAttestDep(),
+
+    // SPEC-8 §5 native Solana verdict default: same env-driven discipline —
+    // both keys set at wiring AND call time, else the footer shows the skip.
+    attestSolana: makeSolanaVerdictDep(),
 
     // SPEC-4 v2 (B3): IPFS pin default. JWT unset → undefined → the review
     // attests with findingsURI "" (degraded mode).

@@ -45,7 +45,7 @@ Rules are vetted against the fixture: **exactly 3 findings** with pinned ids/sev
 ## 5. Attestation semantics
 
 - **Home chain (scope decision 1):** Solana-track reviews attest on Tempo exactly like EVM reviews — `score → pin → attest` unchanged; `targetChainId` continues to mean "the chain attestation rides on" per the engine's registry (Tempo 42431). No per-PR chain detection in v1 (documented limitation; the footer already names the attesting chain).
-- **Native verdict record (B4):** the Anchor program gives the demo chains a chain-native verdict record. It is an ops-level receipt path in v1 (scripted smoke post-deploy), not service wiring — service-side auto-write stays behind `REXTOR_SOLANA_PROGRAM_ID` when it exists, skipped with a visible note when absent (null-skip discipline).
+- **Native verdict record (B4):** the Anchor program gives the demo chains a chain-native verdict record. Service auto-write (shipped 2026-09-20): after a Solana-track review's home-chain attest SETTLES, the service mirrors the verdict to the devnet program — env-gated behind `REXTOR_SOLANA_PROGRAM_ID` + `REXTOR_SOLANA_KEYPAIR` (the funded agent wallet, NOT the program keypair); absent → a VISIBLE skip note in the PR footer, never silent (null-skip discipline). Client: `packages/agent/src/solana.ts` (anchor 0.31.1, vendored IDL, fee-burn payload guards, 30 s guard, every failure → logged null); idempotency is the PROGRAM's semantic (invariant 28 — identical replay no-op Ok, conflict → 6003), proven live by `pnpm --filter @rextor/agent solana:smoke`.
 
 ## 6. Verdict program (B4) — `programs/attestation-solana/`
 
