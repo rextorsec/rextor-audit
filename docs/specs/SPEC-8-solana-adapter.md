@@ -49,7 +49,10 @@ Rules are vetted against the fixture: **exactly 3 findings** with pinned ids/sev
 
 ## 6. Verdict program (B4) — `programs/attestation-solana/`
 
-Standalone Anchor workspace (own `Anchor.toml`, `Cargo.toml` pinning `anchor-lang = "0.30.1"` to match the installed CLI; never the fixture's 0.31.1).
+Standalone Anchor workspace (own `Anchor.toml`, `Cargo.toml` pinning
+`anchor-lang = "=0.31.1"` via avm — matching the Gate-B fixture's anchor-lang;
+the 0.30 CLI line cannot build on a modern dep graph because anchor-syn 0.30.1's
+IDL build uses `Span::source_file`, removed in proc-macro2 1.0.60).
 
 **State:** one PDA per review: seeds `["review", review_id]`, fields `{ agent: Pubkey, risk_score: u8, status: u8, findings_uri: String (≤ 128 bytes), slot: u64 }`. `review_id: [u8; 32]` (the same keccak/sha256 recipe the EVM contract hashes — bytes only, no derivation change).
 

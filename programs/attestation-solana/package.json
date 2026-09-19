@@ -1,0 +1,18 @@
+{
+  "name": "attestation-solana-tests",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "pnpm exec ts-mocha -p ./tsconfig.json tests/**/*.ts"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "0.31.1"
+  },
+  "devDependencies": {
+    "@types/chai": "^4.3.16",
+    "@types/mocha": "^10.0.7",
+    "chai": "^4.4.1",
+    "ts-mocha": "^10.0.0",
+    "typescript": "^5.5.4"
+  }
+}
