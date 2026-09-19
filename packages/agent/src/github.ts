@@ -131,6 +131,48 @@ export function githubDeps(options: GithubDepsOptions = {}): ReviewDeps {
       return res.data.html_url ?? undefined;
     },
 
+    // SPEC-7 §1 — rextor.yaml from the PR's BASE branch (the trusted
+    // silencing channel, invariant 21). The clone only fetched the PR head,
+    // so the base head is fetched shallow here; a missing file is the NORMAL
+    // no-config case (null), any other git failure throws (infrastructure —
+    // runReview degrades to defaults and logs, never silently half-configures).
+    async readBaseConfig(repoDir: string, prUrl: string): Promise<string | null> {
+      const { owner, repo, number } = prParts(prUrl);
+      const octokit = new Octokit({ auth: token(), request: { timeout: OCTOKIT_TIMEOUT_MS } });
+      const pr = await octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+        owner, repo, pull_number: number,
+      });
+      const baseRef = pr.data.base.ref;
+      const t = token();
+      try {
+        const url = `https://x-access-token:${t}@github.com/${owner}/${repo}.git`;
+        await runGit(["-C", repoDir, "fetch", "--depth", "1", url, `refs/heads/${baseRef}`]);
+        const sha = (await runGit(["-C", repoDir, "rev-parse", "FETCH_HEAD"])).trim();
+        return await runGit(["-C", repoDir, "show", `${sha}:rextor.yaml`]);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        // git's missing-path phrasing ("path ... does not exist in 'sha'" /
+        // "exists on disk, but not in") = the base branch has no config yet.
+        if (/does not exist in|exists on disk, but not in/.test(detail)) return null;
+        throw new Error(detail.split(t).join("***"));
+      }
+    },
+
+    // SPEC-7 §1 — the merge-gate story: conclusion failure blocks merges
+    // under branch protection; neutral marks INCOMPLETE (invariant 24).
+    async postCheckRun(prUrl, headSha, conclusion, summary) {
+      const { owner, repo } = prParts(prUrl);
+      const octokit = new Octokit({ auth: token(), request: { timeout: OCTOKIT_TIMEOUT_MS } });
+      await octokit.request("POST /repos/{owner}/{repo}/check-runs", {
+        owner,
+        repo,
+        name: "rextor-audit",
+        head_sha: headSha,
+        conclusion,
+        output: { title: "rextor audit", summary },
+      });
+    },
+
     async dispose(repoDir: string): Promise<void> {
       await rmDir(repoDir);
     },

@@ -12,10 +12,13 @@
   "dependencies": {
     "better-sqlite3": "13.0.3",
     "octokit": "^5.0.5",
-    "viem": "^2.56.5"
+    "picomatch": "^4.0.7",
+    "viem": "^2.56.5",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/node": "^26.5.1",
+    "@types/picomatch": "^4.0.3",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2",
     "vitest": "^5.0.1"

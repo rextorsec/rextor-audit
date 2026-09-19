@@ -25,6 +25,14 @@ import {
   type Finding,
   type Severity,
 } from "./findings";
+import {
+  DEFAULT_CONFIG,
+  dismissalKey,
+  gateConclusion,
+  inScope,
+  parseRepoConfig,
+  type RepoConfig,
+} from "./config";
 
 export type { Finding };
 
@@ -55,6 +63,20 @@ export interface ReviewDeps {
   pin?: (report: ReviewResult) => Promise<{ uri: string; cid: string }>;
   /** SPEC-6 §3 review-index write-through; absent → no row recorded. */
   recordReview?: (row: ReviewRow) => void;
+  /** SPEC-7 §1 — reads `rextor.yaml` from the PR's BASE branch inside the
+   *  clone dir (base-branch config is the only trusted silencing channel,
+   *  invariant 21; resolving the base ref is the adapter's job). null = no
+   *  config file → defaults. Throwing = infrastructure failure → defaults,
+   *  logged (never repo-content errors — those return via parse). */
+  readBaseConfig?(repoDir: string, prUrl: string): Promise<string | null>;
+  /** SPEC-7 §1 — check-run conclusion from the severity gate. Best-effort:
+   *  a failing check-run never fails the review (the comment is the product). */
+  postCheckRun?(
+    prUrl: string,
+    headSha: string,
+    conclusion: "success" | "failure" | "neutral",
+    summary: string,
+  ): Promise<void>;
 }
 
 export interface ReviewResult {
@@ -339,6 +361,49 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
   const { dir: repoDir, headSha } = await deps.clone(prUrl);
   const identity = prIdentity(prUrl);
 
+  // SPEC-7 §1 — base-branch config, loaded once per review. Missing file →
+  // defaults (normal case, no note); parse violations → defaults + VISIBLE
+  // note in the comment (a half-applied config would make the gate's meaning
+  // depend on which lines happened to parse); infrastructure failure (git
+  // transport) → defaults, logged — infra is not repo content.
+  let repoConfig: RepoConfig = DEFAULT_CONFIG;
+  let configError: string | undefined;
+  if (deps.readBaseConfig) {
+    try {
+      const text = await deps.readBaseConfig(repoDir, prUrl);
+      const parsed = parseRepoConfig(text);
+      repoConfig = parsed.config;
+      configError = parsed.error;
+    } catch (err) {
+      console.error("[rextor] rextor.yaml read failed (infrastructure):",
+        err instanceof Error ? err.message : err);
+    }
+  }
+  const dismissedKeys = new Set(
+    repoConfig.dismissals.map((d) => dismissalKey(d.ruleId, d.path)),
+  );
+  // Config errors contain yaml-derived repo content — untrusted text renders
+  // inert (same escaping discipline as the findings table).
+  const withConfigNote = (body: string): string =>
+    configError ? `> ⚠️ ${cell(configError)} — defaults applied.\n\n${body}` : body;
+
+  // SPEC-7 §1 + invariant 24 — check-run conclusion from the severity gate.
+  // INCOMPLETE ⇒ neutral (a broken tool is not a code verdict); otherwise the
+  // pure gate answers failure|success over the in-scope, dismissal-aware set.
+  // Best-effort: a failing check-run never fails the review.
+  const checkRunStage = async (
+    conclusion: "success" | "failure" | "neutral",
+    summary: string,
+  ): Promise<void> => {
+    if (!deps.postCheckRun) return;
+    try {
+      await deps.postCheckRun(prUrl, headSha, conclusion, summary);
+    } catch (err) {
+      console.error("[rextor] check-run post failed:",
+        err instanceof Error ? err.message : err);
+    }
+  };
+
   // SPEC-6 §3 — review-index write-through: one row per settled review
   // (complete, hard-incomplete, attested or skipped). Absent attestation is
   // stored as empty chain/tx fields — never fake values. Best-effort: the
@@ -442,7 +507,8 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
       const reason = err instanceof Error ? err.message : String(err);
       const { att, findingsHash } = await attestStage([], 0, true);
       const commentUrl = await deps.postComment(prUrl,
-        withFooter(incompleteCommentBody(`analyzer failed: ${reason}`), att, findingsHash));
+        withConfigNote(withFooter(incompleteCommentBody(`analyzer failed: ${reason}`), att, findingsHash)));
+      await checkRunStage("neutral", `review incomplete: ${reason}`);
       recordIndexRow(0, 0, true, att, commentUrl);
       return { commented: true, score: 0, incomplete: reason, attestation: att, findings: [] };
     }
@@ -457,10 +523,15 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
           : `unparseable analyzer report: ${err instanceof Error ? err.message : String(err)}`;
       const { att, findingsHash } = await attestStage([], 0, true);
       const commentUrl = await deps.postComment(prUrl,
-        withFooter(incompleteCommentBody(reason), att, findingsHash));
+        withConfigNote(withFooter(incompleteCommentBody(reason), att, findingsHash)));
+      await checkRunStage("neutral", `review incomplete: ${reason}`);
       recordIndexRow(0, 0, true, att, commentUrl);
       return { commented: true, score: 0, incomplete: reason, attestation: att, findings: [] };
     }
+
+    // SPEC-7 §1 paths — one in-scope definition feeds comment, score,
+    // attestation payload AND gate alike.
+    findings = inScope(findings, repoConfig);
 
     // SPEC-2 pipeline: analyze → normalize → [triage] → [sim] → score(rubric
     // v1) → ONE PR comment. Triage is soft: a missing or throwing dep degrades
@@ -485,9 +556,12 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
       { generatePoc: deps.generatePoc, runSim: deps.runSim }, process.env);
     const scoreValue = scoreV1(simmed.findings);
     const { att, findingsHash } = await attestStage(simmed.findings, scoreValue, false);
-    const commentUrl = await deps.postComment(prUrl, withFooter(
+    const conclusion = gateConclusion(simmed.findings, repoConfig, dismissedKeys);
+    const commentUrl = await deps.postComment(prUrl, withConfigNote(withFooter(
       summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote),
-      att, findingsHash));
+      att, findingsHash)));
+    await checkRunStage(conclusion,
+      `rextor audit: riskScore ${scoreValue}/100 — severity gate ${conclusion}`);
     recordIndexRow(scoreValue, simmed.findings.length, false, att, commentUrl);
     return { commented: true, score: scoreValue, attestation: att, findings: simmed.findings };
   } finally {
