@@ -56,6 +56,8 @@ Four steps, each verifiable: (1) install the GitHub App (real install link; perm
 19. No secrets in the client bundle; `NEXT_PUBLIC_` limited to addresses/chainIds/explorer URLs.
 20. `tokens.css` from the approved mockups is the implementation token source; divergent inline colors/fonts in `packages/web` are a spec violation.
 
+Errata (2026-09-19, T10 review): the ledger table's visible columns follow the approved mock (PR · Risk score · Status · Attestation); `findingCount` rides in the row schema but is intentionally not a column — surface it when a finding-level view ships, not before.
+
 ## Acceptance
 
 - Mocks: three self-contained HTML mocks in `mockups/`, Hallmark-stamped (macrostructure · theme · enrichment + pre-emit critique), verified at 320/375/414/768, honest copy only (real numbers or labelled `—`) — RECTOR-approved before any web code.
