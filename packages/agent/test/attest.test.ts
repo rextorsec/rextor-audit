@@ -1,7 +1,7 @@
 // SPEC-4 §1/§3 — verdict identity (reviewId / commitHash / findingsHash) and
 // the attestation dep factory. Hash vectors are EXTERNALLY computed literals
 // shared with findings.test.ts via ./vectors — never recomputed in-suite.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { getAbiItem, keccak256 } from "viem";
 
 import { buildAttestRecord, commitHashFor, makeAttestDep, reviewIdFor, REXTOR_ATTESTATION_ABI } from "../src/attest";
@@ -90,5 +90,27 @@ describe("makeAttestDep", () => {
       REXTOR_ATTEST_CONTRACT_ADDRESS: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
       REXTOR_ATTEST_CHAIN: "tempo",
     }))).toBeTypeOf("function");
+  });
+  it("skips (null) when the resolved chain's registry attestation slot is null — even if the address env is set (SPEC-5 #16)", async () => {
+    // Stale-env hazard: REXTOR_DEFAULT_CHAIN=hyperliquid (registry slot null
+    // until deploy #2) while REXTOR_ATTEST_CONTRACT_ADDRESS still holds the
+    // live Tempo address. A call to a non-contract address MINES status=success
+    // as a no-op on HyperEVM, so the receipt guard alone cannot catch it —
+    // the null registry slot must fail loudly BEFORE any tx is sent.
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const env = {
+      REXTOR_AGENT_PRIVATE_KEY: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d", // anvil key #1, test-only
+      REXTOR_ATTEST_CONTRACT_ADDRESS: "0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd", // Tempo deploy #1
+      REXTOR_DEFAULT_CHAIN: "hyperliquid",
+    };
+    const attest = makeAttestDep(() => env)!;
+    const record = buildAttestRecord({
+      repoFullName: "o/r", prNumber: 1, headSha: sha40,
+      findings: [], riskScore: 0, incomplete: false,
+    });
+    const result = await attest(record);
+    expect(result).toBeNull();
+    expect(err).toHaveBeenCalledWith(expect.stringMatching(/registry slot unverified/));
+    err.mockRestore();
   });
 });

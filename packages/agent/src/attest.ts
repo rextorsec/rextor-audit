@@ -112,6 +112,18 @@ export function makeAttestDep(readEnv: () => NodeJS.ProcessEnv = () => process.e
       console.error("[rextor] attestation chain params unverified — skipping");
       return Promise.resolve(null);
     }
+    // SPEC-5 #16 — the resolved chain's registry attestation slot is null
+    // until a deploy is recorded. The env address may be a stale override for
+    // a DIFFERENT chain (e.g. Tempo's live contract with default chain
+    // hyperliquid): a call to a non-contract address on HyperEVM mines
+    // status=success as a no-op and slips past the receipt guard below. The
+    // null slot must fail loudly BEFORE any tx is sent. (Deliberately not
+    // comparing env address to registry address — a legitimate env override
+    // for a NEW deploy precedes the registry commit.)
+    if (chain.attestation.address == null) {
+      console.error(`[rextor] attestation registry slot unverified for ${chain.key} — skipping`);
+      return Promise.resolve(null);
+    }
     const viemChain = defineChain({
       id: chainId,
       name: chain.name,
