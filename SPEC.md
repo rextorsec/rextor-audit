@@ -43,6 +43,7 @@ The product contract (this file) stays small and stable. Subsystem contracts liv
 | [SPEC-4](docs/specs/SPEC-4-attestation.md) | Attestation + agent identity/reputation (EVM contract) | Wk 2–3 | **ACTIVE** — Tempo testnet first, then HyperEVM |
 | [SPEC-5](docs/specs/SPEC-5-chain-adapters.md) | Chain adapters & track profiles: Tempo flagship, Hyperliquid deep; riders config-level | Wk 2–3 | **ACTIVE** — EVM-first per Gates A/B |
 | SPEC-6 | Product surface: landing, install flow, dashboard, money demo | Wk 3 | planned — mockup approval gates content |
+| [SPEC-7](docs/specs/SPEC-7-review-experience.md) | Review experience: `rextor.yaml` gate, fix diffs, dismissals/learnings, PR chat | Wk 4 | **ACTIVE** |
 
 ## Architecture
 
