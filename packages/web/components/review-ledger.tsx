@@ -1,8 +1,11 @@
 // SPEC-6 §3 — review ledger (approved-mock row anatomy). Untrusted row
 // strings render as inert text only. The verify expander carries the SPEC-4
 // recipe with the row's REAL inputs; findingsHash stays a recipe + PR-comment
-// link (the hash is not in the row schema — never fabricated).
-import { shortHex, webChainByName, WEB_CHAINS, DEFAULT_CHAIN_KEY } from "@/lib/chains";
+// link (the hash is not in the row schema — never fabricated). When a row's
+// chain is not in the web registry, the row's own chain string renders and
+// the contract/agent constants are OMITTED — honest omission, never a
+// wrong-chain assertion (T10 review carry).
+import { shortHex, webChainByName } from "@/lib/chains";
 import type { ReviewRow } from "@/lib/reviews";
 
 const DANGER_THRESHOLD = 60;
@@ -29,7 +32,6 @@ export function ReviewLedgerRow({ row, repoFullName, agentName }: ReviewLedgerRo
   const txHref = txLinkTarget(row);
   const attested = row.tx_hash.length > 0;
   const chain = row.chain ? webChainByName(row.chain) : undefined;
-  const contract = chain ?? WEB_CHAINS[DEFAULT_CHAIN_KEY];
   const date = row.created_at.slice(0, 10);
 
   return (
@@ -57,7 +59,7 @@ export function ReviewLedgerRow({ row, repoFullName, agentName }: ReviewLedgerRo
         {attested ? (
           <>
             <p className="font-mono text-xs break-all">
-              {row.chain || contract.name} · {shortHex(row.tx_hash)}
+              {row.chain} · {shortHex(row.tx_hash)}
             </p>
             {txHref && (
               <a className={receiptLink} href={txHref} rel="noreferrer noopener" target="_blank">
@@ -96,18 +98,22 @@ export function ReviewLedgerRow({ row, repoFullName, agentName }: ReviewLedgerRo
                     )}
                   </dd>
                 </div>
-                <div className="grid grid-cols-1 gap-x-4 gap-y-0 py-0.5 min-[40rem]:grid-cols-[minmax(0,14ch)_minmax(0,1fr)]">
-                  <dt className="text-subtle-foreground">chain</dt>
-                  <dd className="min-w-0 break-all">
-                    {contract.name} {contract.chainId} · contract {shortHex(contract.attestation)}
-                  </dd>
-                </div>
-                <div className="grid grid-cols-1 gap-x-4 gap-y-0 py-0.5 min-[40rem]:grid-cols-[minmax(0,14ch)_minmax(0,1fr)]">
-                  <dt className="text-subtle-foreground">agent</dt>
-                  <dd className="min-w-0 break-all">
-                    {agentName ?? "rextor-audit[bot]"} · {shortHex(contract.agent)}
-                  </dd>
-                </div>
+                {chain && (
+                  <>
+                    <div className="grid grid-cols-1 gap-x-4 gap-y-0 py-0.5 min-[40rem]:grid-cols-[minmax(0,14ch)_minmax(0,1fr)]">
+                      <dt className="text-subtle-foreground">chain</dt>
+                      <dd className="min-w-0 break-all">
+                        {chain.name} {chain.chainId} · contract {shortHex(chain.attestation)}
+                      </dd>
+                    </div>
+                    <div className="grid grid-cols-1 gap-x-4 gap-y-0 py-0.5 min-[40rem]:grid-cols-[minmax(0,14ch)_minmax(0,1fr)]">
+                      <dt className="text-subtle-foreground">agent</dt>
+                      <dd className="min-w-0 break-all">
+                        {agentName ?? "rextor-audit[bot]"} · {shortHex(chain.agent)}
+                      </dd>
+                    </div>
+                  </>
+                )}
               </dl>
             </details>
           </>

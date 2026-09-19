@@ -114,6 +114,24 @@ describe("dashboard page — ledger", () => {
     expect(screen.getByText(/Tempo testnet 42431 · contract 0x7fe6…0bcd/)).toBeInTheDocument();
   });
 
+  it("unknown-chain attested rows render their own chain and omit registry constants (T10 carry)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubReviews([row({ chain: "hyperliquid", explorer_url: "" })]),
+    );
+    await renderPage({ owner: "rextorsec", repo: "demo" });
+
+    // The attestation cell shows the row's own chain string…
+    const cell = screen.getAllByRole("cell")[3];
+    expect(cell.textContent).toContain("hyperliquid");
+    // …and its verify expander never asserts Tempo constants for a foreign
+    // chain (honest omission until the web registry knows the chain).
+    expect(cell.textContent).not.toContain("Tempo");
+    expect(cell.textContent).not.toContain("42431");
+    expect(cell.textContent).not.toContain("0x7fe6");
+    expect(cell.textContent).not.toContain("0xE690");
+  });
+
   it("renders row strings as inert text (untrusted PR-derived data)", async () => {
     vi.stubGlobal(
       "fetch",
