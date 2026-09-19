@@ -231,7 +231,64 @@ function findingRow(f: Finding): string {
   return `| #${f.id ?? "—"} | ${sev} | ${cell(f.check)} | ${cell(f.file)}:${f.line} | ${cell(note)} |`;
 }
 
-export function summaryCommentBody(scoreValue: number, triaged: TriageResult, simNote = ""): string {
+// SPEC-7 §3 — quoted cited lines: extracted VERBATIM from the PR diff (never
+// LLM-written code). Parses the + side of hunks into (newLine → text) per
+// file; returns a ±1 window around the cited line, or null when the line is
+// outside the diff — absence renders no evidence, never an invention.
+export function citedLinesFromDiff(
+  diff: string,
+  file: string,
+  line: number,
+): Array<[number, string]> | null {
+  const byNewLine = new Map<number, string>();
+  let currentFile: string | null = null;
+  let newLine = 0;
+  for (const raw of diff.split("\n")) {
+    if (raw.startsWith("diff --git ")) {
+      currentFile = null;
+      continue;
+    }
+    if (raw.startsWith("+++ ")) {
+      const p = raw.slice(4);
+      currentFile = p.startsWith('"b/') ? p.slice(3, -1) : p.startsWith("b/") ? p.slice(2) : p;
+      continue;
+    }
+    if (raw.startsWith("--- ") || raw.startsWith("index ") || raw.startsWith("new file") ||
+        raw.startsWith("deleted file") || raw.startsWith("similarity ") || raw.startsWith("rename ")) {
+      continue;
+    }
+    const hunk = raw.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (hunk) {
+      newLine = Number(hunk[1]);
+      continue;
+    }
+    if (currentFile === null) continue;
+    if (raw.startsWith("+")) {
+      byNewLine.set(newLine, raw.slice(1));
+      newLine += 1;
+    } else if (raw.startsWith("-") || raw.startsWith("\\")) {
+      // old-side / no-newline marker: absent from the new file
+    } else if (raw.startsWith(" ")) {
+      byNewLine.set(newLine, raw.slice(1));
+      newLine += 1;
+    }
+    // any other line (e.g. "\ No newline at end of file" handled above) ignored
+  }
+  const window: Array<[number, string]> = [];
+  for (let n = line - 1; n <= line + 1; n++) {
+    const text = byNewLine.get(n);
+    if (text !== undefined) window.push([n, text]);
+  }
+  return window.length > 0 ? window : null;
+}
+
+export function summaryCommentBody(
+  scoreValue: number,
+  triaged: TriageResult,
+  simNote = "",
+  att?: AttestationInfo,
+  prDiff?: string,
+): string {
   const findings = triaged.finalFindings;
   const sorted = [...findings].sort(
     (a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity),
@@ -281,6 +338,11 @@ export function summaryCommentBody(scoreValue: number, triaged: TriageResult, si
     ].join("\n"));
   return [
     `## rextor audit — risk score: ${scoreValue}/100`,
+    // SPEC-7 §3 — the verdict banner leads with the on-chain anchor and the
+    // anyone-can-verify path (the footer carries the full recipe).
+    ...(att && "chain" in att
+      ? [`> ⚖ attested on ${cell(att.chain)} · [tx \`${att.txHash.slice(0, 10)}…\`](${att.explorerUrl}) · verify: recompute sha256 of the findings JSON below and compare with the on-chain findingsHash.`]
+      : []),
     "",
     ...banner,
     `**${findings.length} finding(s)** in changed contract code.`,
@@ -300,6 +362,22 @@ export function summaryCommentBody(scoreValue: number, triaged: TriageResult, si
     "</details>",
     ...pocBlocks,
     ...suggestionBlocks,
+    // SPEC-7 §3 — per-finding verbatim citations from the diff itself, only
+    // for the findings actually rendered. Untrusted content: same inert
+    // discipline (sanitize inside a 4-backtick fence).
+    ...(prDiff
+      ? rendered.flatMap((f) => {
+          const lines = citedLinesFromDiff(prDiff, f.file, f.line);
+          if (!lines) return [];
+          return [
+            "",
+            `### Evidence — finding #${f.id} (${cell(f.check)} @ ${cell(f.file)}:${f.line})`,
+            "````",
+            ...lines.map(([n, text]) => sanitizePocSource(`${n} | ${text}`.slice(0, 180)).trimEnd()),
+            "````",
+          ];
+        })
+      : []),
   ].join("\n");
 }
 
@@ -577,7 +655,7 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     const { att, findingsHash } = await attestStage(simmed.findings, scoreValue, false);
     const conclusion = gateConclusion(simmed.findings, repoConfig, dismissedKeys);
     const commentUrl = await deps.postComment(prUrl, withConfigNote(withFooter(
-      summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote),
+      summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote, att, diff),
       att, findingsHash)));
     await checkRunStage(conclusion,
       `rextor audit: riskScore ${scoreValue}/100 — severity gate ${conclusion}`);

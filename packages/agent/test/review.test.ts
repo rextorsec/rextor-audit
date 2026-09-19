@@ -524,7 +524,7 @@ describe("runReview ipfs pin (SPEC-4 v2 B3)", () => {
       attest: async () => ({ txHash: "0xabc", explorerUrl: "" }),
     });
     await runReview("https://github.com/o/r/pull/3", deps);
-    const footerLine = bodies[0].split("\n").find((l) => l.includes("attested on"));
+    const footerLine = bodies[0].split("\n").find((l) => l.includes("reviewId `"));
     expect(footerLine).toBeDefined();
     // Value assertion (Task 5 concern: tests only checked the label).
     expect(footerLine).toContain("targetChainId `42431`");
@@ -549,7 +549,7 @@ describe("runReview ipfs pin (SPEC-4 v2 B3)", () => {
     // On-chain record still carries 0 = unresolved (uint32 has no null), but
     // the FOOTER skips the segment rather than printing `targetChainId `0``.
     expect(records[0]?.targetChainId).toBe(0);
-    const footerLine = bodies[0].split("\n").find((l) => l.includes("attested on"));
+    const footerLine = bodies[0].split("\n").find((l) => l.includes("reviewId `"));
     expect(footerLine).not.toContain("targetChainId");
   });
 });
