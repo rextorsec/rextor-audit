@@ -1,10 +1,11 @@
 // SPEC-6 §4 — install flow, verbatim from the approved mock (Long Document
 // macro · N1a nav · Ft1 footer — this page keeps its own nav/footer per the
 // mock, distinct from the landing). Static server component: no props, no
-// fetch, no dynamic content. Every value is a real historical artifact from
-// the approved mock (tx 0x62db…f079, explorer per docs/deployments/tempo.md);
-// the rextor.yaml config is unshipped and carries the "shipping Oct 2026"
-// annotation — the page never claims a gate that does not exist yet.
+// fetch, no dynamic content. Every value is a real historical artifact (tx
+// 0x6456…9e20 — the live v2 smoke attestation, score 41 matches the banner —
+// per docs/deployments/tempo.md deploy #2); the rextor.yaml config is
+// unshipped and carries the "shipping Oct 2026" annotation — the page never
+// claims a gate that does not exist yet.
 import type { Metadata } from "next";
 
 import { Wordmark } from "@/components/pill-nav";
