@@ -1,6 +1,13 @@
 #!/usr/bin/env sh
 # Contract: NDJSON findings on stdout; exit 3 + {"status":"incomplete"} on analyzer failure.
 set -u
+# SPEC-8 §1 — chain dispatch by repo shape: Anchor.toml at the repo root, or
+# anchor-lang declared under programs/*/Cargo.toml, routes to the Solana
+# (semgrep) slice; every other repo takes the Slither path byte-identical to
+# pre-SPEC-8 behavior. The NDJSON/incomplete contract is chain-blind.
+if [ -f /repo/Anchor.toml ] || grep -qs 'anchor-lang' /repo/programs/*/Cargo.toml; then
+  exec /usr/local/bin/solana.sh
+fi
 if ! command -v slither >/dev/null 2>&1; then
   echo '{"status":"incomplete","reason":"slither-missing"}'; exit 3
 fi

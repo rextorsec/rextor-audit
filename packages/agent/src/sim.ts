@@ -2,6 +2,7 @@
 // `poc` fields (invariant 9). The LLM generates; deterministic TS maps results.
 // Every I/O seam (generation, harness) is injected; env is read per call.
 import { execFile } from "node:child_process";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -18,6 +19,31 @@ const EXCERPT_CONTEXT = 20;
 /** PoC-gated criticals: only critical/high findings are worth a fork run. */
 export function simEligible(f: Finding): boolean {
   return f.severity === "critical" || f.severity === "high";
+}
+
+/**
+ * SPEC-8 §4 — repo-shape detection: `Anchor.toml` at the root, or a
+ * `programs/` crate whose `Cargo.toml` declares `anchor-lang`. Drives the
+ * fork-sim guard
+ * (PoC generation + the Foundry harness are EVM-only) — a repo-shape branch,
+ * never a chain-name branch. Exported for tests.
+ */
+export function isAnchorRepo(repoDir: string): boolean {
+  try {
+    if (existsSync(join(repoDir, "Anchor.toml"))) return true;
+    const programsDir = join(repoDir, "programs");
+    if (!existsSync(programsDir)) return false;
+    for (const entry of readdirSync(programsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const cargo = join(programsDir, entry.name, "Cargo.toml");
+      if (existsSync(cargo) && readFileSync(cargo, "utf8").includes("anchor-lang")) return true;
+    }
+    return false;
+  } catch {
+    // Unreadable repo → treat as non-Anchor; the analyzer's own fail-closed
+    // incompleteness rules cover whatever made the tree unreadable.
+    return false;
+  }
 }
 
 /** Numbered source excerpt (± `context` lines) for the PoC prompt; missing
@@ -66,6 +92,15 @@ export async function runSimStage(
   const markAll = (status: "unproven" | "skipped") => {
     for (const i of eligibleIdx) out[i].poc = { status };
   };
+
+  // SPEC-8 §4 — Anchor (Solana) repos skip fork-sim outright: PoC generation
+  // and the Foundry harness are EVM-only, and the production runner carries a
+  // fork env, so env-absence cannot be the guard here. Skipped ≠ unproven
+  // (no rubric change) — a visible note, never silence (invariant 26).
+  if (isAnchorRepo(repoDir)) {
+    markAll("skipped");
+    return { findings: out, simNote: "_Fork-sim skipped: Anchor (Solana) repo — PoC sim is EVM-only (SPEC-8)._" };
+  }
 
   if (!forkUrl) {
     markAll("skipped");
