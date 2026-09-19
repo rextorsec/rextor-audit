@@ -41,7 +41,7 @@ function requireToken(): string {
   return token;
 }
 
-function prParts(prUrl: string): { owner: string; repo: string; number: number } {
+export function prParts(prUrl: string): { owner: string; repo: string; number: number } {
   const match = prUrl.match(PR_URL_RE);
   if (!match) throw new Error(`not a GitHub PR URL: ${prUrl}`);
   return { owner: match[1], repo: match[2], number: Number(match[3]) };

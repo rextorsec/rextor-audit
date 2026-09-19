@@ -193,7 +193,8 @@ export async function runAnalyzerContainer(repoDir: string): Promise<string> {
 // forge headings inside the bot's own comment, and unescaped `[link](url)`,
 // `![img]`, `@mention` would render live phishing links / fire bot-identity
 // notifications (SPEC-1 invariant 3).
-const cell = (s: string): string =>
+// Exported for chat.ts — same inert-rendering discipline across every comment surface.
+export const cell = (s: string): string =>
   s.replace(/[|\r\n]+/g, " ").replace(/[[\]!@]/g, (c) => `\\${c}`);
 
 // GitHub's hard comment limit; findings beyond the cap are suppressed, never
