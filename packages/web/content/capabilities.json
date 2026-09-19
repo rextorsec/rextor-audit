@@ -138,8 +138,9 @@
       "generic": "no",
       "bots": "no",
       "rextor": {
-        "shipped": false,
-        "soon": true
+        "shipped": true,
+        "receipt": "https://etherscan.io/tx/0x02e73670735f1097dad2b90d4b01f4755a2c16d5ef34b126e30017f40c7fb5ea",
+        "receiptLabel": "operator-seeded feedback 95/100 · agentWallet bound · disclosed on identity card"
       },
       "backing": "C2"
     },
