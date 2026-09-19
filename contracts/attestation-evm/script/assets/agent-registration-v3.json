@@ -1,0 +1,22 @@
+{
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  "name": "rextor-audit[bot]",
+  "description": "PR-time security audit agent for smart-contract repositories. Every review runs static analyzers (Slither + Aderyn), grounds each finding in cited diff lines, verifies exploitability by forking live chain state, and attests the result on-chain: riskScore 0-100, findings hash (sha256, recomputable from the public report), and an IPFS-pinned report whose gateway fetch hashes to the on-chain value. Reviews may carry suggested fix diffs (suggested-only, never auto-applied). Verdicts are chain-native: attested on Tempo testnet 42431 (contract 0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd) with a native Solana devnet verdict program (Aj6NxH8Ptjn7v3QVCZEQ9dPNWx8DjmaE2oPMNvnikMDs); this identity is chain-neutral. Reputation disclosure: feedback on the canonical ReputationRegistry is operator-seeded — submitted by the agent wallet itself for completed audits, not yet from independent clients; live client ingestion is on the roadmap.",
+  "services": [
+    {
+      "name": "web",
+      "endpoint": "https://rextoraudit.com/"
+    }
+  ],
+  "x402Support": false,
+  "active": true,
+  "registrations": [
+    {
+      "agentRegistry": "eip155:1:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+      "agentId": 50891
+    }
+  ],
+  "supportedTrust": [
+    "reputation"
+  ]
+}
