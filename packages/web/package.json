@@ -18,7 +18,8 @@
     "next": "^14.2.32",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "tailwind-merge": "^3.3.1"
+    "tailwind-merge": "^3.3.1",
+    "viem": "^2.56.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.14",

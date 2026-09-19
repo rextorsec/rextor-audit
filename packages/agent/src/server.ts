@@ -16,6 +16,10 @@ import { githubDeps } from "./github";
 import { MAX_BODY_BYTES, ReviewQueue } from "./queue";
 import { createReviewStore, type ReviewStore } from "./db";
 
+// SPEC-6 §3 — the one /reviews route shape, shared by the dispatcher and the
+// handler (capture groups feed the owner/repo decode).
+const REVIEWS_PATH_RE = /^\/reviews\/([^/]+)\/([^/]+)\/?$/;
+
 export function verifySignature(rawBody: string, sig: string, secret: string): boolean {
   if (!sig.startsWith("sha256=")) return false;
   const expected = createHmac("sha256", secret).update(rawBody, "utf8").digest("hex");
@@ -56,7 +60,7 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
   const queue = new ReviewQueue();
   const server = createServer((req, res) => {
     const pathname = (req.url ?? "/").split("?")[0];
-    if (req.method === "GET" && /^\/reviews\/[^/]+\/[^/]+\/?$/.test(pathname)) {
+    if (req.method === "GET" && REVIEWS_PATH_RE.test(pathname)) {
       void handleReviews(req, res, store, options.apiToken).catch((err) => {
         console.error("[rextor] reviews handler crashed:", err);
         if (!res.headersSent) {
@@ -113,7 +117,7 @@ async function handleReviews(
     json(res, { error: "server misconfigured: no review index" });
     return;
   }
-  const match = (req.url ?? "/").split("?")[0].match(/^\/reviews\/([^/]+)\/([^/]+)\/?$/);
+  const match = REVIEWS_PATH_RE.exec((req.url ?? "/").split("?")[0]);
   if (!match) {
     res.statusCode = 404;
     json(res, { error: "not found" });

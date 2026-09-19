@@ -1,7 +1,10 @@
 // SPEC-6 §3 — agent-side review index: one SQLite row per settled review
 // (attest + comment both attempted, including hard-incomplete and
-// attest-skipped outcomes). This is the dashboard's data source; the web
-// NEVER opens this DB — it reads through GET /reviews/:owner/:repo only.
+// attest-skipped outcomes). The row is written AFTER the review settles: a
+// postComment throw following a successful attest records NO row — a known
+// divergence window where the chain holds a verdict the index lacks. This is
+// the dashboard's data source; the web NEVER opens this DB — it reads through
+// GET /reviews/:owner/:repo only.
 // The DB file path is injectable (REXTOR_DB_PATH in production, one temp
 // file per test) and every statement is prepared once at creation.
 import Database from "better-sqlite3";
