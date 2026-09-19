@@ -29,7 +29,7 @@ describe("chatCompletion (mocked fetch)", () => {
     const body = JSON.parse(String(captured!.body));
     expect(body.temperature).toBe(0);
     expect(body.model).toBe("vendor/model-x");
-    expect(body.max_tokens).toBe(4000);
+    expect(body.max_tokens).toBe(16000);
     expect((captured!.headers as Record<string, string>).authorization).toBe("Bearer sk-test");
   });
 

@@ -3,7 +3,11 @@
 // caller can degrade the review to soft-incomplete (never a crash).
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 export const DEFAULT_LLM_TIMEOUT_MS = 90_000;
-export const DEFAULT_MAX_TOKENS = 4000;
+// 16000: reasoning models (glm-5.3 family) burn completion budget on
+// reasoning before emitting content — a 4000 budget returns empty content on
+// real triage prompts (observed live 2026-09-19). Budget is a ceiling, not a
+// target: non-reasoning models are unaffected.
+export const DEFAULT_MAX_TOKENS = 16000;
 
 export class TriageUnavailableError extends Error {
   constructor(cause: string) {
