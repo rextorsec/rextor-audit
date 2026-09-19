@@ -19,3 +19,15 @@ chain_id = 42431
 [profile.hyperliquid]
 eth_rpc_url = "https://rpc.hyperliquid-testnet.xyz/evm"
 chain_id = 998
+
+# C1 — ERC-8004 canonical identity registries (docs/deployments/erc8004.md).
+# Same canonical address on both chains (deterministic CREATE2); code probed
+# live 2026-09-19. eth_rpc_url here is a health fallback — override with
+# --rpc-url if the pinned public RPC degrades.
+[profile.eth]
+eth_rpc_url = "https://ethereum-rpc.publicnode.com"
+chain_id = 1
+
+[profile.base]
+eth_rpc_url = "https://mainnet.base.org"
+chain_id = 8453
