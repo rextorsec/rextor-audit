@@ -107,8 +107,9 @@
       "generic": "no",
       "bots": "no",
       "rextor": {
-        "shipped": false,
-        "soon": true
+        "shipped": true,
+        "receipt": "https://github.com/rextorsec/rextor-audit-test/pull/3#issuecomment-5742550933",
+        "receiptLabel": "smoke PR · CID + on-chain hash"
       },
       "backing": "B3"
     },
