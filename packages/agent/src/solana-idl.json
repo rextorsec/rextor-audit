@@ -1,0 +1,151 @@
+{
+  "address": "Aj6NxH8Ptjn7v3QVCZEQ9dPNWx8DjmaE2oPMNvnikMDs",
+  "metadata": {
+    "name": "attestation_solana",
+    "version": "0.1.0",
+    "spec": "0.1.0"
+  },
+  "instructions": [
+    {
+      "name": "attest_review",
+      "discriminator": [
+        105,
+        194,
+        20,
+        79,
+        234,
+        251,
+        126,
+        86
+      ],
+      "accounts": [
+        {
+          "name": "review",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  118,
+                  105,
+                  101,
+                  119
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "review_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "agent",
+          "docs": [
+            "The attesting agent — must sign (the EVM contract's registered-agent",
+            "identity, carried by the transaction signer here)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "review_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "risk_score",
+          "type": "u8"
+        },
+        {
+          "name": "status",
+          "type": "u8"
+        },
+        {
+          "name": "findings_uri",
+          "type": "string"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Review",
+      "discriminator": [
+        124,
+        63,
+        203,
+        215,
+        226,
+        30,
+        222,
+        15
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "RiskScoreOutOfRange",
+      "msg": "risk_score must be <= 100"
+    },
+    {
+      "code": 6001,
+      "name": "StatusOutOfRange",
+      "msg": "status must be 0 (complete) or 1 (incomplete)"
+    },
+    {
+      "code": 6002,
+      "name": "UriTooLong",
+      "msg": "findings_uri exceeds 128 bytes"
+    },
+    {
+      "code": 6003,
+      "name": "IdempotencyConflict",
+      "msg": "review already attested with a different verdict or agent"
+    }
+  ],
+  "types": [
+    {
+      "name": "Review",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "pubkey"
+          },
+          {
+            "name": "risk_score",
+            "type": "u8"
+          },
+          {
+            "name": "status",
+            "type": "u8"
+          },
+          {
+            "name": "findings_uri",
+            "type": "string"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ]
+}

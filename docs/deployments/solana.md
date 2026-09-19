@@ -59,3 +59,38 @@
 - Self-dogfood note: the rextor-audit repo itself now contains
   `programs/*/Cargo.toml` with `anchor-lang`, so PRs touching `programs/**` route
   through the B5 semgrep slice — the agent reviews its own adapter.
+
+## Service auto-write (SPEC-8 §5) — SHIPPED 2026-09-20
+
+The agent service now mirrors each Solana-track review's SETTLED home-chain
+verdict to this program (env-gated; absent → visible skip note in the PR
+footer — never silent). Chained AFTER the Tempo attest: no orphan native
+records. Anchor-shape is the same repo-shape detector as the fork-sim guard.
+
+| Field | Value |
+|---|---|
+| Client | `packages/agent/src/solana.ts` — anchor 0.31.1 `@coral-xyz/anchor`, vendored IDL `packages/agent/src/solana-idl.json` (committed; build artifacts are gitignored) |
+| Env gate | `REXTOR_SOLANA_PROGRAM_ID` + `REXTOR_SOLANA_KEYPAIR` (funded agent wallet = shared devnet wallet `FGSkt8Mw…` — the smoke-signed identity; NOT the program keypair) |
+| Payload guards | reviewId 32 bytes · riskScore ≤100 · status ≤1 · findingsURI ≤128 BYTES — refused pre-send (a deterministically-rejected Solana tx still burns the fee) |
+| Idempotency | PROGRAM-owned (invariant 28): identical replay → no-op Ok; conflict → `IdempotencyConflict` 6003, logged, state unchanged |
+| Failure discipline | 30 s guard (SPEC-4 §3 budget), message-only logs, every failure → footer skip note; the review never blocks |
+
+### Devnet smoke (2026-09-20, `pnpm --filter @rextor/agent solana:smoke`)
+
+Drives the REAL dep + registry rpc with a `smoke:`-namespaced id:
+
+| Step | Result |
+|---|---|
+| First attest | tx `3PC3pcGjrUNkTGmmSHo9BaJpKcTBCWzU8Gacw4b1tHL1UHc8HnN48njipYENBpdtL3fTsmiQeTuSvhywEJhkQ3HN` |
+| Identical replay | tx `3fjGnecvnXCAAKpKw62tnFj7w9bnspRjkXoSg8gRmJsWqShuQJpZbcMzHRuZq6t5k4k5x3QmpBCieJYvk8fCc8pw` — new signature, on-chain no-op (invariant 28) |
+| Conflicting replay (riskScore 43) | rejected live: `IdempotencyConflict` 6003 — failure logged, tx fee burned as expected |
+| Read-back | PDA `7qqpxqAWiQwcFeP12Yxx5QKwGACmEqnTFyHgkfP5n2GY` · agent `FGSkt8Mw…` · riskScore 42 · status 0 · `ipfs://smoke-nonprod-placeholder` · slot 501090492 |
+
+### Service ops
+
+- Restart with the standard env-stripping wrapper extended by the two new keys
+  (hub daemon env shadows `.env`): `grep -E '^[A-Z_]+=' .env | cut -d= -f1`.
+- Full-loop receipt on a fresh `programs/`-layout PR shows:
+  `⛓ solana verdict (devnet) · tx \`<sig>\`` under the Tempo attestation line
+  (registry `explorer` slot is still null — flip it in `chains.ts` and the
+  footer link lights up).

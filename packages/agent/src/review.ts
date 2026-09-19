@@ -15,7 +15,7 @@ import { buildAttestRecord, reviewIdFor, type AttestRecord } from "./attest";
 import type { ReviewRow, RepoMemory } from "./db";
 import { resolveChain, attestationChainId } from "./chains";
 import { NO_TRIAGE_MODEL, rawFindingsResult, type TriageResult } from "./triage";
-import { runSimStage, sanitizePocSource, type PocRequest, type SimOutcomeMap } from "./sim";
+import { isAnchorRepo, runSimStage, sanitizePocSource, type PocRequest, type SimOutcomeMap } from "./sim";
 import {
   canonicalFindingsJson,
   normalizeFindings,
@@ -58,6 +58,12 @@ export interface ReviewDeps {
   runSim?: (repoDir: string, testSource: string, forkUrl: string) => Promise<SimOutcomeMap>;
   /** SPEC-4 on-chain attestation; absent or failing → "skipped" footer, comment still posts. */
   attest?: (record: AttestRecord) => Promise<{ txHash: string; explorerUrl: string } | null>;
+  /** SPEC-8 §5 — native Solana verdict write to the devnet verdict program for
+   *  Anchor-shaped reviews, chained AFTER the home-chain attest settles. Env-
+   *  gated (REXTOR_SOLANA_PROGRAM_ID / REXTOR_SOLANA_KEYPAIR); absent or
+   *  failing → a VISIBLE skip note in the footer, never a silent pass and
+   *  never a review failure. */
+  attestSolana?: (record: AttestRecord) => Promise<{ txHash: string; explorerUrl: string } | null>;
   /** SPEC-4 v2 (B3) — IPFS pin of the canonical findings report; runs BEFORE
    *  attest (score → pin → attest → postComment). Absent or throwing → the
    *  attestation proceeds with findingsURI "" (degrade, never block). */
@@ -96,9 +102,13 @@ export interface ReviewResult {
   /** SPEC-4 §3 — on-chain anchoring outcome; set on every commented path
    *  (success shapes when attested, { skipped } when not configured or failed). */
   attestation?:
-    | { chain: string; reviewId: string; findingsURI: string; targetChainId: number; txHash: string; explorerUrl: string }
+    | { chain: string; reviewId: string; findingsURI: string; targetChainId: number; txHash: string; explorerUrl: string; solanaVerdict?: SolanaVerdictInfo }
     | { skipped: string };
 }
+
+/** SPEC-8 §5 — native Solana verdict outcome, rendered in the footer only for
+ *  Anchor-shaped reviews that attested on the home chain. */
+export type SolanaVerdictInfo = { txHash: string; explorerUrl: string } | { skipped: string };
 
 /** The attestation outcome shape of ReviewResult. */
 type AttestationInfo = NonNullable<ReviewResult["attestation"]>;
@@ -445,11 +455,25 @@ function attestationFooter(att: AttestationInfo, findingsHash?: string): string[
   const hashPart = findingsHash ? ` · findingsHash \`${findingsHash}\`` : "";
   const chainIdPart = att.targetChainId ? ` · targetChainId \`${att.targetChainId}\`` : "";
   const uriPart = att.findingsURI ? ` · findingsURI \`${att.findingsURI}\`` : "";
-  return [
+  const lines = [
     "",
     "---",
     `⚖ attested on ${cell(att.chain)} · reviewId \`${att.reviewId}\`${hashPart}${chainIdPart}${uriPart} · ${link}`,
   ];
+  // SPEC-8 §5 — the native verdict receipt (or its visible skip) sits directly
+  // under the home-chain attestation it chained to. Reasons are agent-generated
+  // static strings; cell() keeps the inert-rendering discipline uniform.
+  if (att.solanaVerdict) {
+    if ("txHash" in att.solanaVerdict) {
+      const solLink = att.solanaVerdict.explorerUrl
+        ? `[tx \`${att.solanaVerdict.txHash.slice(0, 10)}…\`](${att.solanaVerdict.explorerUrl})`
+        : `tx \`${att.solanaVerdict.txHash}\``;
+      lines.push(`⛓ solana verdict (devnet) · ${solLink}`);
+    } else {
+      lines.push(`_⛓ solana verdict skipped: ${cell(att.solanaVerdict.skipped)}_`);
+    }
+  }
+  return lines;
 }
 
 // Append the footer to a comment body (footer's first row is a blank line).
@@ -560,6 +584,22 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     }
   };
 
+  // SPEC-8 §5 — native Solana verdict for Anchor-shaped reviews, chained to a
+  // SETTLED home-chain attestation (the native record mirrors an attested
+  // verdict; when the home chain skipped, the footer already says why — no
+  // second note, no orphan native write). Anchor shape is a REPO-SHAPE branch
+  // (same detector as the fork-sim guard), never a chain-name branch. Env-
+  // absent → visible skip; a failed write → visible skip; both never fatal.
+  const solanaStage = async (record: AttestRecord): Promise<SolanaVerdictInfo | undefined> => {
+    if (!isAnchorRepo(repoDir)) return undefined;
+    if (!deps.attestSolana) {
+      return { skipped: "env unset (REXTOR_SOLANA_PROGRAM_ID / REXTOR_SOLANA_KEYPAIR)" };
+    }
+    const sol = await deps.attestSolana(record);
+    if (!sol) return { skipped: "write failed — agent logs carry the reason" };
+    return { txHash: sol.txHash, explorerUrl: sol.explorerUrl };
+  };
+
   // SPEC-4 §3 — attestation runs BEFORE the comment on EVERY verdict path and
   // can never block or fail the review: every failure (no dep, throw, null)
   // degrades to a "skipped" footer. Hard-incomplete reviews attest status=1
@@ -612,6 +652,7 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
           targetChainId: record.targetChainId,
           txHash: res.txHash,
           explorerUrl: res.explorerUrl,
+          solanaVerdict: await solanaStage(record),
         },
         findingsHash: record.findingsHash,
       };
