@@ -5,11 +5,13 @@
   "services": [
     {
       "name": "web",
-      "endpoint": "https://rextor-audit-web-rectors-primary-workspace.vercel.app/"
+      "endpoint": "https://rextoraudit.com/"
     }
   ],
   "x402Support": false,
   "active": true,
   "registrations": [],
-  "supportedTrust": ["reputation"]
+  "supportedTrust": [
+    "reputation"
+  ]
 }
