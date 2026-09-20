@@ -111,7 +111,7 @@ describe("dashboard page — ledger", () => {
       "https://github.com/rextorsec/demo/pull/2#issuecomment-1",
     );
     // chain line mirrors the live v2 deployment constants.
-    expect(screen.getByText(/Tempo testnet 42431 · contract 0x7fe6…0bcd/)).toBeInTheDocument();
+    expect(screen.getByText(/Tempo testnet 42431 · contract 0x51ac…495a/)).toBeInTheDocument();
   });
 
   it("unknown-chain attested rows render their own chain and omit registry constants (T10 carry)", async () => {

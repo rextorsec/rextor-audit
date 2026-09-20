@@ -27,8 +27,8 @@ export const WEB_CHAINS: Record<WebChain["key"], WebChain> = {
     name: "Tempo testnet",
     chainId: 42431,
     rpc: "https://rpc.moderato.tempo.xyz",
-    attestation: "0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd",
-    agent: "0xE6906A58ea17E28aFEFBA5bBcD5EBa85BF58a122",
+    attestation: "0x51ac8214089daf85b188437b087519acfc6c495a",
+    agent: "0x5f2b9C1549F7e178dC0cC15FdCf3719c9fb47f37",
     explorer: "https://explore.testnet.tempo.xyz",
   },
 };
@@ -44,7 +44,7 @@ export function webChainByName(name: string): WebChain | undefined {
   return Object.values(WEB_CHAINS).find((chain) => chain.name === name);
 }
 
-/** `0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd` → `0x7fe6…0bcd` (mock form). */
+/** `0x51ac8214089daf85b188437b087519acfc6c495a` → `0x7fe6…0bcd` (mock form). */
 export function shortHex(value: string): string {
   return `${value.slice(0, 6)}…${value.slice(-4)}`;
 }

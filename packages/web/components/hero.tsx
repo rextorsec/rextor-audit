@@ -25,7 +25,7 @@ export function Hero() {
             </Button>
             <a
               className="font-mono text-sm no-underline whitespace-nowrap text-primary hover:underline hover:decoration-2 hover:underline-offset-[3px]"
-              href="https://explore.testnet.tempo.xyz/address/0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd"
+              href="https://explore.testnet.tempo.xyz/address/0x51ac8214089daf85b188437b087519acfc6c495a"
             >
               See a live verdict ↗
             </a>
