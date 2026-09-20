@@ -27,7 +27,10 @@ immutable ledger rows; `docs/deployments/erc8004.md` keeps them as history.
 Solana side untouched: `REXTOR_SOLANA_KEYPAIR` (shared devnet wallet) was NOT
 part of the exposure.
 
-**Pinata JWT roll (step 2) remains RECTOR-manual** — dashboard-only.
+**Pinata JWT roll — EXECUTED 2026-09-20.** New scoped key `rextor-audit-2026`
+(dd687beb…, pinFileToIPFS-write only) verified via `data/testAuthentication`
+and swapped into the secret `.env`; old broad-scope key `rextor-audit`
+(e2822675…) revoked — the leaked JWT is dead. Pinned CIDs unaffected.
 
 ## What was exposed, where, and scope
 
