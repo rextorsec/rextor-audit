@@ -102,12 +102,12 @@ describe("CapabilityTable", () => {
     );
     expect(solanaReceipt).toBeDefined();
 
-    // Receipt state: 13 rows shipped, 2 soon (config-gate, chain-cost) + the
-    // HyperEVM dated chip. Pins updated with the flip commits — the data file
-    // is the receipt ledger, the test follows it.
+    // Receipt state: 14 rows shipped, 1 soon (config-gate) + the HyperEVM
+    // dated chip. Pins updated with the flip commits — the data file is the
+    // receipt ledger, the test follows it.
     const body = screen.getAllByRole("rowgroup").at(-1)!;
-    expect(within(body).getAllByText("Shipping Oct 2026")).toHaveLength(2);
-    expect(within(body).getAllByText(/Shipping Oct 2026/)).toHaveLength(3);
+    expect(within(body).getAllByText("Shipping Oct 2026")).toHaveLength(1);
+    expect(within(body).getAllByText(/Shipping Oct 2026/)).toHaveLength(2);
 
     // All 15 rows visible.
     expect(within(body).getAllByRole("row")).toHaveLength(15);

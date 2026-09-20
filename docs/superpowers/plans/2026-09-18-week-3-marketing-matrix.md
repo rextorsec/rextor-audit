@@ -62,7 +62,7 @@ to the Week-3 scope menu (roadmap session 2026-09-18).
 | 11 | Public agent reputation ledger | — | — | ✔ | C2 | ✅ shipped — receipt: feedback tx `0x02e73670…fb5ea`, 95/100 from bound agentWallet `0xE690…a122`; operator-seeded, disclosed on identity card |
 | 12 | Cross-PR memory (dismissals) | ✔ | — | ✔ | D4 | ✅ shipped — server-side store, learnings ledger accruing |
 | 13 | Chat in PR (`@rextor-audit`) | ✔ | — | ✔ | D5 | ✅ shipped — deterministic reply receipt 5742416145 |
-| 14 | Chain cost-model reasoning | — | — | ✔ | E1 | 🔜 soon or hide |
+| 14 | Chain cost-model reasoning | — | — | ✔ | E1 | ✅ shipped (Tempo) — receipt: `docs/e1-fee-review.md`, 6 real attests measured 0.0125–0.154; HyperEVM section rides HYPE funding |
 | 15 | Living dashboard (ledger, history, identity card) | ✔ | — | ✔ | A3/A4 | ✅ shipped — live on Vercel |
 
 Competitor columns carry the dated "not evidenced" footnote, not claims about their internals.

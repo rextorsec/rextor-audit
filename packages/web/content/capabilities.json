@@ -174,8 +174,9 @@
       "generic": "no",
       "bots": "no",
       "rextor": {
-        "shipped": false,
-        "soon": true
+        "shipped": true,
+        "receipt": "https://github.com/rextorsec/rextor-audit/blob/main/docs/e1-fee-review.md",
+        "receiptLabel": "real Tempo receipts: 0.0125–0.154 per attest · 6 txs measured"
       },
       "backing": "E1"
     },
