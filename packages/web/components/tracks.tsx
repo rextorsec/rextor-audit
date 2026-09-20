@@ -20,7 +20,7 @@ export function Tracks() {
           fork‑sim, attestation deployed 2026‑09‑18 —{" "}
           <a
             className={receiptLink}
-            href="https://explore.testnet.tempo.xyz/address/0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd"
+            href="https://explore.testnet.tempo.xyz/address/0x51ac8214089daf85b188437b087519acfc6c495a"
           >
             contract ↗
           </a>

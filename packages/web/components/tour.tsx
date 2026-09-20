@@ -125,14 +125,14 @@ export function Tour() {
               "sha256 of the canonical findings JSON — printed in every review comment",
             ],
             ["score", "rubric: critical 60 · high 25 · medium 10 · low 3, cap 100"],
-            ["agent", "rextor-audit[bot] · 0xE690…a122 · reviewCount 1"],
+            ["agent", "rextor-audit · 0x5f2b…47f37 · reviewCount 1"],
             [
               "chain",
               <>
                 Tempo testnet 42431 ·{" "}
                 <a
                   className={receiptLink}
-                  href="https://explore.testnet.tempo.xyz/address/0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd"
+                  href="https://explore.testnet.tempo.xyz/address/0x51ac8214089daf85b188437b087519acfc6c495a"
                 >
                   verify on the explorer ↗
                 </a>
