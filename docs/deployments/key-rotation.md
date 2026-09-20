@@ -1,7 +1,33 @@
 # Key rotation runbook — session-log exposure 2026-09-20
 
-**Status: DRAFTED, not executed.** RECTOR ruled "rotate after C2" (2026-09-20);
-C2 broadcasts are complete, so rotation is now actionable.
+**Status: EXECUTED 2026-09-20 (same day).** 🔴 gates cleared by RECTOR
+("Full auto with 🔴 pauses"); scripted keygen into the iCloud secret store.
+Exposed keys are retired — both old EOAs hold dust only.
+
+## Executed record (2026-09-20)
+
+| Step | Tx | Result |
+|---|---|---|
+| Service token | off-chain | new 64-hex in secret `.env` + Vercel prod swap + redeploy + re-alias; old token verified 401 |
+| Agent sweep | [`0x2c1e10e9…378bffbc`](https://etherscan.io/tx/0x2c1e10e9711399ab448f6040dc7f6b1cddfe383ddb4b9b69aadec6ab378bffbc) | 0.00018 ETH → new agent `0x5f2b…47f37` |
+| NFT transfer | [`0x27852907…3cd41307`](https://etherscan.io/tx/0x2785290761355382e5b17451cb247001a1020e2e922eed59b0fb419f3cd41307) | `ownerOf(50891)` = new owner; `agentWallet` metadata auto-cleared (2.0.0 `_update`) |
+| Owner sweep | [`0xecd77664…f3f35b73`](https://etherscan.io/tx/0xecd776646764a763bd0525f6baf6800aa8f981374f1027ea1d371189f3f35b73) | 0.0014 ETH → new owner `0x273a…8d76d` |
+| agentWallet re-bind | [`0xfb54a416…b6bdfe`](https://etherscan.io/tx/0xfb54a416aca3d368e780bf1f6645db29946713d7668da49757ba58f7a0b6bdfe) | `getAgentWallet(50891)` = `0x5f2b…47f37` (owner = new owner broadcasts, new agent signs — both NEW keys exercised on-chain) |
+
+## New identities (post-rotation)
+
+| Role | Address | Key file (secret store) |
+|---|---|---|
+| Owner / broadcaster | `0x273ae839a5447CEE34b9a694Bb62C9e61086d76d` | `owner-eoa-2026-09-20.json` → `DEPLOY_PRIVATE_KEY` |
+| Agent wallet / Tempo attester | `0x5f2b9C1549F7e178dC0cC15FdCf3719c9fb47f37` | `agent-eoa-2026-09-20.json` → `REXTOR_AGENT_PRIVATE_KEY` |
+
+Historical note: the seeded reputation feedback (95/100) and the C1/C2 txs
+remain attributed to the RETIRED addresses `0xE690…a122` / `0xD616…73` —
+immutable ledger rows; `docs/deployments/erc8004.md` keeps them as history.
+Solana side untouched: `REXTOR_SOLANA_KEYPAIR` (shared devnet wallet) was NOT
+part of the exposure.
+
+**Pinata JWT roll (step 2) remains RECTOR-manual** — dashboard-only.
 
 ## What was exposed, where, and scope
 
