@@ -94,3 +94,33 @@ Drives the REAL dep + registry rpc with a `smoke:`-namespaced id:
   `⛓ solana verdict (devnet) · tx \`<sig>\`` under the Tempo attestation line
   (registry `explorer` slot is still null — flip it in `chains.ts` and the
   footer link lights up).
+
+## Full-loop verification — test-repo PR #5 (2026-09-20, SHIPPED)
+
+The service auto-write fired END-TO-END through the real webhook pipeline
+(opened/synchronize → queue → analyzer container → triage → IPFS pin → Tempo
+attest → **native verdict write** → PR comment), twice independently
+(heads `54e04d4…` and `4269b8…`, both score 100, 5 findings, visible Anchor
+fork-sim skip, cited evidence + fix diffs).
+
+| Receipt | Value |
+|---|---|
+| PR comment footer | `⚖ attested on Tempo testnet · reviewId 0xe4413c2a… · tx 0x2b4be69c…` **+** `⛓ solana verdict (devnet) · tx 5ihtFbpa…` |
+| Tempo attestation | score 100 · 5 findings · status 0 · `findingsURI ipfs://QmQpKest…` · agent `0xE690…a122` |
+| Solana verdict PDA | `ADkoiuc1TaBjkAc8MCUiPSVg9hVE2f7og9mhGJKEHgxK` = `["review", reviewId]` — agent `FGSkt8Mw…`, riskScore 100, status 0, findingsUri **byte-identical** to the Tempo URI, slot 501107173 |
+| Review index | both PR #5 rows recorded with matching Tempo txs |
+| Idempotent replay | the foreground re-run hit Tempo `IdempotencyConflict` (0x5f02a5ff) for identical params — loud, per invariant 28 |
+
+### Gotchas added 2026-09-20
+
+- **Docker context switched colima → desktop-linux**: `rextor/analyzer` is
+  per-daemon; the colima-era image vanished from the active `desktop-linux`
+  context (symptoms: `pull access denied`, a container stuck in `Created`).
+  Image rebuilt on `desktop-linux`. If reviews regress to INCOMPLETE with
+  `docker run` pull errors, check `docker context ls` FIRST.
+- **GitHub REST served stale `comments` for ~12 min** after the bot comment
+  existed (`gh pr view --json comments` → 0). Don't trust it for liveness —
+  check the review index (service SQLite) or the comment HTML URL. Related:
+  the review index is WAL-mode; rows written by a service instance are fully
+  visible to the next instance after restart (a mid-WAL read through the OLD
+  process may miss rows the chain already proves).

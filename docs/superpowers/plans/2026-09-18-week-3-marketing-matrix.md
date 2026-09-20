@@ -59,7 +59,7 @@ to the Week-3 scope menu (roadmap session 2026-09-18).
 | 8 | Repo config + severity merge gate | — | — | ✔ | D2 | 🔜 soon — check-run receipt rides F5 installation-token swap |
 | 9 | Durable full report (IPFS) + anyone-can-verify | — | — | ✔ | B3 | ✅ shipped — receipt: `ipfs://QmUqtDrt…`, gateway sha256 == on-chain hash |
 | 10 | Verifiable agent identity (ERC-8004) | — | — | ✔ | C1 | ✅ shipped — receipt: mint tx `0xc4c0565c…3d64`, agentId 50891 on canonical mainnet registry |
-| 11 | Public agent reputation ledger | — | — | ✔ | C2 | 🔜 soon |
+| 11 | Public agent reputation ledger | — | — | ✔ | C2 | ✅ shipped — receipt: feedback tx `0x02e73670…fb5ea`, 95/100 from bound agentWallet `0xE690…a122`; operator-seeded, disclosed on identity card |
 | 12 | Cross-PR memory (dismissals) | ✔ | — | ✔ | D4 | ✅ shipped — server-side store, learnings ledger accruing |
 | 13 | Chat in PR (`@rextor-audit`) | ✔ | — | ✔ | D5 | ✅ shipped — deterministic reply receipt 5742416145 |
 | 14 | Chain cost-model reasoning | — | — | ✔ | E1 | 🔜 soon or hide |
