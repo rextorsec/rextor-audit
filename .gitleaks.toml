@@ -1,0 +1,31 @@
+# Gitleaks config — extends the default rule set and silences ONLY the two
+# classes of canonical public credentials this repository intentionally
+# contains. Everything else still alerts.
+#
+#   1. Vendored forge-std copies ship upstream's built-in default chain RPCs,
+#      including the public Infura sample key:
+#        https://sepolia.infura.io/v3/b9794ad1ddf84dfb8c34d6bb5dca2001
+#      The trees are byte-identical to foundry-rs/forge-std (see
+#      contracts/attestation-evm/PROVENANCE.md); we do not own that key and
+#      there is nothing to rotate. Automated scanners routinely flag it.
+#
+#   2. Anvil/Hardhat's well-known dev keys used in tests and planning docs
+#      (test-only; zero value outside a local node). Real agent keys never
+#      live in this repo — .env is a symlink into an out-of-repo secret
+#      store (see .env.example and SECURITY.md).
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "canonical public dev credentials (vendored forge-std defaults + Anvil dev keys)"
+paths = [
+    '''(^|/)lib/forge-std/''',
+    '''(^|/)vendor/forge-std/''',
+]
+regexes = [
+    # Anvil/Hardhat canonical dev key #0 (account 0xf39Fd6…)
+    '''0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80''',
+    # Anvil/Hardhat canonical dev key #1 (account 0x70997…)
+    '''0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d''',
+]
