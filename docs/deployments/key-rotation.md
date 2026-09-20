@@ -73,7 +73,7 @@ touched in this same session.
       on-chain change needed.
 4. **Owner/broadcaster EOA** `0xD616…73` (30 min, most care):
    a. new owner EOA;
-   b. `transferFrom`/safeTransferOrMint: move agentId 50891 to the new owner
+   b. `transferFrom` (or `safeTransferFrom` for untrusted recipients): move agentId 50891 to the new owner
       (owner-only op — do this BEFORE retiring the old key);
       NOTE: `_update` (IdentityRegistry 2.0.0) CLEARS `agentWallet` metadata on
       transfer — re-run step 3c afterwards;
