@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Octokit } from "octokit";
+import { createInstallationTokenProvider } from "./app-auth";
 import { runAnalyzerContainer, type ReviewDeps } from "./review";
 import { generatePocFromEnv, runSimContainer, simTmpBase } from "./sim";
 import { makeAttestDep } from "./attest";
@@ -30,6 +31,10 @@ export interface GithubDepsOptions {
   runGit?: (args: string[]) => Promise<string>;
   /** Token source seam; default: env GITHUB_TOKEN, required. */
   token?: () => string;
+  /** F5 — App installation-token source for the check-run receipt (checks:
+   *  write). Default provider reads the REXTOR_GITHUB_APP_* env triple per
+   *  call; unset → resolves null → postCheckRun falls back to `token()`. */
+  installationToken?: () => Promise<string | null>;
   /** Directory-removal seam (test injection); default: rm -rf. */
   rmDir?: (dir: string) => Promise<void>;
 }
@@ -56,6 +61,7 @@ export function githubDeps(options: GithubDepsOptions = {}): ReviewDeps {
       return stdout;
     });
   const token = options.token ?? requireToken;
+  const installationToken = options.installationToken ?? createInstallationTokenProvider();
   const rmDir =
     options.rmDir ?? ((dir: string) => rm(dir, { recursive: true, force: true }));
 
@@ -165,9 +171,14 @@ export function githubDeps(options: GithubDepsOptions = {}): ReviewDeps {
 
     // SPEC-7 §1 — the merge-gate story: conclusion failure blocks merges
     // under branch protection; neutral marks INCOMPLETE (invariant 24).
+    // F5 — auth is the App installation token (checks: write) whenever the
+    // REXTOR_GITHUB_APP_* triple is configured; fine-grained PATs cannot hold
+    // Checks, so the PAT is only the unconfigured fallback (receipt then
+    // fails and the review honestly degrades — never a fake pass).
     async postCheckRun(prUrl, headSha, conclusion, summary) {
       const { owner, repo } = prParts(prUrl);
-      const octokit = new Octokit({ auth: token(), request: { timeout: OCTOKIT_TIMEOUT_MS } });
+      const appAuth = await installationToken();
+      const octokit = new Octokit({ auth: appAuth ?? token(), request: { timeout: OCTOKIT_TIMEOUT_MS } });
       await octokit.request("POST /repos/{owner}/{repo}/check-runs", {
         owner,
         repo,
