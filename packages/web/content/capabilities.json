@@ -62,7 +62,7 @@
         ],
         "receipts": [
           {
-            "href": "https://explore.testnet.tempo.xyz/address/0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd",
+            "href": "https://explore.testnet.tempo.xyz/address/0x51ac8214089daf85b188437b087519acfc6c495a",
             "label": "Tempo · live"
           },
           {
@@ -103,8 +103,9 @@
       "generic": "no",
       "bots": "no",
       "rextor": {
-        "shipped": false,
-        "soon": true
+        "shipped": true,
+        "receipt": "https://github.com/rextorsec/rextor-audit-test/runs/106055809189",
+        "receiptLabel": "smoke PR · merge-gate check-run"
       },
       "backing": "D2"
     },

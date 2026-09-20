@@ -88,7 +88,7 @@ describe("CapabilityTable", () => {
     expect(receiptHrefs).toContain("#s4");
     expect(receiptHrefs).toContain("#s5");
     const tempoReceipt = receiptLinks.find((a) =>
-      a.getAttribute("href")?.includes("0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd"),
+      a.getAttribute("href")?.includes("0x51ac8214089daf85b188437b087519acfc6c495a"),
     );
     expect(tempoReceipt).toBeDefined();
     expect(tempoReceipt!.getAttribute("href")).toContain(`${tempoExplorer}/address/`);
@@ -102,12 +102,13 @@ describe("CapabilityTable", () => {
     );
     expect(solanaReceipt).toBeDefined();
 
-    // Receipt state: 14 rows shipped, 1 soon (config-gate) + the HyperEVM
-    // dated chip. Pins updated with the flip commits — the data file is the
+    // Receipt state: all 15 rows shipped (config-gate flipped 2026-09-20 with
+    // the App-authored check-run receipt; Tempo redeployed after the testnet
+    // state reset). Pins updated with the flip commits — the data file is the
     // receipt ledger, the test follows it.
     const body = screen.getAllByRole("rowgroup").at(-1)!;
-    expect(within(body).getAllByText("Shipping Oct 2026")).toHaveLength(1);
-    expect(within(body).getAllByText(/Shipping Oct 2026/)).toHaveLength(2);
+    expect(within(body).queryAllByText("Shipping Oct 2026")).toHaveLength(0);
+    expect(within(body).getAllByText(/Shipping Oct 2026/)).toHaveLength(1);
 
     // All 15 rows visible.
     expect(within(body).getAllByRole("row")).toHaveLength(15);
