@@ -171,6 +171,114 @@ describe("runReview", () => {
   });
 });
 
+// Hard deadlines (github-io stages): a hung GitHub call — undici connect-phase,
+// NO socket open, evading Octokit's request.timeout — must never pin the
+// ReviewQueue. Every test drives a promise that NEVER settles and advances
+// fake timers well past GITHUB_STAGE_BUDGET_MS; the budget itself stays a
+// constant (30s) and the fake timers prove the degrade lands within it.
+describe("runReview github-io hard deadlines (hung RPC can no longer pin the queue)", () => {
+  const never = <T>() => new Promise<T>(() => {});
+  // Valid analyzer NDJSON so the tests that reach the pipeline stay docker-free.
+  const ndjson = JSON.stringify({
+    file: "src/Vault.sol", line: 16, severity: "high", check: "reentrancy-eth", description: "drain",
+  });
+
+  it("hung fetchDiff: visible INCOMPLETE comment within the deadline, nothing cloned", async () => {
+    vi.useFakeTimers();
+    try {
+      const { deps, comments, cloned, disposed } = makeDeps({ fetchDiff: () => never<string>() });
+      const pending = runReview(PR_URL, deps);
+      await vi.advanceTimersByTimeAsync(120_000); // past any stage budget
+      const result = await pending;
+      expect(result.commented).toBe(true);
+      expect(result.incomplete).toContain("fetchDiff did not settle within");
+      expect(comments).toHaveLength(1);
+      expect(comments[0].body).toContain("INCOMPLETE");
+      expect(comments[0].body).toContain("fetchDiff did not settle within");
+      expect(cloned).toEqual([]); // setup failed before the clone stage
+      expect(disposed).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("hung fetchDiff AND hung postComment: the review still settles (double channel failure)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { deps, comments } = makeDeps({
+        fetchDiff: () => never<string>(),
+        postComment: () => never<void | string>(),
+      });
+      const pending = runReview(PR_URL, deps);
+      await vi.advanceTimersByTimeAsync(240_000); // two stage budgets
+      const result = await pending;
+      expect(result.commented).toBe(false); // failure comment could not land either
+      expect(result.incomplete).toContain("fetchDiff did not settle within");
+      expect(comments).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("hung readBaseConfig: infra failure degrades to defaults, review completes without the config note", async () => {
+    vi.useFakeTimers();
+    try {
+      const { deps, comments, disposed } = makeDeps({
+        runAnalyzer: async () => ndjson,
+        readBaseConfig: () => never<string | null>(),
+      });
+      const pending = runReview(PR_URL, deps);
+      await vi.advanceTimersByTimeAsync(120_000);
+      const result = await pending;
+      expect(result.commented).toBe(true);
+      expect(result.incomplete).toBeUndefined();
+      expect(comments).toHaveLength(1);
+      // Infrastructure failure is NOT repo content: defaults apply silently —
+      // the ⚠️ note is reserved for yaml parse violations.
+      expect(comments[0].body).not.toContain("defaults applied");
+      expect(disposed).toEqual([vaultFixturePath]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("hung postCheckRun: best-effort channel, settled comment unaffected", async () => {
+    vi.useFakeTimers();
+    try {
+      const { deps, comments } = makeDeps({
+        runAnalyzer: async () => ndjson,
+        postCheckRun: () => never<void>(),
+      });
+      const pending = runReview(PR_URL, deps);
+      await vi.advanceTimersByTimeAsync(120_000);
+      const result = await pending;
+      expect(result.commented).toBe(true);
+      expect(result.incomplete).toBeUndefined();
+      expect(comments).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("hung postComment on the main path: rejects within the deadline instead of pinning the queue", async () => {
+    vi.useFakeTimers();
+    try {
+      const { deps } = makeDeps({
+        runAnalyzer: async () => ndjson,
+        postComment: () => never<void | string>(),
+      });
+      const pending = runReview(PR_URL, deps);
+      // Handler attached BEFORE advancing: during the fake-timer advance the
+      // rejection must already be observed, or Node flags unhandledRejection.
+      const assertion = expect(pending).rejects.toThrow(/postComment did not settle within/);
+      await vi.advanceTimersByTimeAsync(120_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("comment builders (untrusted PR content must stay inert markdown)", () => {
   it("sanitizes finding cells: no table breakout, no injected heading, no fake score", () => {
     const evil: Finding = {
