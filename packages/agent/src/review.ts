@@ -100,7 +100,9 @@ export interface ReviewResult {
   /** Set iff the analyzer could not produce a complete report — the PR comment says so. */
   incomplete?: string;
   /** SPEC-4 §3 — on-chain anchoring outcome; set on every commented path
-   *  (success shapes when attested, { skipped } when not configured or failed). */
+   *  EXCEPT a pre-clone github-setup failure (no headSha → no reviewId —
+   *  nothing to attest; the INCOMPLETE reason carries the failure).
+   *  Success shapes when attested, { skipped } when not configured or failed. */
   attestation?:
     | { chain: string; reviewId: string; findingsURI: string; targetChainId: number; txHash: string; explorerUrl: string; solanaVerdict?: SolanaVerdictInfo }
     | { skipped: string };
@@ -125,6 +127,32 @@ const ANALYZER_IMAGE = "rextor/analyzer";
 // Analyzer wall-clock budget; a hang must surface as INCOMPLETE, not block the
 // sync webhook handler forever (a SIGKILLed docker run cannot outlive this).
 const ANALYZER_TIMEOUT_MS = 150_000;
+
+// Hard deadline for every github-io stage (fetchDiff / postComment /
+// readBaseConfig / postCheckRun). A GitHub API call can hang with NO socket
+// open (undici connect phase) and evade Octokit's request.timeout — observed
+// live: fetchDiff hung 4+ minutes with zero sockets, pinning the ReviewQueue
+// slot (and thus every later review) indefinitely. 2× the 15s Octokit budget
+// so the normal timeout fires first; this only catches pathological hangs.
+// deps.clone is NOT wrapped: the real adapter SIGKILLs git at 120s.
+const GITHUB_STAGE_BUDGET_MS = 30_000;
+
+// Races the stage against a one-shot timer; on expiry the stage REJECTS and
+// the pipeline's existing catches degrade visibly (INCOMPLETE comment /
+// config defaults / logged skip). The losing underlying promise is abandoned:
+// Promise.race already holds a handler for it, so a late rejection can never
+// surface as unhandledRejection, and the timer is cleared whenever either
+// side settles first.
+function githubStage<T>(label: string, stage: Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} did not settle within ${GITHUB_STAGE_BUDGET_MS}ms (hard deadline)`)),
+      GITHUB_STAGE_BUDGET_MS,
+    );
+  });
+  return Promise.race([stage, deadline]).finally(() => clearTimeout(timer));
+}
 
 /**
  * Real analyzer runner: the PR repo is mounted READ-ONLY and analyzed inside a
@@ -482,13 +510,35 @@ function withFooter(body: string, att: AttestationInfo, findingsHash?: string): 
 }
 
 export async function runReview(prUrl: string, deps: ReviewDeps): Promise<ReviewResult> {
-  const diff = await deps.fetchDiff(prUrl);
-  const scope = scopeDiff(diff);
-  if (!scope.hasContractChanges) {
-    return { commented: false, score: 0 };
+  // Pre-clone infrastructure failure (dead/hung diff fetch, failed clone): no
+  // headSha exists yet, so there is no reviewId to attest, no check-run to
+  // update, and no index row to write — the PR comment is the only visible
+  // surface, and INCOMPLETE is never silent (SPEC-1 integrity). Best-effort:
+  // if that comment cannot be delivered either, the failure stays in the
+  // service log and the queue is released regardless.
+  let diff: string;
+  let scope: DiffScopeResult;
+  let repoDir: string;
+  let headSha: string;
+  try {
+    diff = await githubStage("fetchDiff", deps.fetchDiff(prUrl));
+    scope = scopeDiff(diff);
+    if (!scope.hasContractChanges) {
+      return { commented: false, score: 0 };
+    }
+    ({ dir: repoDir, headSha } = await deps.clone(prUrl));
+  } catch (err) {
+    const reason = `github setup failed: ${err instanceof Error ? err.message : String(err)}`;
+    console.error("[rextor]", reason);
+    try {
+      await githubStage("postComment", deps.postComment(prUrl, incompleteCommentBody(reason)));
+      return { commented: true, score: 0, incomplete: reason, findings: [] };
+    } catch (postErr) {
+      console.error("[rextor] failure comment could not be posted:",
+        postErr instanceof Error ? postErr.message : postErr);
+      return { commented: false, score: 0, incomplete: reason, findings: [] };
+    }
   }
-
-  const { dir: repoDir, headSha } = await deps.clone(prUrl);
   const identity = prIdentity(prUrl);
 
   // SPEC-7 §1 — base-branch config, loaded once per review. Missing file →
@@ -500,7 +550,7 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
   let configError: string | undefined;
   if (deps.readBaseConfig) {
     try {
-      const text = await deps.readBaseConfig(repoDir, prUrl);
+      const text = await githubStage("readBaseConfig", deps.readBaseConfig(repoDir, prUrl));
       const parsed = parseRepoConfig(text);
       repoConfig = parsed.config;
       configError = parsed.error;
@@ -543,7 +593,7 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
   ): Promise<void> => {
     if (!deps.postCheckRun) return;
     try {
-      await deps.postCheckRun(prUrl, headSha, conclusion, summary);
+      await githubStage("postCheckRun", deps.postCheckRun(prUrl, headSha, conclusion, summary));
     } catch (err) {
       console.error("[rextor] check-run post failed:",
         err instanceof Error ? err.message : err);
@@ -669,8 +719,8 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       const { att, findingsHash } = await attestStage([], 0, true);
-      const commentUrl = await deps.postComment(prUrl,
-        withConfigNote(withFooter(incompleteCommentBody(`analyzer failed: ${reason}`), att, findingsHash)));
+      const commentUrl = await githubStage("postComment", deps.postComment(prUrl,
+        withConfigNote(withFooter(incompleteCommentBody(`analyzer failed: ${reason}`), att, findingsHash))));
       await checkRunStage("neutral", `review incomplete: ${reason}`);
       recordIndexRow(0, 0, true, att, commentUrl);
       return { commented: true, score: 0, incomplete: reason, attestation: att, findings: [] };
@@ -685,8 +735,8 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
           ? err.reason
           : `unparseable analyzer report: ${err instanceof Error ? err.message : String(err)}`;
       const { att, findingsHash } = await attestStage([], 0, true);
-      const commentUrl = await deps.postComment(prUrl,
-        withConfigNote(withFooter(incompleteCommentBody(reason), att, findingsHash)));
+      const commentUrl = await githubStage("postComment", deps.postComment(prUrl,
+        withConfigNote(withFooter(incompleteCommentBody(reason), att, findingsHash))));
       await checkRunStage("neutral", `review incomplete: ${reason}`);
       recordIndexRow(0, 0, true, att, commentUrl);
       return { commented: true, score: 0, incomplete: reason, attestation: att, findings: [] };
@@ -734,9 +784,9 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     const scoreValue = scoreV1(simmed.findings);
     const { att, findingsHash } = await attestStage(simmed.findings, scoreValue, false);
     const conclusion = gateConclusion(simmed.findings, repoConfig, dismissedKeys);
-    const commentUrl = await deps.postComment(prUrl, withConfigNote(withFooter(
+    const commentUrl = await githubStage("postComment", deps.postComment(prUrl, withConfigNote(withFooter(
       summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote, att, diff),
-      att, findingsHash)));
+      att, findingsHash))));
     await checkRunStage(conclusion,
       `rextor audit: riskScore ${scoreValue}/100 — severity gate ${conclusion}`);
     recordIndexRow(scoreValue, simmed.findings.length, false, att, commentUrl);
