@@ -3,14 +3,14 @@
 // docs/deployments/tempo.md — but the agent package is NEVER imported here
 // (server internals stay server-side; the web pins its own public constants).
 // Only chains with a LIVE attestation deployment appear; params are never
-// guessed (SPEC-5 invariant 16). HyperEVM joins when its deploy lands.
+// guessed (SPEC-5 invariant 16).
 
 export interface WebChain {
   /** Registry key — also the /api/chain/[chain] path segment. */
-  key: "tempo";
+  key: "tempo" | "hyperliquid";
   /** Display name — matches the agent-side row `chain` values verbatim. */
-  name: "Tempo testnet";
-  chainId: 42431;
+  name: "Tempo testnet" | "HyperEVM mainnet";
+  chainId: 42431 | 999;
   /** Public RPC (read-only). */
   rpc: string;
   /** RextorAttestation v2 — the live attestation contract. */
@@ -30,6 +30,18 @@ export const WEB_CHAINS: Record<WebChain["key"], WebChain> = {
     attestation: "0x51ac8214089daf85b188437b087519acfc6c495a",
     agent: "0x5f2b9C1549F7e178dC0cC15FdCf3719c9fb47f37",
     explorer: "https://explore.testnet.tempo.xyz",
+  },
+  // Mirrors the agent SPEC-5 registry hyperliquid entry (MAINNET since
+  // 2026-09-21): deploy #2, chain 999, drpc broadcast — the official RPC
+  // serves eth_call reads fine (only forge fork-init state sync rejects).
+  hyperliquid: {
+    key: "hyperliquid",
+    name: "HyperEVM mainnet",
+    chainId: 999,
+    rpc: "https://rpc.hyperliquid.xyz/evm",
+    attestation: "0x8f63c0581ab3b2836c95f97fcf104d2dd962850c",
+    agent: "0x5f2b9C1549F7e178dC0cC15FdCf3719c9fb47f37",
+    explorer: "https://hyperevmscan.io",
   },
 };
 
