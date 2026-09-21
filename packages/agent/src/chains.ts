@@ -31,14 +31,19 @@ export const CHAIN_REGISTRY: Record<ChainKey, ChainConfig> = deepFreeze({
   tempo: {
     key: "tempo", name: "Tempo testnet",
     testnet: { chainId: 42431, rpc: "https://rpc.moderato.tempo.xyz" },
-    attestation: { address: "0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd", chainId: 42431 }, explorer: null,
-    notes: "Flagship track: full loop — Slither+Aderyn, fork-sim, attestation deploy #2 (v2: findingsURI + targetChainId).",
+    attestation: { address: "0x51ac8214089daf85b188437b087519acfc6c495a", chainId: 42431 }, explorer: null,
+    notes: "Flagship track: full loop — Slither+Aderyn, fork-sim, attestation deploy #3 (v2: findingsURI + targetChainId; #2 zeroed by the 2026-09-21 testnet state reset).",
   },
   hyperliquid: {
-    key: "hyperliquid", name: "HyperEVM testnet",
-    testnet: { chainId: 998, rpc: "https://rpc.hyperliquid-testnet.xyz/evm" },
-    attestation: { address: null, chainId: null }, explorer: null,
-    notes: "Primary track: same loop, attestation deploy #2 (v2 direct).",
+    key: "hyperliquid", name: "HyperEVM mainnet",
+    // Deployment target moved to MAINNET 2026-09-21 (faucet-gated testnet
+    // abandoned; gas 0.1 gwei → months of attestations ≈ 0.002 HYPE). The
+    // `testnet` field is the schema-historical name for "the chain params
+    // the service uses" — it now carries MAINNET values.
+    testnet: { chainId: 999, rpc: "https://rpc.hyperliquid.xyz/evm" },
+    attestation: { address: "0x8f63c0581ab3b2836c95f97fcf104d2dd962850c", chainId: 999 },
+    explorer: "https://hyperevmscan.io",
+    notes: "Primary track: attestation deploy #2 MAINNET (v2: findingsURI + targetChainId) — owner + agent post-rotation keys.",
   },
   ethereum: {
     key: "ethereum", name: "Ethereum",

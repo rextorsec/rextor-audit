@@ -93,22 +93,25 @@ describe("CapabilityTable", () => {
     expect(tempoReceipt).toBeDefined();
     expect(tempoReceipt!.getAttribute("href")).toContain(`${tempoExplorer}/address/`);
 
-    // Multi-chain row — HyperEVM chip remains; Solana flipped to a live
-    // receipt (B4 devnet deploy), rendered via the row's receipts array.
-    expect(screen.getByText("HyperEVM — Shipping Oct 2026")).toBeInTheDocument();
+    // Multi-chain row — HyperEVM flipped to a live MAINNET receipt (deploy #2,
+    // 2026-09-21); Solana devnet receipt unchanged.
+    expect(screen.queryByText("HyperEVM — Shipping Oct 2026")).not.toBeInTheDocument();
     expect(screen.queryByText("Solana — Shipping Oct 2026")).not.toBeInTheDocument();
+    const hyperEVmReceipt = receiptLinks.find((a) =>
+      a.getAttribute("href")?.includes("hyperevmscan.io/address/0x8f63c0581ab3b2836c95f97fcf104d2dd962850c"),
+    );
+    expect(hyperEVmReceipt).toBeDefined();
     const solanaReceipt = receiptLinks.find((a) =>
       a.getAttribute("href")?.includes("explorer.solana.com/address/Aj6NxH8Ptjn7v3QVCZEQ9dPNWx8DjmaE2oPMNvnikMDs"),
     );
     expect(solanaReceipt).toBeDefined();
 
     // Receipt state: all 15 rows shipped (config-gate flipped 2026-09-20 with
-    // the App-authored check-run receipt; Tempo redeployed after the testnet
-    // state reset). Pins updated with the flip commits — the data file is the
-    // receipt ledger, the test follows it.
+    // the App-authored check-run receipt; HyperEVM mainnet live 2026-09-21).
+    // Pins updated with the flip commits — the data file is the receipt
+    // ledger, the test follows it.
     const body = screen.getAllByRole("rowgroup").at(-1)!;
-    expect(within(body).queryAllByText("Shipping Oct 2026")).toHaveLength(0);
-    expect(within(body).getAllByText(/Shipping Oct 2026/)).toHaveLength(1);
+    expect(within(body).queryAllByText(/Shipping Oct 2026/)).toHaveLength(0);
 
     // All 15 rows visible.
     expect(within(body).getAllByRole("row")).toHaveLength(15);

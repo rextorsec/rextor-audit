@@ -1,6 +1,33 @@
-# RextorAttestation — HyperEVM testnet deployment (PREPARED — broadcast is RECTOR-gated)
+# RextorAttestation — HyperEVM deployment
 
-**Deploy #2 (primary track) — SPEC-4 §2.** Contract v2 (findingsURI + targetChainId) deploys **directly** here — no v1 history on this chain. This doc is a prepared record: all fields present, values **pending-deploy** until RECTOR's Step-2 broadcast lands. Pattern mirrors [`tempo.md`](tempo.md) (deploy #1).
+**Deploy #2 MAINNET (chain 999) — recorded 2026-09-21. This is the LIVE deployment.** The testnet runbook below is preserved as history + gotchas; the faucet-gated testnet was abandoned in favor of mainnet receipts.
+
+| Field | Value |
+|---|---|
+| Contract | [`RextorAttestation`](../../contracts/attestation-evm/src/RextorAttestation.sol) (immutable **v2**: `findingsURI` + `targetChainId`) |
+| Address | `0x8f63c0581ab3b2836c95f97fcf104d2dd962850c` |
+| Chain | HyperEVM **mainnet**, chainId 999 (`0x3e7`) |
+| RPC | `https://rpc.hyperliquid.xyz/evm` (state-at-latest races on the official RPC → broadcast via `https://hyperliquid.drpc.org`) |
+| Deploy tx | `0xe30c482464a0304407969ab2fd3acaba632c9121e9c1fd8b00deab7eb7d989a4` (block 46,469,870) |
+| Gas used | 1,396,058 @ 0.141 gwei eff. = **0.000197 HYPE** (~$0.018) — E1 receipt via `scripts/fee-review.ts` |
+| Deployer / owner | `0x273ae839a5447CEE34b9a694Bb62C9e61086d76d` (post-rotation owner key) |
+| Attest agent | `0x5f2b9C1549F7e178dC0cC15FdCf3719c9fb47f37` — registered as `rextor-audit`, **active** |
+| Contract commit | `d026478`+ (Gate B mainnet) |
+| Explorer | `https://hyperevmscan.io` (mainnet) |
+
+## Mainnet verification (2026-09-21)
+
+- `agents(0x5f2b…47f37)` → `("rextor-audit", true, 0)` — registered, active.
+- `verify(unknown reviewId …)` → `false` — unknown reviewId rejects.
+- Funding: 0.051 HYPE sent to the owner (deBridge: Solana USDC → HYPE on HyperEVM, recipient = owner — no forwarding hop). At current 0.1 gwei this covers Gate B + **hundreds of attestations**.
+
+## Why mainnet (decision record)
+
+Every testnet faucet gates on anti-sybil proofs: Chainstack requires ≥0.08 ETH mainnet *sustained through an undocumented lookback* (`OLD_BALANCE_BELOW_THRESHOLD_ERROR` even for freshly-funded addresses), QuickNode requires a Hyperliquid L1 mainnet balance, thirdweb's faucet is paywalled, and the official drip gives mock USDC only. Meanwhile HyperEVM mainnet gas is 0.1 gwei: the entire Gate B + months of attestations ≈ 0.002 HYPE (~$0.19). Buying the gas outright beat the faucet war.
+
+## Testnet runbook (historical — chain 998, never deployed)
+
+The original plan deployed DIRECT to testnet (no v1 history), per SPEC-4 §2. Preserved verbatim below for the gotchas — they carry to mainnet.
 
 ## Deployment record — PENDING-DEPLOY
 
