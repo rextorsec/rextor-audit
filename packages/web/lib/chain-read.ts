@@ -26,11 +26,16 @@ export type AgentsRead = (params: {
 }) => Promise<readonly [string, boolean, bigint]>;
 
 function viemChainOf(chain: WebChain) {
-  // Tempo's native unit is a USD asset (TIP-20 context, deployment record).
+  // Native currency is display metadata for these read-only clients — but it
+  // must not lie: Tempo's unit is a USD asset (TIP-20), HyperEVM's is HYPE.
+  const nativeCurrency =
+    chain.key === "tempo"
+      ? { name: "USD", symbol: "USD", decimals: 18 }
+      : { name: "HYPE", symbol: "HYPE", decimals: 18 };
   return defineChain({
     id: chain.chainId,
     name: chain.name,
-    nativeCurrency: { name: "USD", symbol: "USD", decimals: 18 },
+    nativeCurrency,
     rpcUrls: { default: { http: [chain.rpc] } },
   });
 }

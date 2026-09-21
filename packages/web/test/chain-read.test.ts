@@ -43,4 +43,17 @@ describe("readAgentIdentity", () => {
     expect(identity).toBeNull();
     expect(spy).not.toHaveBeenCalled();
   });
+
+  it("reads the HyperEVM mainnet deployment when keyed hyperliquid", async () => {
+    const hyperliquid = WEB_CHAINS.hyperliquid;
+    const { read, spy } = okRead(["rextor-audit[bot]", true, 1n]);
+    const identity = await readAgentIdentity("hyperliquid", { read });
+
+    expect(spy).toHaveBeenCalledWith({
+      address: hyperliquid.attestation,
+      functionName: "agents",
+      args: [hyperliquid.agent],
+    });
+    expect(identity).toEqual({ name: "rextor-audit[bot]", active: true, reviewCount: 1 });
+  });
 });
