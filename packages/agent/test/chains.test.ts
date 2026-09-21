@@ -5,8 +5,9 @@ describe("CHAIN_REGISTRY", () => {
   it("carries verified testnet params for tempo + hyperliquid, nulls elsewhere", () => {
     expect(CHAIN_REGISTRY.tempo.testnet).toEqual({ chainId: 42431, rpc: "https://rpc.moderato.tempo.xyz" });
     // RPC verified live 2026-09-18: bare domain 404s, only `/evm` serves
-    // JSON-RPC (eth_chainId → 0x3e6). A bare-URL fork target would die 404.
-    expect(CHAIN_REGISTRY.hyperliquid.testnet).toEqual({ chainId: 998, rpc: "https://rpc.hyperliquid-testnet.xyz/evm" });
+    // JSON-RPC. 2026-09-21: deployment target moved to MAINNET (chainId 999)
+    // — the `testnet` field carries the chain params the service uses.
+    expect(CHAIN_REGISTRY.hyperliquid.testnet).toEqual({ chainId: 999, rpc: "https://rpc.hyperliquid.xyz/evm" });
     expect(CHAIN_REGISTRY.ethereum.testnet.chainId).toBe(1);
     expect(CHAIN_REGISTRY.base.testnet.chainId).toBe(8453);
     expect(CHAIN_REGISTRY.arbitrum.testnet.chainId).toBe(42161);
@@ -27,28 +28,32 @@ describe("CHAIN_REGISTRY", () => {
     expect(resolved.key).toBe("solana");
     expect(attestationChainId(resolved)).toBeNull();
   });
-  it("hyperliquid attestation slot stays null until deploy #2 — testnet fallback resolves chainId (SPEC-4 §2 / SPEC-5 #16)", () => {
-    // Fail-loudly preserved: no address exists yet, so attest.ts SKIPS rather
-    // than attest to a guess. chainId, however, is seeded and verified — the
-    // targetChainId source for a v2 attestation is the testnet fallback.
-    expect(CHAIN_REGISTRY.hyperliquid.attestation).toEqual({ address: null, chainId: null });
-    expect(CHAIN_REGISTRY.hyperliquid.explorer).toBeNull(); // no verified testnet explorer
+  it("hyperliquid attestation filled by MAINNET deploy #2 — mainnet is the targetChainId source (SPEC-4 §2 / SPEC-5 #16)", () => {
+    // 2026-09-21: faucet-gated testnet abandoned; deploy #2 landed on
+    // HyperEVM MAINNET (chainId 999) owned by the post-rotation key.
+    expect(CHAIN_REGISTRY.hyperliquid.attestation).toEqual({
+      address: "0x8f63c0581ab3b2836c95f97fcf104d2dd962850c",
+      chainId: 999,
+    });
+    expect(CHAIN_REGISTRY.hyperliquid.explorer).toBe("https://hyperevmscan.io");
     const resolved = resolveChain({ REXTOR_DEFAULT_CHAIN: "hyperliquid" });
-    expect(resolved.testnet).toEqual({ chainId: 998, rpc: "https://rpc.hyperliquid-testnet.xyz/evm" });
-    expect(attestationChainId(resolved)).toBe(998);
+    expect(resolved.testnet).toEqual({ chainId: 999, rpc: "https://rpc.hyperliquid.xyz/evm" });
+    expect(attestationChainId(resolved)).toBe(999);
   });
-  it("every entry has non-empty notes; tempo attestation filled by deploy #1, others null", () => {
+  it("every entry has non-empty notes; deployed slots carry recorded addresses", () => {
     // SPEC-4 §2: slots start null and are filled by recorded deployments —
-    // docs/deployments/tempo.md is the anchor for this literal.
+    // docs/deployments/tempo.md is the anchor for this literal. Tempo #2
+    // (0x7fe69ade…) was zeroed by the 2026-09-21 state reset; #3 is current.
     expect(CHAIN_REGISTRY.tempo.attestation).toEqual({
-      address: "0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd",
+      address: "0x51ac8214089daf85b188437b087519acfc6c495a",
       chainId: 42431,
     });
     for (const key of Object.keys(CHAIN_REGISTRY) as ChainKey[]) {
       expect(CHAIN_REGISTRY[key].notes.length).toBeGreaterThan(0);
-      // Deployed slots: tempo (SPEC-4 #2) + solana (SPEC-8 B4). Everything
-      // else stays null until a recorded deployment fills it.
-      if (key !== "tempo" && key !== "solana") {
+      // Deployed slots: tempo (SPEC-4 #3) + hyperliquid (mainnet #2) + solana
+      // (SPEC-8 B4). Everything else stays null until a recorded deployment
+      // fills it.
+      if (!["tempo", "hyperliquid", "solana"].includes(key)) {
         expect(CHAIN_REGISTRY[key].attestation.address).toBeNull();
       }
     }
