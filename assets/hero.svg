@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="Rextor Audit — Audits are point-in-time. Code is continuous.">
+  <style>
+    .pulse { animation: pulse 2.6s ease-in-out infinite; transform-origin: center; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+  </style>
+
+  <defs>
+    <pattern id="dotgrid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="1.2" cy="1.2" r="1.2" fill="#10d39a" opacity="0.07"/>
+    </pattern>
+    <radialGradient id="gridfade" cx="35%" cy="40%" r="80%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="1"/>
+      <stop offset="70%" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <mask id="gridmask"><rect width="1200" height="630" fill="url(#gridfade)"/></mask>
+    <linearGradient id="cardfade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0e1110"/>
+      <stop offset="100%" stop-color="#0e1110"/>
+    </linearGradient>
+  </defs>
+
+  <!-- paper + ambient dot grid -->
+  <rect width="1200" height="630" fill="#070a09"/>
+  <rect width="1200" height="630" fill="url(#dotgrid)" mask="url(#gridmask)"/>
+
+  <!-- kicker -->
+  <text x="80" y="118" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="15" letter-spacing="4" fill="#a4a9a6">REXTOR SECURITY — PR-TIME AUDIT AGENT</text>
+
+  <!-- title -->
+  <text x="76" y="212" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="58" font-weight="700" letter-spacing="-1.5" fill="#e4e9e7">Audits are point-in-time.</text>
+  <text x="76" y="284" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="58" font-weight="700" letter-spacing="-1.5" fill="#10d39a">Code is continuous.</text>
+
+  <!-- lede -->
+  <text x="80" y="342" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="19" fill="#a4a9a6">Every pull request that touches money-code becomes an audit event —</text>
+  <text x="80" y="372" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="19" fill="#a4a9a6">analyzed, fork-simulated, scored, and attested on-chain.</text>
+
+  <!-- receipt card (clipped-edge echo of the landing hero artifact) -->
+  <g>
+    <rect x="760" y="392" width="480" height="212" rx="10" fill="#0e1110" stroke="#1c201e" stroke-width="1"/>
+    <circle class="pulse" cx="792" cy="424" r="4" fill="#10d39a"/>
+    <text x="806" y="429" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12" letter-spacing="2" fill="#858b88">LIVE RECEIPTS · AS OF 2026-09-22</text>
+    <line x1="760" y1="444" x2="1200" y2="444" stroke="#1c201e" stroke-width="1"/>
+
+    <text x="792" y="478" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" fill="#a4a9a6">Tempo testnet</text>
+    <text x="1168" y="478" text-anchor="end" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" fill="#10d39a">5 attestations</text>
+    <line x1="792" y1="492" x2="1168" y2="492" stroke="#1c201e" stroke-width="1"/>
+
+    <text x="792" y="514" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" fill="#a4a9a6">HyperEVM mainnet</text>
+    <text x="1168" y="514" text-anchor="end" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" fill="#10d39a">agent active</text>
+    <line x1="792" y1="528" x2="1168" y2="528" stroke="#1c201e" stroke-width="1"/>
+
+    <text x="792" y="550" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" fill="#a4a9a6">Solana devnet</text>
+    <text x="1168" y="550" text-anchor="end" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" fill="#10d39a">adapter live</text>
+    <line x1="792" y1="564" x2="1168" y2="564" stroke="#1c201e" stroke-width="1"/>
+
+    <text x="792" y="586" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" fill="#a4a9a6">ERC-8004 identity</text>
+    <text x="1168" y="586" text-anchor="end" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" fill="#10d39a">agentId 50891 ✓</text>
+  </g>
+
+  <!-- url -->
+  <text x="80" y="572" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" letter-spacing="1" fill="#6b706d">rextoraudit.com</text>
+</svg>
