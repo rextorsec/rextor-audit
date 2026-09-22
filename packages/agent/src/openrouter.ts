@@ -26,7 +26,21 @@ export interface OpenRouterConfig {
   fetchFn?: typeof fetch;
 }
 
+/** A provider can return HTTP 200 with empty content (reasoning burnout /
+ *  provider hiccup — observed live on glm-5.3-flash 2026-09-22 killing a PoC
+ *  generation). One retry on THIS failure mode only; http/parse errors stay
+ *  immediate (retrying a 401 is noise, retrying 5xx belongs to the provider). */
+const EMPTY_CONTENT_ATTEMPTS = 2;
+
 export async function chatCompletion(config: OpenRouterConfig, messages: ChatMessage[]): Promise<string> {
+  for (let attempt = 0; attempt < EMPTY_CONTENT_ATTEMPTS; attempt++) {
+    const content = await chatCompletionOnce(config, messages);
+    if (content.length > 0) return content;
+  }
+  throw new TriageUnavailableError("response carried no content");
+}
+
+async function chatCompletionOnce(config: OpenRouterConfig, messages: ChatMessage[]): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS);
   let res: Response;
@@ -55,9 +69,7 @@ export async function chatCompletion(config: OpenRouterConfig, messages: ChatMes
     throw new TriageUnavailableError(`unparseable response: ${err instanceof Error ? err.message : String(err)}`);
   }
   const content = data.choices?.[0]?.message?.content;
-  if (typeof content !== "string" || content.length === 0) {
-    throw new TriageUnavailableError("response carried no content");
-  }
+  if (typeof content !== "string") return "";
   return content;
 }
 
