@@ -43,9 +43,26 @@ describe("chatCompletion (mocked fetch)", () => {
     await expect(chatCompletion({ apiKey: "k", model: "m", fetchFn }, msgs)).rejects.toBeInstanceOf(TriageUnavailableError);
   });
 
-  it("throws when the response has no content", async () => {
-    const empty = (async () => ({ ok: true, status: 200, json: async () => ({ choices: [] }) })) as unknown as typeof fetch;
+  it("throws when the response has no content (after the retry budget)", async () => {
+    let calls = 0;
+    const empty = (async () => {
+      calls++;
+      return { ok: true, status: 200, json: async () => ({ choices: [] }) };
+    }) as unknown as typeof fetch;
     await expect(chatCompletion({ apiKey: "k", model: "m", fetchFn: empty }, msgs)).rejects.toBeInstanceOf(TriageUnavailableError);
+    expect(calls).toBe(2); // one silent retry, then the visible failure
+  });
+
+  it("retries once on empty content and returns the second response", async () => {
+    let calls = 0;
+    const flaky = (async () => {
+      calls++;
+      return calls === 1
+        ? { ok: true, status: 200, json: async () => ({ choices: [] }) }
+        : okResponse("verdict json");
+    }) as unknown as typeof fetch;
+    await expect(chatCompletion({ apiKey: "k", model: "m", fetchFn: flaky }, msgs)).resolves.toBe("verdict json");
+    expect(calls).toBe(2);
   });
 });
 
