@@ -31,3 +31,4 @@ target/
 .worktrees/
 # ts incremental build state
 *.tsbuildinfo
+.vercel
