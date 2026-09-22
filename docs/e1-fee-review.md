@@ -1,7 +1,8 @@
-# E1 — Chain cost-model review: Tempo attestation cost per review
+# E1 — Chain cost-model review: attestation cost per review (Tempo + HyperEVM)
 
-**Status: SHIPPED (Tempo-side) 2026-09-20.** HyperEVM section blocked on HYPE
-funding (rides B2's blocker per week-4 plan Task 10). Tool:
+**Status: SHIPPED (both chains) 2026-09-22.** Tempo-side shipped 2026-09-20;
+HyperEVM mainnet receipts landed 2026-09-22 (agent funded, native twin
+broadcast). Tool:
 [`packages/agent/scripts/fee-review.ts`](../../packages/agent/scripts/fee-review.ts)
 — read-only, no keys, reproducible by anyone (Conatus `mantle_gas_review`
 parity).
@@ -50,9 +51,31 @@ count 6 · total 0.3768 · min 0.0125 · median 0.0216 · max 0.1543
   `npx tsx scripts/fee-review.ts [--rpc <url>] <txHash>…` — point it at any
   attestation tx on any EVM chain.
 
-## HyperEVM (blocked)
+## Live receipts — HyperEVM mainnet (fetched 2026-09-22)
 
-Identical measurement on HyperEVM testnet (chainId 998) lands when the
-broadcaster is funded (HYPE → new owner EOA; runbook
-[hyperliquid.md](hyperliquid.md)). Placeholder recorded per plan Task 10 —
-Tempo-only numbers shipped rather than deferring the whole row.
+One **native twin** attestation: same reviewId `0x8339c298…` as the Tempo
+receipt above — identical commitHash, findingsHash and findingsURI — broadcast
+to the mainnet v2 contract `0x8f63c058…850c` with `targetChainId 999`
+(native-twin convention, mirror of the Tempo record's own `42431`).
+Broadcast via [`scripts/attest-twin.ts`](../../packages/agent/scripts/attest-twin.ts);
+`verify(...)` read back `true` post-mine — a twin that cannot be recomputed
+on-chain is not a receipt.
+
+| tx | block | gasUsed | eff. gas price (wei) | cost (wei) | cost (human) |
+|---|---|---|---|---|---|
+| `0x64e2a13172…` | 46562201 | 194330 | 240867961 | 46807870861130 | 0.0000468 |
+
+count 1 · total 0.0000468 HYPE · [`hyperevmscan.io/tx/0x64e2a131…`](https://hyperevmscan.io/tx/0x64e2a13172e35efd1819ddd4932085b10f377773f50fac6ab9e50c27e61834b5)
+
+Repro: `npx tsx scripts/fee-review.ts --rpc https://hyperliquid.drpc.org 0x64e2a13172e35efd1819ddd4932085b10f377773f50fac6ab9e50c27e61834b5`
+from `packages/agent/`.
+
+## What the numbers say (cross-chain)
+
+- **Tempo: ~0.012–0.155** per attestation (18-decimal stablecoin fee asset,
+  11.9–85.4 gwei swings). **HyperEVM mainnet: 0.0000468 HYPE** (~0.24 gwei) —
+  a full attestation under a tenth of a US cent.
+- **gasUsed is structural per chain, price is market:** 194,330 gas on
+  HyperEVM vs 1,807,730 on Tempo for the same findingsHash — chain accounting
+  differs; the payload does not. Cost projections must measure per chain;
+  no cross-chain gas assumption survives contact with both.

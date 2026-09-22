@@ -179,7 +179,7 @@
       "rextor": {
         "shipped": true,
         "receipt": "https://github.com/rextorsec/rextor-audit/blob/main/docs/e1-fee-review.md",
-        "receiptLabel": "real Tempo receipts: 0.0125–0.154 per attest · 6 txs measured"
+        "receiptLabel": "real receipts: Tempo 0.0125–0.154 (6 txs) · HyperEVM mainnet 0.0000468 HYPE (verify=true)"
       },
       "backing": "E1"
     },
