@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rextor Audit — every PR an audit event</title>
+<meta name="description" content="PR-time smart-contract auditing. Deterministic analysis, cited triage, a reproducible risk score — and the verdict anchored on-chain.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="tokens.css">
+<style>
+/* ── base ─────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font: 400 var(--text-base)/1.6 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+.container { max-width: 72rem; margin-inline: auto; padding-inline: clamp(1rem, 4vw, 2rem); }
+a { color: inherit; }
+h1, h2, h3 { font-style: normal; text-wrap: balance; overflow-wrap: anywhere; min-width: 0; }
+
+/* ── nav · N1b ────────────────────────────────────────────────────── */
+.nav {
+  position: sticky; top: 0; z-index: var(--z-sticky);
+  background: color-mix(in oklch, var(--background) 68%, transparent);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border-bottom: var(--rule-hair) solid var(--border);
+}
+.nav__inner {
+  max-width: 72rem; margin-inline: auto; height: 3.75rem;
+  padding-inline: clamp(1rem, 4vw, 2rem);
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: var(--space-md);
+}
+.wordmark {
+  justify-self: start; display: inline-flex; align-items: center; gap: var(--space-sm);
+  font: 500 var(--text-sm) var(--font-mono); letter-spacing: 0.08em;
+  text-decoration: none; white-space: nowrap;
+}
+.wordmark::before {
+  content: ""; width: 6px; height: 6px; background: var(--primary); border-radius: 1px; flex: none;
+}
+.nav__center { justify-self: center; display: flex; gap: var(--space-lg); }
+.nav__link {
+  font: 500 var(--text-sm) var(--font-sans); color: var(--muted-foreground);
+  text-decoration: none; white-space: nowrap;
+  transition: color var(--dur-short) var(--ease-out);
+}
+.nav__link:hover { color: var(--foreground); }
+.nav__link:active { color: var(--foreground); }
+.nav__link:focus-visible, .wordmark:focus-visible, .btn:focus-visible, .link--receipt:focus-visible {
+  outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius-sm);
+}
+.nav__right { justify-self: end; display: flex; align-items: center; gap: var(--space-lg); }
+.nav__github {
+  font: 500 var(--text-sm) var(--font-sans); color: var(--muted-foreground);
+  text-decoration: none; white-space: nowrap;
+  transition: color var(--dur-short) var(--ease-out);
+}
+.nav__github:hover { color: var(--foreground); }
+.nav__github:active { color: var(--foreground); }
+@media (max-width: 56.25rem) { .nav__center { display: none; } }
+
+/* ── buttons ──────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 2.25rem; padding-inline: var(--space-sm);
+  border-radius: var(--radius-sm); border: var(--rule-hair) solid transparent;
+  font: 500 var(--text-sm) var(--font-sans); text-decoration: none; white-space: nowrap;
+  transition: background-color var(--dur-short) var(--ease-out),
+              border-color var(--dur-short) var(--ease-out),
+              color var(--dur-short) var(--ease-out),
+              transform 100ms var(--ease-out);
+}
+.btn--primary { background: var(--primary); color: var(--primary-foreground); }
+.btn--primary:hover { background: var(--primary-strong); transform: translateY(-1px); }
+.btn--primary:active { transform: translateY(0); background: var(--primary); }
+.link--receipt {
+  font: 500 var(--text-sm) var(--font-mono); color: var(--primary); text-decoration: none; white-space: nowrap;
+  text-underline-offset: 3px; text-decoration-color: color-mix(in oklch, var(--primary) 45%, transparent);
+  transition: text-decoration-color var(--dur-short) var(--ease-out);
+}
+.link--receipt:hover { text-decoration: underline; text-decoration-thickness: 1.5px; text-decoration-color: var(--primary); }
+.link--receipt:active { text-decoration-thickness: 2px; }
+
+/* ── hero · H2 split on dot-grid canvas ───────────────────────────── */
+.hero { position: relative; isolation: isolate; padding-block: clamp(2.5rem, 5vw, 3.5rem) clamp(4.5rem, 9vw, 6rem); }
+.hero__grid {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: var(--space-2xl); align-items: center;
+}
+.hero__kicker {
+  margin: 0 0 var(--space-md);
+  font: 500 var(--text-xs) var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--subtle-foreground);
+}
+.hero__title {
+  margin: 0;
+  font: 600 clamp(2.5rem, 4vw + 0.75rem, 4rem)/1.04 var(--font-sans);
+  letter-spacing: -0.03em;
+}
+.hero__title span {
+  display: inline-block;
+  clip-path: inset(-0.15em 100% -0.15em 0);
+  animation: unmask 480ms var(--ease-out) forwards;
+}
+.hero__title span:nth-of-type(2) { animation-delay: 140ms; }
+@keyframes unmask { to { clip-path: inset(-0.15em 0 -0.15em 0); } }
+@media (prefers-reduced-motion: reduce) {
+  .hero__title span { animation: none; clip-path: none; }
+}
+.hero__lede { margin: var(--space-xl) 0 var(--space-lg); max-width: 45ch; color: var(--muted-foreground); font-size: var(--text-md); line-height: 1.55; }
+.hero__cta-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-lg); }
+.hero__facts {
+  display: flex; flex-wrap: wrap; column-gap: var(--space-2xl); row-gap: var(--space-sm);
+  margin-top: var(--space-2xl); padding-top: var(--space-md);
+  border-top: var(--rule-hair) solid var(--border);
+  font: 400 var(--text-xs) var(--font-mono); font-variant-numeric: tabular-nums;
+  color: var(--subtle-foreground);
+}
+.hero__facts span { white-space: nowrap; }
+
+/* cursor spotlight · HP3, scoped to the hero, tracks pointer on backdrop layer */
+.hero__spotlight {
+  position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: radial-gradient(22rem circle at var(--mx, 50%) var(--my, 30%),
+    color-mix(in oklch, var(--primary) 13%, transparent), transparent 65%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero__spotlight { --mx: 50%; --my: 30%; }
+}
+
+/* verdict receipt · E1 clipped-edge capture, tier-A CSS (product artifact, no chrome) */
+.capture { margin: 0; width: calc(100% + 6vw); margin-inline-end: -6vw; justify-self: end; }
+.capture__panel {
+  background: var(--card); border: var(--rule-hair) solid var(--border);
+  border-radius: var(--radius-md); padding: var(--space-md) var(--space-lg);
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+}
+.capture__head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 0 0 var(--space-2xs); font: 500 var(--text-sm) var(--font-mono); line-height: 1.2;
+}
+.capture__bot { display: inline-flex; align-items: center; gap: var(--space-sm); }
+.capture__verdict { color: var(--primary); letter-spacing: 0.06em; }
+.capture__sub { margin: 0 0 var(--space-md); font: 400 var(--text-xs) var(--font-mono); color: var(--subtle-foreground); }
+.capture__findings {
+  display: grid; gap: var(--space-2xs); padding-block: var(--space-sm);
+  border-top: var(--rule-hair) solid var(--border); border-bottom: var(--rule-hair) solid var(--border);
+}
+.capture__row {
+  display: flex; align-items: center; gap: var(--space-sm); margin: 0;
+  font: 400 var(--text-xs) var(--font-mono); color: var(--muted-foreground); line-height: 1.4;
+}
+.capture__row em { font-style: normal; margin-inline-start: auto; color: var(--foreground); }
+.capture__row small { color: var(--faint-foreground); }
+.dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--rule-strong); }
+.dot--live { background: var(--primary); }
+.dot--crit { background: var(--danger); }
+.dot--high { background: var(--warning); }
+.dot--med { background: var(--muted-foreground); }
+.capture__score {
+  display: flex; align-items: baseline; gap: var(--space-sm); margin: 0;
+  padding-block: var(--space-sm); font: 400 var(--text-xs) var(--font-mono); color: var(--subtle-foreground);
+}
+.capture__score b { font: 600 var(--text-md) var(--font-sans); color: var(--primary); font-variant-numeric: tabular-nums; line-height: 1; }
+.capture__score small { margin-inline-start: auto; color: var(--faint-foreground); }
+.capture__anchor {
+  margin: 0; padding-top: var(--space-sm); border-top: var(--rule-hair) solid var(--border);
+  display: grid; gap: var(--space-2xs);
+}
+.capture__anchor div {
+  display: grid; grid-template-columns: minmax(4.5rem, auto) minmax(0, 1fr);
+  gap: var(--space-sm); font: 400 var(--text-xs) var(--font-mono);
+}
+.capture__anchor dt { color: var(--subtle-foreground); }
+.capture__anchor dd { margin: 0; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.capture__caption { margin: var(--space-sm) 0 0; font: 400 var(--text-xs) var(--font-mono); color: var(--subtle-foreground); }
+
+/* dot-grid canvas · Tier-A CSS, the ambient signature */
+.canvas {
+  position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background-image: radial-gradient(circle, var(--faint-foreground) 1px, transparent 1.5px);
+  background-size: 26px 26px; opacity: 0.33;
+  -webkit-mask-image: radial-gradient(120% 95% at 62% 100%, var(--foreground) 0%, transparent 72%);
+  mask-image: radial-gradient(120% 95% at 62% 100%, var(--foreground) 0%, transparent 72%);
+}
+.canvas i {
+  position: absolute; width: 4px; height: 4px; border-radius: 50%;
+  background: var(--primary); opacity: 0.2;
+  animation: dot-land 3.4s var(--ease-in-out) infinite;
+}
+.canvas i:nth-child(1) { left: 19%; top: 42%; }
+.canvas i:nth-child(2) { left: 63%; top: 58%; animation-delay: 1.2s; }
+.canvas i:nth-child(3) { left: 86%; top: 30%; animation-delay: 2.3s; }
+@keyframes dot-land {
+  0%, 100% { opacity: 0.18; transform: scale(1); }
+  50%      { opacity: 0.85; transform: scale(1.4); }
+}
+@media (prefers-reduced-motion: reduce) { .canvas i { animation: none; opacity: 0.4; } }
+
+/* ── sections ─────────────────────────────────────────────────────── */
+.section { padding-block: var(--space-2xl) 0; }
+.section--tight { padding-block: var(--space-xl) 0; }
+.section__head { margin: 0 0 var(--space-2xl); max-width: 56ch; }
+.section__title { margin: 0; font: 600 var(--text-2xl)/1.15 var(--font-sans); letter-spacing: -0.02em; }
+.section__sub { margin: var(--space-sm) 0 0; color: var(--muted-foreground); max-width: 60ch; }
+
+/* ── tour · F4 split rows ─────────────────────────────────────────── */
+.stage {
+  display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: var(--space-2xl); align-items: start;
+  padding-block: var(--space-xl); border-top: var(--rule-hair) solid var(--border);
+}
+.stage__num {
+  margin: 0 0 var(--space-sm);
+  font: 500 var(--text-xs) var(--font-mono); letter-spacing: 0.1em;
+  color: var(--subtle-foreground); font-variant-numeric: tabular-nums;
+}
+.stage__title { margin: 0 0 var(--space-sm); font: 600 var(--text-lg)/1.25 var(--font-sans); letter-spacing: -0.01em; }
+.stage__body { margin: 0; color: var(--muted-foreground); max-width: 62ch; }
+.stage__body strong { color: var(--foreground); font-weight: 600; }
+.artifact {
+  margin: 0; padding: var(--space-md) var(--space-lg);
+  background: var(--card); border: var(--rule-hair) solid var(--border); border-radius: var(--radius-md);
+}
+.artifact__label {
+  margin: 0 0 var(--space-sm);
+  font: 500 var(--text-xs) var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--subtle-foreground);
+}
+.artifact__row {
+  display: grid; grid-template-columns: minmax(4.5rem, auto) minmax(0, 1fr);
+  gap: var(--space-sm); padding-block: var(--space-2xs);
+  font: 400 var(--text-xs)/1.55 var(--font-mono); font-variant-numeric: tabular-nums;
+}
+.artifact__row dt { color: var(--subtle-foreground); }
+.artifact__row dd { margin: 0; color: var(--muted-foreground); }
+.artifact .link--receipt { font-size: var(--text-xs); }
+
+/* ── matrix · F3 spec sheet ───────────────────────────────────────── */
+.matrix__table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.matrix__table th {
+  text-align: left; padding: var(--space-sm) var(--space-md);
+  font: 500 var(--text-xs) var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--subtle-foreground);
+  border-bottom: var(--rule-hair) solid var(--rule-strong);
+}
+.matrix__table td {
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: var(--rule-hair) solid var(--border);
+  font-size: var(--text-sm); color: var(--muted-foreground); vertical-align: top;
+  transition: background-color 120ms var(--ease-out);
+}
+.matrix__table td:first-child { color: var(--foreground); font-weight: 500; max-width: 34ch; }
+.mark { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; vertical-align: -0.5px; }
+.mark--yes { background: var(--primary); }
+.mark--partial { background: conic-gradient(var(--warning) 0 50%, transparent 50% 100%); box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--warning) 55%, transparent); }
+.mark--no { box-shadow: inset 0 0 0 1px var(--rule-strong); }
+.matrix__group {
+  margin: 0 0 var(--space-md);
+  font: 500 var(--text-xs) var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--subtle-foreground); font-variant-numeric: tabular-nums;
+}
+.matrix__group + .matrix__group { margin-top: var(--space-2xl); }
+.matrix__group b { color: var(--foreground); font-weight: 500; }
+.matrix__table th:last-child, .matrix__table td:last-child {
+  background: color-mix(in oklch, var(--card) 55%, transparent);
+}
+@media (hover: hover) {
+  .matrix__table tbody tr:hover td { background: color-mix(in oklch, var(--elevated) 40%, transparent); }
+  .matrix__table tbody tr:hover td:last-child { background: color-mix(in oklch, var(--elevated) 40%, var(--card)); }
+}
+.matrix__table .link--receipt { font-size: var(--text-xs); }
+.soon {
+  display: inline-block; margin: 0;
+  padding: var(--space-3xs) var(--space-xs); border: var(--rule-hair) solid var(--border);
+  border-radius: var(--radius-sm);
+  font: 400 var(--text-xs) var(--font-mono); color: var(--subtle-foreground); white-space: nowrap;
+}
+.matrix__footnote { margin: var(--space-md) 0 0; font: 400 var(--text-xs)/1.6 var(--font-mono); color: var(--subtle-foreground); }
+
+/* ── tracks ───────────────────────────────────────────────────────── */
+.track {
+  display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: var(--space-lg); align-items: baseline;
+  padding-block: var(--space-lg); border-top: var(--rule-hair) solid var(--border);
+}
+.track__name { margin: 0; font: 600 var(--text-md) var(--font-sans); letter-spacing: -0.01em; }
+.track__name small { font: 400 var(--text-xs) var(--font-mono); color: var(--subtle-foreground); margin-inline-start: var(--space-sm); }
+.track__status { margin: 0; color: var(--muted-foreground); font-size: var(--text-sm); }
+.track__status strong { color: var(--foreground); font-weight: 600; }
+
+/* ── integrity · ledger list ──────────────────────────────────────── */
+.rail { padding-block: var(--space-lg); border-top: var(--rule-hair) solid var(--border); }
+.rail h3 { margin: 0 0 var(--space-2xs); font: 600 var(--text-md) var(--font-sans); letter-spacing: -0.01em; }
+.rail p { margin: 0; color: var(--muted-foreground); max-width: 68ch; }
+.rail code { font-family: var(--font-mono); font-size: 0.9em; color: var(--muted-foreground); background: var(--card); padding: var(--space-3xs) var(--space-2xs); border-radius: var(--radius-sm); }
+
+/* ── plain words · 3-step dual-register strip ─────────────────────── */
+.plain { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr); gap: var(--space-xl); }
+.plain__step { min-width: 0; padding-top: var(--space-md); border-top: var(--rule-hair) solid var(--border); }
+.plain__num {
+  margin: 0 0 var(--space-sm);
+  font: 500 var(--text-xs) var(--font-mono); letter-spacing: 0.1em;
+  color: var(--subtle-foreground); font-variant-numeric: tabular-nums;
+}
+.plain__line { margin: 0 0 var(--space-sm); font: 500 var(--text-md)/1.45 var(--font-sans); letter-spacing: -0.01em; }
+.plain__tech { margin: 0; font: 400 var(--text-xs) var(--font-mono); color: var(--subtle-foreground); }
+
+/* ── faq · conversational, native details ─────────────────────────── */
+.faq__item { border-top: var(--rule-hair) solid var(--border); }
+.faq__item:last-child { border-bottom: var(--rule-hair) solid var(--border); }
+.faq__item summary {
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-md);
+  padding-block: var(--space-md); cursor: pointer; list-style: none;
+  font: 500 var(--text-base) var(--font-sans); color: var(--foreground);
+}
+.faq__item summary::-webkit-details-marker { display: none; }
+.faq__item summary::after { content: "+"; font: 400 var(--text-md) var(--font-mono); color: var(--subtle-foreground); }
+.faq__item[open] summary::after { content: "–"; }
+.faq__item summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius-sm); }
+.faq__answer { margin: 0; padding: 0 var(--space-2xl) var(--space-md) 0; max-width: 65ch; color: var(--muted-foreground); }
+.faq__answer .link--receipt { font-size: var(--text-sm); }
+
+/* ── final cta ────────────────────────────────────────────────────── */
+.cta-final { padding-block: var(--space-3xl) var(--space-2xl); }
+.cta-final h2 { margin: 0 0 var(--space-sm); font: 600 var(--text-3xl)/1.1 var(--font-sans); letter-spacing: -0.02em; max-width: 24ch; }
+.cta-final .sub { margin: 0 0 var(--space-lg); color: var(--muted-foreground); max-width: 52ch; }
+
+/* ── footer · Ft5 statement ───────────────────────────────────────── */
+.foot { padding-block: var(--space-2xl) var(--space-xl); }
+.foot__line { margin: 0 0 var(--space-xl); font: 600 var(--text-display-s)/1.08 var(--font-sans); letter-spacing: -0.025em; max-width: 28ch; }
+.foot__meta {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-lg);
+  padding-top: var(--space-md); border-top: var(--rule-hair) solid var(--border);
+  font: 400 var(--text-xs) var(--font-mono); color: var(--subtle-foreground);
+}
+.foot__meta a { color: var(--muted-foreground); text-decoration: none; }
+.foot__meta a:hover { color: var(--foreground); text-decoration: underline; text-underline-offset: 3px; }
+.foot__meta a:active { color: var(--foreground); text-decoration-thickness: 2px; }
+.foot__meta .credit { margin-inline-start: auto; }
+
+/* ── responsive ───────────────────────────────────────────────────── */
+@media (max-width: 60rem) {
+  .hero__grid, .stage, .track, .plain { grid-template-columns: minmax(0, 1fr); }
+  .capture { width: 100%; margin-inline-end: 0; }
+  .stage { gap: var(--space-lg); }
+  .matrix__table, .matrix__table tbody, .matrix__table tr, .matrix__table td { display: block; }
+  .matrix__table thead { display: none; }
+  .matrix__table tr { padding-block: var(--space-md); border-top: var(--rule-hair) solid var(--border); }
+  .matrix__table tr:first-child { border-top: 0; }
+  .matrix__table td { border: 0; padding: var(--space-2xs) 0; }
+  .matrix__table td::before {
+    content: attr(data-label) "· ";
+    font: 500 var(--text-xs) var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--subtle-foreground); margin-inline-end: var(--space-sm);
+  }
+  .matrix__table td[data-label="Capability"]::before { content: none; }
+  .matrix__table th:last-child, .matrix__table td:last-child { background: transparent; }
+  .foot__meta .credit { margin-inline-start: 0; }
+}
+@media (max-width: 40rem) {
+  .hero__title { font-size: var(--text-display-s); }
+  .nav__right .nav__github { display: none; }
+  .hero__cta-row .btn { width: 100%; }
+  .hero__cta-row .link--receipt { width: 100%; text-align: center; }
+}
+</style>
+</head>
+<body>
+
+<nav class="nav" aria-label="Primary">
+  <div class="nav__inner">
+    <a class="wordmark" href="#">REXTOR&nbsp;AUDIT</a>
+    <div class="nav__center">
+      <a class="nav__link" href="#tour">Tour</a>
+      <a class="nav__link" href="#matrix">Capabilities</a>
+      <a class="nav__link" href="#tracks">Tracks</a>
+      <a class="nav__link" href="#integrity">Integrity</a>
+      <a class="nav__link" href="#faq">FAQ</a>
+    </div>
+    <div class="nav__right">
+      <a class="nav__github" href="https://github.com/rextorsec/rextor-audit">GitHub↗</a>
+      <a class="btn btn--primary" href="#install">Install</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero container">
+  <div class="hero__spotlight" aria-hidden="true"></div>
+  <div class="canvas" aria-hidden="true"><i></i><i></i><i></i></div>
+  <div class="hero__grid">
+    <div>
+      <p class="hero__kicker">PR-time smart-contract auditing</p>
+      <h1 class="hero__title"><span>Audits are point&#8209;in&#8209;time.</span><br><span>Code is continuous.</span></h1>
+      <p class="hero__lede">Every pull request that touches money&#8209;code becomes an audit event. Generic reviewers read code changes — Rextor audits money changes, and anchors the verdict on&#8209;chain.</p>
+      <div class="hero__cta-row">
+        <a class="btn btn--primary" href="#install">Install the GitHub App</a>
+        <a class="link--receipt" href="https://explore.testnet.tempo.xyz/address/0x51ac8214089daf85b188437b087519acfc6c495a">See a live verdict ↗</a>
+      </div>
+    </div>
+    <figure class="capture">
+      <div class="capture__panel">
+        <p class="capture__head">
+          <span class="capture__bot"><i class="dot dot--live" aria-hidden="true"></i>rextor-audit[bot]</span>
+          <span class="capture__verdict">PASS ✓</span>
+        </p>
+        <p class="capture__sub">check run · diff-scoped · fork-proven</p>
+        <div class="capture__findings">
+          <p class="capture__row"><i class="dot dot--crit" aria-hidden="true"></i>critical<em>0</em><small>×60</small></p>
+          <p class="capture__row"><i class="dot dot--high" aria-hidden="true"></i>high<em>0</em><small>×25</small></p>
+          <p class="capture__row"><i class="dot dot--med" aria-hidden="true"></i>medium<em>1</em><small>×10</small></p>
+          <p class="capture__row"><i class="dot" aria-hidden="true"></i>low<em>2</em><small>×3</small></p>
+        </div>
+        <p class="capture__score"><span>risk score</span><b>16</b><small>/100 · 1×10 + 2×3</small></p>
+        <dl class="capture__anchor">
+          <div><dt>reviewId</dt><dd>keccak256(rextor/review/v1|…)</dd></div>
+          <div><dt>agent</dt><dd>0x5f2b…47f37 · rextor-audit[bot]</dd></div>
+          <div><dt>chains</dt><dd>Tempo 42431 · HyperEVM 999</dd></div>
+        </dl>
+      </div>
+      <figcaption class="capture__caption">Exhibit 01 — sample verdict. The score recomputes from the findings: 1×10 + 2×3 = 16.</figcaption>
+    </figure>
+  </div>
+  <div class="hero__facts">
+    <span>Tempo testnet · chainId 42431</span>
+    <span>Attestation v3 · 0x51ac…c495a</span>
+    <span>HyperEVM mainnet · 999 · 0x8f63…850c</span>
+    <span>Agent rextor-audit[bot] · active</span>
+  </div>
+</header>
+
+<main class="container">
+
+  <section class="section" id="plain" aria-label="Rextor in plain words">
+    <div class="section__head">
+      <h2 class="section__title">Rextor, in plain words</h2>
+    </div>
+    <div class="plain">
+      <div class="plain__step">
+        <p class="plain__num">Step 01</p>
+        <p class="plain__line">Install the app. It joins your repo like a reviewer.</p>
+        <p class="plain__tech">GitHub App · two-click install</p>
+      </div>
+      <div class="plain__step">
+        <p class="plain__num">Step 02</p>
+        <p class="plain__line">Every PR that touches money-code gets audited — machines find, citations prove, forks test.</p>
+        <p class="plain__tech">diff-scoped · Slither + Aderyn · Foundry fork-sim</p>
+      </div>
+      <div class="plain__step">
+        <p class="plain__num">Step 03</p>
+        <p class="plain__line">The verdict lands on-chain — permanent, checkable by anyone, impossible to quietly edit.</p>
+        <p class="plain__tech">attestation · Tempo testnet + HyperEVM mainnet</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="tour" aria-label="How a review runs">
+
+    <div class="section__head">
+      <h2 class="section__title">How a review runs</h2>
+    </div>
+
+    <div class="stage">
+      <div>
+        <p class="stage__num">1.0</p>
+        <h3 class="stage__title">Scope the diff</h3>
+        <p class="stage__body">The PR diff becomes a <strong>change-set of functions and callsites</strong> — not a vibe read of the whole repo. New external calls, permission changes, and trust&#8209;boundary crossings get flagged for the passes below.</p>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div>
+        <p class="stage__num">2.0</p>
+        <h3 class="stage__title">Detect deterministically</h3>
+        <p class="stage__body"><strong>Slither and Aderyn</strong> run in a network&#8209;isolated, read&#8209;only container. Tool errors produce an explicit <strong>INCOMPLETE</strong> report — never a fabricated clean pass.</p>
+      </div>
+      <dl class="artifact">
+        <dt class="artifact__label">analyzer pass · sandboxed</dt>
+        <div class="artifact__row"><dt>runtime</dt><dd>Slither + Aderyn, Docker --network none --cap-drop ALL</dd></div>
+        <div class="artifact__row"><dt>scope</dt><dd>diff-scoped: changed functions, new callsites, trust-boundary deltas</dd></div>
+      </dl>
+    </div>
+
+    <div class="stage">
+      <div>
+        <p class="stage__num">3.0</p>
+        <h3 class="stage__title">Triage with citations</h3>
+        <p class="stage__body">An LLM constrained to <strong>three cited operations</strong>: reclassify a severity, dedup into an equal&#8209;or&#8209;higher one, or add a finding — only with a cited line range. It assigns <strong>no score</strong>, and any uncited operation is discarded and counted.</p>
+      </div>
+      <dl class="artifact">
+        <dt class="artifact__label">triage policy · temperature 0</dt>
+        <div class="artifact__row"><dt>allowed</dt><dd>reclassify (original preserved) · dedup (never escalates) · add (cited lines only)</dd></div>
+        <div class="artifact__row"><dt>forbidden</dt><dd>scoring · inventing findings · operating without a citation</dd></div>
+      </dl>
+    </div>
+
+    <div class="stage">
+      <div>
+        <p class="stage__num">4.0</p>
+        <h3 class="stage__title">Prove by execution</h3>
+        <p class="stage__body">Criticals are <strong>reproduced on a fork</strong> of the target chain — Foundry against live state. A finding that survives the fork is <strong>confirmed</strong>; one that doesn't is reported as unproven. Reading code is opinion. Running it is evidence.</p>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div>
+        <p class="stage__num">5.0</p>
+        <h3 class="stage__title">Anchor the verdict</h3>
+        <p class="stage__body">The verdict lands <strong>on&#8209;chain</strong>: commit hash, findings hash, risk score, agent identity. The score comes from a published rubric — <strong>anyone can recompute it</strong> from the findings alone, then check it against the chain.</p>
+      </div>
+      <dl class="artifact">
+        <dt class="artifact__label">attestation · real record</dt>
+        <div class="artifact__row"><dt>reviewId</dt><dd>keccak256("rextor/review/v1|" + owner/repo + "|" + pr + "|" + headSha)</dd></div>
+        <div class="artifact__row"><dt>findingsHash</dt><dd>sha256 of the canonical findings JSON — printed in every review comment</dd></div>
+        <div class="artifact__row"><dt>score</dt><dd>rubric: critical 60 · high 25 · medium 10 · low 3, cap 100</dd></div>
+        <div class="artifact__row"><dt>agent</dt><dd>rextor-audit[bot] · 0x5f2b…47f37 · attested reviews 5 on Tempo</dd></div>
+        <div class="artifact__row"><dt>chains</dt><dd><a class="link--receipt" href="https://explore.testnet.tempo.xyz/address/0x51ac8214089daf85b188437b087519acfc6c495a">Tempo 42431 ↗</a> · <a class="link--receipt" href="https://hyperevmscan.io/address/0x8f63c0581ab3b2836c95f97fcf104d2dd962850c">HyperEVM 999 ↗</a></dd></div>
+      </dl>
+    </div>
+
+  </section>
+
+  <section class="section" id="matrix" aria-label="Capability matrix">
+    <div class="section__head">
+      <h2 class="section__title">What actually ships</h2>
+      <p class="section__sub">Live rows carry their receipt — every mark links its artifact. Tracked rows carry the plan date — openly in our repo, never faked. Competitor marks are datestamped, not guessed.</p>
+    </div>
+
+    <h3 class="matrix__group">Live now · <b>6 receipts</b></h3>
+    <table class="matrix__table">
+      <thead>
+        <tr><th scope="col">Capability</th><th scope="col">Generic AI review</th><th scope="col">One-shot audit bots</th><th scope="col">Rextor Audit</th></tr>
+      </thead>
+      <tbody>
+        <tr><td data-label="Capability">Built for money-code — analyzer grounding</td><td data-label="Generic"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Bots"><span class="mark mark--partial" role="img" aria-label="partial"></span></td><td data-label="Rextor"><span class="mark mark--yes" role="img" aria-label="shipped"></span> <a class="link--receipt" href="#tour">stage 2.0</a></td></tr>
+        <tr><td data-label="Capability">Every PR an audit event (diff-scoped, continuous)</td><td data-label="Generic"><span class="mark mark--yes" role="img" aria-label="shipped"></span></td><td data-label="Bots"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Rextor"><span class="mark mark--yes" role="img" aria-label="shipped"></span> <a class="link--receipt" href="#tour">stage 1.0</a></td></tr>
+        <tr><td data-label="Capability">Deterministic, recomputable risk score</td><td data-label="Generic"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Bots"><span class="mark mark--partial" role="img" aria-label="partial"></span></td><td data-label="Rextor"><span class="mark mark--yes" role="img" aria-label="shipped"></span> <a class="link--receipt" href="#tour">rubric</a></td></tr>
+        <tr><td data-label="Capability">Execution-proof findings (fork-sim PoC)</td><td data-label="Generic"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Bots"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Rextor"><span class="mark mark--yes" role="img" aria-label="shipped"></span> <a class="link--receipt" href="#tour">stage 4.0</a></td></tr>
+        <tr><td data-label="Capability">Verdict on-chain, native to the target chain</td><td data-label="Generic"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Bots"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Rextor"><span class="mark mark--yes" role="img" aria-label="shipped"></span> <a class="link--receipt" href="https://explore.testnet.tempo.xyz/address/0x51ac8214089daf85b188437b087519acfc6c495a">Tempo · live</a> <a class="link--receipt" href="https://hyperevmscan.io/address/0x8f63c0581ab3b2836c95f97fcf104d2dd962850c">HyperEVM · mainnet</a> <span class="soon">Solana — Oct 2026</span></td></tr>
+        <tr><td data-label="Capability">Integrity rails — INCOMPLETE never silent</td><td data-label="Generic"><span class="mark mark--partial" role="img" aria-label="partial"></span></td><td data-label="Bots"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Rextor"><span class="mark mark--yes" role="img" aria-label="shipped"></span> <a class="link--receipt" href="#tour">stage 3.0</a></td></tr>
+      </tbody>
+    </table>
+
+    <h3 class="matrix__group">Tracked openly · <b>9 on the plan</b></h3>
+    <table class="matrix__table">
+      <thead>
+        <tr><th scope="col">Capability</th><th scope="col">Generic AI review</th><th scope="col">One-shot audit bots</th><th scope="col">Rextor Audit</th></tr>
+      </thead>
+      <tbody>
+        <tr><td data-label="Capability">Suggested fix per finding (reviewable diff)</td><td data-label="Generic"><span class="mark mark--yes" role="img" aria-label="shipped"></span></td><td data-label="Bots"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Rextor"><span class="soon">Oct 2026</span></td></tr>
+        <tr><td data-label="Capability">Repo config + severity merge gate</td><td data-label="Generic"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Bots"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Rextor"><span class="soon">Oct 2026</span></td></tr>
+        <tr><td data-label="Capability">Durable full report (IPFS) + anyone-can-verify</td><td data-label="Generic"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Bots"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Rextor"><span class="soon">Oct 2026</span></td></tr>
+        <tr><td data-label="Capability">Verifiable agent identity (ERC-8004)</td><td data-label="Generic"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Bots"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Rextor"><span class="soon">Oct 2026</span></td></tr>
+        <tr><td data-label="Capability">Public agent reputation ledger</td><td data-label="Generic"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Bots"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Rextor"><span class="soon">Oct 2026</span></td></tr>
+        <tr><td data-label="Capability">Cross-PR memory (dismissals)</td><td data-label="Generic"><span class="mark mark--yes" role="img" aria-label="shipped"></span></td><td data-label="Bots"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Rextor"><span class="soon">Oct 2026</span></td></tr>
+        <tr><td data-label="Capability">Chat in PR</td><td data-label="Generic"><span class="mark mark--yes" role="img" aria-label="shipped"></span></td><td data-label="Bots"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Rextor"><span class="soon">Oct 2026</span></td></tr>
+        <tr><td data-label="Capability">Chain cost-model reasoning</td><td data-label="Generic"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Bots"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Rextor"><span class="soon">Oct 2026</span></td></tr>
+        <tr><td data-label="Capability">Living dashboard — ledger, history, identity</td><td data-label="Generic"><span class="mark mark--yes" role="img" aria-label="shipped"></span></td><td data-label="Bots"><span class="mark mark--no" role="img" aria-label="not evidenced"></span></td><td data-label="Rextor"><span class="soon">Oct 2026</span></td></tr>
+      </tbody>
+    </table>
+    <p class="matrix__footnote"><span class="mark mark--yes"></span> shipped · <span class="mark mark--partial"></span> partial · <span class="mark mark--no"></span> not evidenced — competitor marks relative to public product pages as of 2026&#8209;09&#8209;19.</p>
+  </section>
+
+  <section class="section" id="tracks" aria-label="Track board">
+    <div class="section__head">
+      <h2 class="section__title">Where it runs</h2>
+    </div>
+    <div class="track">
+      <p class="track__name">Tempo <small>flagship · chainId 42431</small></p>
+      <p class="track__status"><strong>Full loop, live.</strong> Slither + Aderyn, fork-sim, attestation v3 — 5 reviews anchored — <a class="link--receipt" href="https://explore.testnet.tempo.xyz/address/0x51ac8214089daf85b188437b087519acfc6c495a">contract ↗</a></p>
+    </div>
+    <div class="track">
+      <p class="track__name">HyperEVM <small>primary · chainId 999</small></p>
+      <p class="track__status"><strong>Mainnet, live.</strong> Attestation v2 deployed 2026&#8209;09&#8209;21, agent registered active — first mainnet attestations pending — <a class="link--receipt" href="https://hyperevmscan.io/address/0x8f63c0581ab3b2836c95f97fcf104d2dd962850c">contract ↗</a></p>
+    </div>
+    <div class="track">
+      <p class="track__name">Riders <small>config-level</small></p>
+      <p class="track__status"><strong>Ethereum 1 · Base 8453 · Arbitrum 42161 · Robinhood Chain</strong> — deterministic pass; verdicts anchor home-chain with a target-chain field. No per-rider code paths.</p>
+    </div>
+  </section>
+
+  <section class="section" id="integrity" aria-label="What Rextor can't do">
+    <div class="section__head">
+      <h2 class="section__title">What Rextor can't do</h2>
+      <p class="section__sub">The integrity rails, in plain words — the refusals are the product.</p>
+    </div>
+    <div class="rail">
+      <h3>It can't invent findings.</h3>
+      <p>Every operation carries a cited line range or it is discarded. The agent never scores anything — the published rubric does, and anyone can recompute it.</p>
+    </div>
+    <div class="rail">
+      <h3>It can't fake a clean pass.</h3>
+      <p>A broken analyzer produces <code>status = 1</code>, attested on-chain — a <code>riskScore: 0</code> can never masquerade as "all clear".</p>
+    </div>
+    <div class="rail">
+      <h3>It can't be hijacked by PR content.</h3>
+      <p>Titles, comments, and code are adversarial by assumption — rendered inert, prompt-injection hardened, simulation sandboxed.</p>
+    </div>
+    <div class="rail">
+      <h3>It can't lose money.</h3>
+      <p>The attestation key has no fund path. Worst case from key theft: visible, attributable bogus attestations. There is nothing to steal.</p>
+    </div>
+  </section>
+
+  <section class="section" id="faq" aria-label="Questions, answered straight">
+    <div class="section__head">
+      <h2 class="section__title">Questions, answered straight</h2>
+    </div>
+    <div class="faq">
+      <details class="faq__item">
+        <summary>What does it cost?</summary>
+        <p class="faq__answer">During beta: free. If that ever changes, pricing ships on this page first — no surprise invoices.</p>
+      </details>
+      <details class="faq__item">
+        <summary>Which chains does it run on?</summary>
+        <p class="faq__answer">Tempo testnet runs the full loop today, and verdicts anchor on HyperEVM mainnet as of 2026&#8209;09&#8209;21. Ethereum, Base, Arbitrum, and Robinhood Chain ride the same deterministic pass with home-chain anchoring. Solana lands Oct 2026.</p>
+      </details>
+      <details class="faq__item">
+        <summary>What is a "verdict on-chain"?</summary>
+        <p class="faq__answer">Every review ends with a small record written to the blockchain — commit hash, findings hash, risk score, agent identity. After it lands, nobody can edit it, including us. <a class="link--receipt" href="https://hyperevmscan.io/address/0x8f63c0581ab3b2836c95f97fcf104d2dd962850c">See one ↗</a></p>
+      </details>
+      <details class="faq__item">
+        <summary>Does this replace my auditor?</summary>
+        <p class="faq__answer">No. Rextor makes every pull request an audit event between the human audits. Your annual engagement still matters — this is the continuous layer underneath it.</p>
+      </details>
+      <details class="faq__item">
+        <summary>What happens when the tooling breaks?</summary>
+        <p class="faq__answer">The run marks itself INCOMPLETE and attests that on-chain. A broken analyzer can never look like a clean pass — failure is a visible, checkable state.</p>
+      </details>
+      <details class="faq__item">
+        <summary>Can I see it working before installing?</summary>
+        <p class="faq__answer">Yes — <a class="link--receipt" href="https://explore.testnet.tempo.xyz/address/0x51ac8214089daf85b188437b087519acfc6c495a">live verdicts on Tempo ↗</a>, and the whole system is built in the open: <a class="link--receipt" href="https://github.com/rextorsec/rextor-audit">public repo ↗</a>.</p>
+      </details>
+    </div>
+  </section>
+
+  <section class="cta-final" id="install">
+    <h2>Install once. Every PR after that is an audit event.</h2>
+    <p class="sub">Two-click install on GitHub. The agent reviews the PRs that touch money-code and anchors each verdict on-chain.</p>
+    <a class="btn btn--primary" href="https://github.com/apps/rextor-audit">Install the GitHub App</a>
+  </section>
+
+</main>
+
+<footer class="foot container">
+  <p class="foot__line">Audits are point&#8209;in&#8209;time. Code is continuous.</p>
+  <div class="foot__meta">
+    <span>REXTOR&nbsp;AUDIT</span>
+    <span>by Rextor Security</span>
+    <span class="credit">© 2026</span>
+  </div>
+</footer>
+
+<script>
+(() => {
+  const hero = document.querySelector('.hero');
+  if (!hero) return;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+  hero.addEventListener('pointermove', (e) => {
+    if (reduced.matches) return;
+    const r = hero.getBoundingClientRect();
+    hero.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+    hero.style.setProperty('--my', (e.clientY - r.top) + 'px');
+  });
+})();
+</script>
+</body>
+</html>
