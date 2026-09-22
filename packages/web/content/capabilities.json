@@ -106,8 +106,8 @@
       "bots": "no",
       "rextor": {
         "shipped": true,
-        "receipt": "https://github.com/rextorsec/rextor-audit-test/runs/106055809189",
-        "receiptLabel": "smoke PR · merge-gate check-run"
+        "receipt": "https://github.com/rextorsec/rextor-audit-test/runs/106618024241",
+        "receiptLabel": "smoke PR · severity gate failure on high finding (App-authored check-run)"
       },
       "backing": "D2"
     },
