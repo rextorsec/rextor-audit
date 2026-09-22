@@ -38,7 +38,7 @@ export function Integrity() {
           <h3 className="m-0 mb-1 text-md font-semibold tracking-[-0.01em] [overflow-wrap:anywhere]">
             {title}
           </h3>
-          <p className="m-0 max-w-[68ch] text-muted-foreground [&>code]:rounded-sm [&>code]:bg-card [&>code]:px-0.5 [&>code]:font-mono [&>code]:text-sm [&>code]:text-muted-foreground">
+          <p className="m-0 max-w-[68ch] text-muted-foreground [&>code]:rounded-sm [&>code]:bg-card [&>code]:px-1 [&>code]:py-0.5 [&>code]:font-mono [&>code]:text-[0.9rem] [&>code]:text-muted-foreground">
             {body}
           </p>
         </div>

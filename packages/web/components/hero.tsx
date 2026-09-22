@@ -4,12 +4,14 @@ import { HeroSpotlight } from "@/components/hero-spotlight";
 import { Button } from "@/components/ui/button";
 import type { AgentIdentity } from "@/lib/chain-read";
 import { WEB_CHAINS, shortHex } from "@/lib/chains";
+import { receiptLink } from "@/lib/receipt-link";
 
 /**
  * Honest fallbacks — last on-chain verified counts (2026-09-22). Used only
  * when the public RPC read fails; the page revalidates every 5 minutes.
+ * Exported for the page composition (Tracks binds the same total).
  */
-const FALLBACK_COUNTS = { tempo: 5, hyperliquid: 0 } as const;
+export const FALLBACK_COUNTS = { tempo: 5, hyperliquid: 0 } as const;
 
 export interface HeroProps {
   /** Live agent-identity reads per chain (null → honest fallback counts). */
@@ -56,7 +58,7 @@ export function Hero({ tempo, hyperliquid }: HeroProps) {
               <a href="#install">Install the GitHub App</a>
             </Button>
             <a
-              className="font-mono text-sm no-underline whitespace-nowrap text-primary hover:underline hover:decoration-2 hover:underline-offset-[3px]"
+              className={receiptLink}
               href={`${WEB_CHAINS.tempo.explorer}/address/${WEB_CHAINS.tempo.attestation}`}
             >
               See a live verdict ↗
@@ -91,21 +93,24 @@ export function Hero({ tempo, hyperliquid }: HeroProps) {
                   <i className={`inline-block size-1.5 rounded-full ${dot}`} aria-hidden="true" />
                   {label}
                   <em className="ml-auto not-italic text-foreground">{count}</em>
-                  <small className="text-faint-foreground">{weight}</small>
+                  <small className="text-subtle-foreground">{weight}</small>
                 </p>
               ))}
             </div>
             <p className="m-0 flex items-baseline gap-3 py-3 text-xs text-subtle-foreground">
               <span>risk score</span>
               <b className="text-md leading-none font-semibold text-primary">16</b>
-              <small className="ml-auto text-faint-foreground">/100 · 1×10 + 2×3</small>
+              <small className="ml-auto text-subtle-foreground">/100 · 1×10 + 2×3</small>
             </p>
             <dl className="m-0 grid gap-1 border-t border-border pt-3">
               {(
                 [
                   ["reviewId", "keccak256(rextor/review/v1|…)"],
-                  ["agent", "0x5f2b…47f37 · rextor-audit[bot]"],
-                  ["chains", "Tempo 42431 · HyperEVM 999"],
+                  ["agent", `${shortHex(WEB_CHAINS.tempo.agent)} · rextor-audit[bot]`],
+                  [
+                    "chains",
+                    `Tempo ${WEB_CHAINS.tempo.chainId} · HyperEVM ${WEB_CHAINS.hyperliquid.chainId}`,
+                  ],
                 ] as const
               ).map(([term, value]) => (
                 <div
@@ -123,10 +128,20 @@ export function Hero({ tempo, hyperliquid }: HeroProps) {
           </figcaption>
         </figure>
       </div>
-      <div className="mt-16 flex flex-wrap gap-x-16 gap-y-3 border-t border-border pt-4 font-mono text-xs tabular-nums text-subtle-foreground">
-        <Fact>Tempo testnet · chainId 42431</Fact>
-        <Fact>Attestation v3 · {shortHex(WEB_CHAINS.tempo.attestation)}</Fact>
-        <Fact>HyperEVM mainnet · 999 · {shortHex(WEB_CHAINS.hyperliquid.attestation)}</Fact>
+      <div
+        className="mt-16 flex flex-wrap gap-x-16 gap-y-3 border-t border-border pt-4 font-mono text-xs tabular-nums text-subtle-foreground"
+        title={
+          tempo !== null && hyperliquid !== null
+            ? undefined
+            : "Counts are the last on-chain verified values (2026-09-22) — live RPC read unavailable"
+        }
+      >
+        <Fact>Tempo testnet · chainId {WEB_CHAINS.tempo.chainId}</Fact>
+        <Fact>Attestation v2 · deploy #3 · {shortHex(WEB_CHAINS.tempo.attestation)}</Fact>
+        <Fact>
+          HyperEVM mainnet · {WEB_CHAINS.hyperliquid.chainId} ·{" "}
+          {shortHex(WEB_CHAINS.hyperliquid.attestation)}
+        </Fact>
         <Fact>Agent rextor-audit[bot] · {agentActive ? "active" : "inactive"}</Fact>
         <Fact>Attested reviews · {totalReviews}</Fact>
       </div>

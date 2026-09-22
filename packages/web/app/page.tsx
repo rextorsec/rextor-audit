@@ -2,7 +2,7 @@ import { CapabilityTable, type Capabilities } from "@/components/capability-tabl
 import { Faq } from "@/components/faq";
 import { FinalCta } from "@/components/final-cta";
 import { Footer } from "@/components/footer";
-import { Hero } from "@/components/hero";
+import { Hero, FALLBACK_COUNTS } from "@/components/hero";
 import { Integrity } from "@/components/integrity";
 import { Nav } from "@/components/nav";
 import { PlainWords } from "@/components/plain-words";
@@ -22,6 +22,9 @@ export default async function LandingPage() {
     readAgentIdentity("tempo"),
     readAgentIdentity("hyperliquid"),
   ]);
+  const totalReviews =
+    (tempo?.reviewCount ?? FALLBACK_COUNTS.tempo) +
+    (hyperliquid?.reviewCount ?? FALLBACK_COUNTS.hyperliquid);
 
   return (
     <>
@@ -31,7 +34,7 @@ export default async function LandingPage() {
         <PlainWords />
         <Tour />
         <CapabilityTable data={capabilities} />
-        <Tracks />
+        <Tracks totalReviews={totalReviews} />
         <Integrity />
         <Faq />
         <FinalCta />

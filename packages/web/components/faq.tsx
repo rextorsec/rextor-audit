@@ -1,16 +1,28 @@
 import type { ReactNode } from "react";
 
-const receiptLink =
-  "font-mono text-sm no-underline whitespace-nowrap text-primary hover:underline hover:decoration-2 hover:underline-offset-[3px]";
+import { receiptLink } from "@/lib/receipt-link";
 
 const faqs: Array<{ q: string; a: ReactNode }> = [
   {
     q: "What does it cost?",
-    a: "During beta: free. If that ever changes, pricing ships on this page first — no surprise invoices.",
+    a: "Free. If that ever changes, pricing ships on this page first — no surprise invoices.",
   },
   {
     q: "Which chains does it run on?",
-    a: "Tempo testnet runs the full loop today, and verdicts anchor on HyperEVM mainnet as of 2026‑09‑21. Ethereum, Base, Arbitrum, and Robinhood Chain ride the same deterministic pass with home-chain anchoring. Solana lands Oct 2026.",
+    a: (
+      <>
+        Tempo testnet runs the full loop today, and verdicts anchor on HyperEVM mainnet as of
+        2026‑09‑21. Ethereum, Base, Arbitrum, and Robinhood Chain ride the same deterministic pass
+        with home‑chain anchoring.{" "}
+        <a
+          className={receiptLink}
+          href="https://explorer.solana.com/address/Aj6NxH8Ptjn7v3QVCZEQ9dPNWx8DjmaE2oPMNvnikMDs?cluster=devnet"
+        >
+          Solana devnet is live ↗
+        </a>
+        .
+      </>
+    ),
   },
   {
     q: 'What is a "verdict on-chain"?',
@@ -63,12 +75,12 @@ export function Faq() {
         Questions, answered straight
       </h2>
       <div>
-        {faqs.map(({ q, a }, i) => (
+        {faqs.map(({ q, a }) => (
           <details key={q} className="border-t border-border last:border-b">
-            <summary className="flex cursor-pointer list-none items-baseline justify-between gap-4 py-4 text-base font-medium [&::-webkit-details-marker]:hidden after:font-mono after:text-md after:text-subtle-foreground after:content-['+'] open:after:content-['–']">
+            <summary className="flex cursor-pointer list-none items-baseline justify-between gap-4 rounded-sm py-4 text-base font-medium focus-visible:[outline:2px_solid_var(--ring)] focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden after:font-mono after:font-normal after:text-md after:text-subtle-foreground after:content-['+'] open:after:content-['–']">
               {q}
             </summary>
-            <p className="mx-0 mb-4 max-w-[65ch] pr-10 text-muted-foreground">{a}</p>
+            <p className="mx-0 mb-4 max-w-[65ch] pr-16 text-muted-foreground">{a}</p>
           </details>
         ))}
       </div>

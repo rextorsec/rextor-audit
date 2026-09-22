@@ -228,7 +228,7 @@ export default function InstallPage() {
       </main>
 
       <footer className="mx-auto w-full max-w-[46rem] border-t border-border pt-16 pb-6">
-        <Wordmark className="text-md tracking-[0.08em]" />
+        <Wordmark size="md" className="tracking-[0.08em]" />
         <p className="mt-1 text-sm text-muted-foreground">
           Audits are point‑in‑time. Code is continuous.
         </p>
@@ -239,9 +239,9 @@ export default function InstallPage() {
           <a className={docLink} href="#">
             Dashboard
           </a>
-          <a className={docLink} href="https://rextorsecurity.com">
-            Rextor Security
-          </a>
+          {/* Firm link reduced to plain text — rextorsecurity.com does not
+              resolve (2026-09-22). Relink when DNS goes live. */}
+          <span className={docLink}>Rextor Security</span>
           <span className="font-mono text-xs whitespace-nowrap text-muted-foreground">© 2026</span>
         </div>
       </footer>

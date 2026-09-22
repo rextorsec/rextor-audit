@@ -1,10 +1,12 @@
-const receiptLink =
-  "font-mono text-sm no-underline whitespace-nowrap text-primary hover:underline hover:decoration-2 hover:underline-offset-[3px]";
+import { WEB_CHAINS } from "@/lib/chains";
+import { receiptLink } from "@/lib/receipt-link";
 
 const trackRow =
-  "grid grid-cols-1 gap-2 border-t border-border py-6 items-baseline min-[60rem]:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] min-[60rem]:gap-6";
+  "grid grid-cols-1 gap-6 border-t border-border py-6 items-baseline min-[60rem]:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]";
 
-export function Tracks() {
+/** `totalReviews` binds the same live-read total the hero facts strip renders
+ *  (last-verified fallback when RPC is down) — never a hard-coded count. */
+export function Tracks({ totalReviews }: { totalReviews: number }) {
   return (
     <section className="pb-16 pt-10" id="tracks" aria-label="Track board">
       <h2 className="mb-10 text-2xl font-semibold leading-[1.15] tracking-[-0.02em] [overflow-wrap:anywhere]">
@@ -12,18 +14,18 @@ export function Tracks() {
       </h2>
 
       <div className={trackRow}>
-        <p className="m-0 font-mono text-md tabular-nums">
+        <p className="m-0 text-md font-semibold tracking-[-0.01em]">
           Tempo{" "}
-          <small className="ml-2 font-mono text-xs font-normal text-subtle-foreground">
-            flagship · chainId 42431
+          <small className="ml-3 font-mono text-xs font-normal text-subtle-foreground">
+            flagship · chainId {WEB_CHAINS.tempo.chainId}
           </small>
         </p>
         <p className="m-0 text-sm text-muted-foreground">
-          <strong className="font-semibold text-foreground">Full loop, live.</strong> Slither +
-          Aderyn, fork‑sim, attestation v3 — 5 reviews anchored —{" "}
+          <strong className="font-semibold text-foreground">Full loop, live.</strong> Slither,
+          fork‑sim, attestation v2 deploy #3 — {totalReviews} reviews anchored —{" "}
           <a
             className={receiptLink}
-            href="https://explore.testnet.tempo.xyz/address/0x51ac8214089daf85b188437b087519acfc6c495a"
+            href={`${WEB_CHAINS.tempo.explorer}/address/${WEB_CHAINS.tempo.attestation}`}
           >
             contract ↗
           </a>
@@ -31,10 +33,10 @@ export function Tracks() {
       </div>
 
       <div className={trackRow}>
-        <p className="m-0 font-mono text-md tabular-nums">
+        <p className="m-0 text-md font-semibold tracking-[-0.01em]">
           HyperEVM{" "}
-          <small className="ml-2 font-mono text-xs font-normal text-subtle-foreground">
-            primary · chainId 999
+          <small className="ml-3 font-mono text-xs font-normal text-subtle-foreground">
+            primary · chainId {WEB_CHAINS.hyperliquid.chainId}
           </small>
         </p>
         <p className="m-0 text-sm text-muted-foreground">
@@ -42,7 +44,7 @@ export function Tracks() {
           deployed 2026‑09‑21, agent registered active — first mainnet attestations pending —{" "}
           <a
             className={receiptLink}
-            href="https://hyperevmscan.io/address/0x8f63c0581ab3b2836c95f97fcf104d2dd962850c"
+            href={`${WEB_CHAINS.hyperliquid.explorer}/address/${WEB_CHAINS.hyperliquid.attestation}`}
           >
             contract ↗
           </a>
@@ -50,9 +52,9 @@ export function Tracks() {
       </div>
 
       <div className={trackRow}>
-        <p className="m-0 font-mono text-md tabular-nums">
+        <p className="m-0 text-md font-semibold tracking-[-0.01em]">
           Riders{" "}
-          <small className="ml-2 font-mono text-xs font-normal text-subtle-foreground">
+          <small className="ml-3 font-mono text-xs font-normal text-subtle-foreground">
             config‑level
           </small>
         </p>

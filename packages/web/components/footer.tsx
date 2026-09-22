@@ -9,7 +9,7 @@ export function Footer() {
         Audits are point&#8209;in&#8209;time. Code is continuous.
       </p>
       <div className="flex flex-wrap items-baseline gap-6 border-t border-border pt-4 font-mono text-xs text-subtle-foreground">
-        <Wordmark className="text-xs text-foreground" />
+        <Wordmark size="xs" className="text-foreground" />
         <span>by Rextor Security</span>
         <span className="ml-auto max-[60rem]:ml-0">© 2026</span>
       </div>

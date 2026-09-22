@@ -4,7 +4,7 @@
  * F3 matrix knobs: split tables (live/tracked from data), rule=every row, nums=tabular, mark system = dot language shared with hero receipt, Rextor column tint + row hover-track · T4 facts knobs: mono, tabular, live-read
  * Nav: N1b SaaS three-section (centre links=5, frost=backdrop-blur sticky, no JS for frost) · Footer: Ft5 Statement
  * theme: studied-DNA (source: https://linear.app) · paper oklch(14% 0.005 165) · ink 4-tier 93/73/63/54
- * accent: raptor green oklch(77% 0.16 165) — sole chroma on landing, <=5% footprint (one axis changed: Linear indigo -> brand green)
+ * accent: raptor green oklch(77% 0.16 165) — sole brand accent on landing, <=5% footprint; status hues (success/warning/danger) are functional, not decorative (hero receipt dots, matrix partial mark) (one axis changed: Linear indigo -> brand green)
  * enrichment: E1 clipped-edge verdict receipt (tier-A CSS product artifact, no chrome) + E6 ambient dot-grid canvas
  * polish: HP3 cursor-spotlight (22rem radial, 13% alpha, scoped to hero, reduced-motion pinned 50%/30%) · entrance: type-unmask (one-shot 2x480ms)
  * motion budget: 3 primitives — dot-pulse loop · type-unmask entrance · spotlight tracking · pre-emit critique: P4 H5 E5 S5 R5 V4
@@ -28,7 +28,7 @@
   --border: oklch(24% 0.007 165);
   --rule-strong: oklch(32% 0.008 165);
 
-  /* raptor accent — the only chroma on the landing surface */
+  /* raptor accent — the only brand chroma on the landing surface (status hues functional) */
   --primary: oklch(77% 0.16 165);
   --primary-strong: oklch(83% 0.15 165);
   --primary-foreground: oklch(16% 0.03 165);
@@ -59,6 +59,9 @@
   --text-2xl: 2.4414rem;
   --text-3xl: 3.0518rem;
   --text-4xl: 3.8147rem;
+  /* NOTE: --text-display is reserved/unused on this landing — the hero h1 uses
+     a bespoke clamp(2.5rem, 4vw + 0.75rem, 4rem) and only falls back to
+     --text-display-s below 40rem. Do not bind the hero to --text-display. */
   --text-display: clamp(2.75rem, 5vw + 1rem, 5.25rem);
   --text-display-s: clamp(2rem, 3.5vw + 0.75rem, 3.25rem);
 

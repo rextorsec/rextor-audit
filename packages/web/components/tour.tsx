@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
 
-const receiptLink =
-  "font-mono text-sm no-underline whitespace-nowrap text-primary hover:underline hover:decoration-2 hover:underline-offset-[3px]";
+import { WEB_CHAINS, shortHex } from "@/lib/chains";
+import { receiptLink } from "@/lib/receipt-link";
 
 function Artifact({ label, rows }: { label: string; rows: Array<[string, ReactNode]> }) {
   return (
     <dl className="m-0 rounded-lg border border-border bg-card px-6 py-4">
-      <dt className="mb-2 font-mono text-xs tracking-[0.1em] uppercase text-subtle-foreground">
+      <dt className="mb-3 font-mono text-xs font-medium tracking-[0.1em] uppercase text-subtle-foreground">
         {label}
       </dt>
       {rows.map(([term, detail]) => (
@@ -38,16 +38,16 @@ function Stage({
   return (
     <div
       id={id}
-      className="grid items-start gap-16 border-t border-border py-10 min-[60rem]:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]"
+      className="grid items-start gap-6 border-t border-border py-10 min-[60rem]:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] min-[60rem]:gap-16"
     >
       <div>
-        <p className="m-0 mb-2 font-mono text-xs tracking-[0.1em] tabular-nums text-subtle-foreground">
+        <p className="m-0 mb-3 font-mono text-xs font-medium tracking-[0.1em] tabular-nums text-subtle-foreground">
           {num}
         </p>
-        <h2 className="mb-2 min-w-0 text-lg leading-[1.25] font-semibold tracking-[-0.01em] [overflow-wrap:anywhere]">
+        <h3 className="mb-3 min-w-0 text-lg leading-[1.25] font-semibold tracking-[-0.01em] [overflow-wrap:anywhere]">
           {title}
-        </h2>
-        <div className="m-0 max-w-[62ch] text-muted-foreground [&>p>strong]:font-medium [&>p>strong]:text-foreground">
+        </h3>
+        <div className="m-0 max-w-[62ch] text-muted-foreground [&>p>strong]:font-semibold [&>p>strong]:text-foreground">
           {children}
         </div>
       </div>
@@ -79,16 +79,15 @@ export function Tour() {
           <Artifact
             label="analyzer pass · sandboxed"
             rows={[
-              ["runtime", "Slither 0.11.6 + Aderyn, Docker --network none --cap-drop ALL"],
+              ["runtime", "Slither 0.11.6, Docker --network none --cap-drop ALL"],
               ["scope", "diff-scoped: changed functions, new callsites, trust-boundary deltas"],
             ]}
           />
         }
       >
         <p>
-          <strong>Slither and Aderyn</strong> run in a network‑isolated, read‑only container. Tool
-          errors produce an explicit <strong>INCOMPLETE</strong> report — never a fabricated clean
-          pass.
+          <strong>Slither</strong> runs in a network‑isolated, read‑only container. Tool errors
+          produce an explicit <strong>INCOMPLETE</strong> report — never a fabricated clean pass.
         </p>
       </Stage>
 
@@ -141,22 +140,22 @@ export function Tour() {
                 "sha256 of the canonical findings JSON — printed in every review comment",
               ],
               ["score", "rubric: critical 60 · high 25 · medium 10 · low 3, cap 100"],
-              ["agent", "rextor-audit[bot] · 0x5f2b…47f37"],
+              ["agent", `rextor-audit[bot] · ${shortHex(WEB_CHAINS.tempo.agent)}`],
               [
                 "chains",
                 <>
                   <a
                     className={receiptLink}
-                    href="https://explore.testnet.tempo.xyz/address/0x51ac8214089daf85b188437b087519acfc6c495a"
+                    href={`${WEB_CHAINS.tempo.explorer}/address/${WEB_CHAINS.tempo.attestation}`}
                   >
-                    Tempo 42431 ↗
+                    Tempo {WEB_CHAINS.tempo.chainId} ↗
                   </a>{" "}
                   ·{" "}
                   <a
                     className={receiptLink}
-                    href="https://hyperevmscan.io/address/0x8f63c0581ab3b2836c95f97fcf104d2dd962850c"
+                    href={`${WEB_CHAINS.hyperliquid.explorer}/address/${WEB_CHAINS.hyperliquid.attestation}`}
                   >
-                    HyperEVM 999 ↗
+                    HyperEVM {WEB_CHAINS.hyperliquid.chainId} ↗
                   </a>
                 </>,
               ],

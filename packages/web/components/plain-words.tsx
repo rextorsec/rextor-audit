@@ -8,7 +8,7 @@ const steps = [
   {
     num: "Step 02",
     line: "Every PR that touches money-code gets audited — machines find, citations prove, forks test.",
-    tech: "diff-scoped · Slither + Aderyn · Foundry fork-sim",
+    tech: "diff-scoped · Slither · Foundry fork-sim",
   },
   {
     num: "Step 03",
@@ -26,10 +26,10 @@ export function PlainWords() {
       <div className="grid gap-10 min-[60rem]:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1fr)]">
         {steps.map(({ num, line, tech }) => (
           <div key={num} className="min-w-0 border-t border-border pt-4">
-            <p className="m-0 mb-2 font-mono text-xs tracking-[0.1em] tabular-nums text-subtle-foreground">
+            <p className="m-0 mb-3 font-mono text-xs font-medium tracking-[0.1em] tabular-nums text-subtle-foreground">
               {num}
             </p>
-            <p className="m-0 mb-2 text-md leading-[1.45] font-medium tracking-[-0.01em]">{line}</p>
+            <p className="m-0 mb-3 text-md leading-[1.45] font-medium tracking-[-0.01em]">{line}</p>
             <p className="m-0 font-mono text-xs text-subtle-foreground">{tech}</p>
           </div>
         ))}
