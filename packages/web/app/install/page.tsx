@@ -8,7 +8,7 @@
 // claims a gate that does not exist yet.
 import type { Metadata } from "next";
 
-import { Wordmark } from "@/components/pill-nav";
+import { Wordmark } from "@/components/nav";
 
 export const metadata: Metadata = {
   title: "Install — Rextor Audit",

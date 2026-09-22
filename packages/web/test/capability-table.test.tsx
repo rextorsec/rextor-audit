@@ -45,17 +45,17 @@ const fixture: Capabilities = {
 };
 
 describe("CapabilityTable", () => {
-  it("renders a shipped check as a receipt link", () => {
+  it("renders a shipped row as a green mark plus its receipt link", () => {
     render(<CapabilityTable data={fixture} />);
     const receipt = screen.getByRole("link", { name: "stage 2.0" });
     expect(receipt).toHaveAttribute("href", "#s2");
-    expect(receipt.closest("td")).toHaveTextContent("✔");
+    expect(receipt.closest("td")!.querySelector('[aria-label="shipped"]')).not.toBeNull();
   });
 
   it("renders a soon badge for unshipped capabilities", () => {
     render(<CapabilityTable data={fixture} />);
-    const badge = screen.getAllByText("Shipping Oct 2026");
-    expect(badge.length).toBeGreaterThan(0);
+    const badges = screen.getAllByText("Oct 2026");
+    expect(badges.length).toBeGreaterThan(0);
   });
 
   it("hides rows beyond the soon budget of 2", () => {
@@ -64,56 +64,70 @@ describe("CapabilityTable", () => {
     expect(screen.getByText("Soon capability B")).toBeInTheDocument();
     expect(screen.queryByText("Soon capability C")).not.toBeInTheDocument();
   });
+  it("splits live from tracked with data-driven counts", () => {
+    render(<CapabilityTable data={fixture} />);
+    // Count headings interpolate <b> — assert on the heading's full text.
+    expect(screen.getByText(/Live now/).textContent).toContain("1 receipts");
+    expect(screen.getByText(/Tracked openly/).textContent).toContain("2 on the plan");
+  });
 
   it("shows all rows when the data file raises the approved soon budget", () => {
     render(<CapabilityTable data={{ ...fixture, maxSoonRows: 3 }} />);
     expect(screen.getByText("Soon capability C")).toBeInTheDocument();
   });
 
-  it("dates the footnote from asOf", () => {
+  it("dates the footnote from asOf with the dot legend", () => {
     render(<CapabilityTable data={fixture} />);
-    // Both dated strings render from asOf (chapter para + footnote), non-breaking hyphens per the approved mock.
-    expect(screen.getAllByText(/as of 2026‑09‑18/)).toHaveLength(2);
+    expect(screen.getAllByText(/as of 2026‑09‑18/)).toHaveLength(1);
+    const footnote = screen.getByText(/not evidenced/).closest("p")!;
+    expect(within(footnote).getByText(/shipped/)).toBeInTheDocument();
+    expect(within(footnote).getAllByRole("img").length).toBe(3);
   });
 
   it("renders the production data file with real receipts and approved statuses", () => {
     render(<CapabilityTable data={prodData as Capabilities} />);
 
-    // Rows 1-6 shipped — every check links a live artifact.
+    // Every shipped check links a live artifact.
     const receiptLinks = screen.getAllByRole("link");
     const receiptHrefs = receiptLinks.map((a) => a.getAttribute("href"));
-    expect(receiptHrefs).toContain("#s1");
-    expect(receiptHrefs).toContain("#s2");
-    expect(receiptHrefs).toContain("#s3");
-    expect(receiptHrefs).toContain("#s4");
-    expect(receiptHrefs).toContain("#s5");
+    for (const anchor of ["#s1", "#s2", "#s3", "#s4", "#s5"]) {
+      expect(receiptHrefs).toContain(anchor);
+    }
     const tempoReceipt = receiptLinks.find((a) =>
       a.getAttribute("href")?.includes("0x51ac8214089daf85b188437b087519acfc6c495a"),
     );
     expect(tempoReceipt).toBeDefined();
     expect(tempoReceipt!.getAttribute("href")).toContain(`${tempoExplorer}/address/`);
 
-    // Multi-chain row — HyperEVM flipped to a live MAINNET receipt (deploy #2,
-    // 2026-09-21); Solana devnet receipt unchanged.
-    expect(screen.queryByText("HyperEVM — Shipping Oct 2026")).not.toBeInTheDocument();
-    expect(screen.queryByText("Solana — Shipping Oct 2026")).not.toBeInTheDocument();
-    const hyperEVmReceipt = receiptLinks.find((a) =>
-      a.getAttribute("href")?.includes("hyperevmscan.io/address/0x8f63c0581ab3b2836c95f97fcf104d2dd962850c"),
+    // Multi-chain row — HyperEVM live MAINNET receipt (deploy #2, 2026-09-21);
+    // Solana devnet receipt live.
+    const hyperEvmReceipt = receiptLinks.find((a) =>
+      a
+        .getAttribute("href")
+        ?.includes("hyperevmscan.io/address/0x8f63c0581ab3b2836c95f97fcf104d2dd962850c"),
     );
-    expect(hyperEVmReceipt).toBeDefined();
+    expect(hyperEvmReceipt).toBeDefined();
     const solanaReceipt = receiptLinks.find((a) =>
-      a.getAttribute("href")?.includes("explorer.solana.com/address/Aj6NxH8Ptjn7v3QVCZEQ9dPNWx8DjmaE2oPMNvnikMDs"),
+      a
+        .getAttribute("href")
+        ?.includes("explorer.solana.com/address/Aj6NxH8Ptjn7v3QVCZEQ9dPNWx8DjmaE2oPMNvnikMDs"),
     );
     expect(solanaReceipt).toBeDefined();
 
-    // Receipt state: all 15 rows shipped (config-gate flipped 2026-09-20 with
-    // the App-authored check-run receipt; HyperEVM mainnet live 2026-09-21).
-    // Pins updated with the flip commits — the data file is the receipt
-    // ledger, the test follows it.
+    // Receipt state: all 15 rows shipped — the split is fully live, no
+    // tracked group. The data file is the receipt ledger; the test follows it.
+    expect(screen.getByText(/Live now/).textContent).toContain("15 receipts");
+    expect(screen.queryByText(/Tracked openly/)).not.toBeInTheDocument();
     const body = screen.getAllByRole("rowgroup").at(-1)!;
-    expect(within(body).queryAllByText(/Shipping Oct 2026/)).toHaveLength(0);
-
-    // All 15 rows visible.
+    expect(within(body).queryAllByText(/Oct 2026/)).toHaveLength(0);
     expect(within(body).getAllByRole("row")).toHaveLength(15);
+
+    // ERC-8004 identity row carries the mainnet mint receipt
+    // (ownerOf(50891) live-verified 2026-09-22).
+    const ercReceipt = receiptLinks.find((a) =>
+      a.getAttribute("href")?.includes("etherscan.io/tx/0xc4c0565c1f07e42cbd9524dadc7a033079ac0d4f"),
+    );
+    expect(ercReceipt).toBeDefined();
+    expect(ercReceipt!.textContent).toContain("agentId 50891");
   });
 });

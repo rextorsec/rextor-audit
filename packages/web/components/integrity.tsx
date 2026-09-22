@@ -1,42 +1,44 @@
 import type { ReactNode } from "react";
 
-const itemRow =
-  "grid grid-cols-1 gap-1 border-t border-border py-6 min-[60rem]:grid-cols-[minmax(0,4fr)_minmax(0,8fr)] min-[60rem]:gap-6";
-
 const items: Array<{ title: string; body: ReactNode }> = [
   {
-    title: "Findings require citations",
-    body: "Every LLM operation carries a cited line range or it is discarded. The agent never invents findings and never scores anything.",
+    title: "It can't invent findings.",
+    body: "Every operation carries a cited line range or it is discarded. The agent never scores anything — the published rubric does, and anyone can recompute it.",
   },
   {
-    title: "INCOMPLETE is on‑chain",
+    title: "It can't fake a clean pass.",
     body: (
       <>
-        A broken analyzer produces <code>status = 1</code>, attested — an on‑chain{" "}
-        <code>riskScore: 0</code> can never masquerade as a clean pass.
+        A broken analyzer produces <code>status = 1</code>, attested on-chain — a{" "}
+        <code>riskScore: 0</code> can never masquerade as &quot;all clear&quot;.
       </>
     ),
   },
   {
-    title: "PR content is untrusted input",
-    body: "PR titles, comments, and code are adversarial by assumption — rendered inert, prompt‑injection hardened, simulation sandboxed.",
+    title: "It can't be hijacked by PR content.",
+    body: "Titles, comments, and code are adversarial by assumption — rendered inert, prompt-injection hardened, simulation sandboxed.",
   },
   {
-    title: "The attestation key has no fund path",
-    body: "Worst case from key theft: visible, attributable bogus attestations. There is nothing to steal.",
+    title: "It can't lose money.",
+    body: "The attestation key has no fund path. Worst case from key theft: visible, attributable bogus attestations. There is nothing to steal.",
   },
 ];
 
 export function Integrity() {
   return (
-    <section className="py-16" aria-label="Integrity rails">
-      <h2 className="mb-10 text-2xl font-bold tracking-[-0.02em] [overflow-wrap:anywhere]">
-        The integrity rails
+    <section className="pb-16 pt-10" id="integrity" aria-label="What Rextor can't do">
+      <h2 className="mb-2 text-2xl font-semibold leading-[1.15] tracking-[-0.02em] [overflow-wrap:anywhere]">
+        What Rextor can&apos;t do
       </h2>
+      <p className="m-0 mb-10 max-w-[60ch] text-muted-foreground">
+        The integrity rails, in plain words — the refusals are the product.
+      </p>
       {items.map(({ title, body }) => (
-        <div key={title} className={itemRow}>
-          <h3 className="text-md font-medium [overflow-wrap:anywhere]">{title}</h3>
-          <p className="max-w-[60ch] text-muted-foreground [&>code]:font-mono [&>code]:text-sm [&>code]:text-foreground">
+        <div key={title} className="border-t border-border py-6">
+          <h3 className="m-0 mb-1 text-md font-semibold tracking-[-0.01em] [overflow-wrap:anywhere]">
+            {title}
+          </h3>
+          <p className="m-0 max-w-[68ch] text-muted-foreground [&>code]:rounded-sm [&>code]:bg-card [&>code]:px-0.5 [&>code]:font-mono [&>code]:text-sm [&>code]:text-muted-foreground">
             {body}
           </p>
         </div>

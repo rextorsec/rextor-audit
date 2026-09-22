@@ -28,6 +28,7 @@
   --color-foreground: var(--foreground);
   --color-muted-foreground: var(--muted-foreground);
   --color-subtle-foreground: var(--subtle-foreground);
+  --color-faint-foreground: var(--faint-foreground);
   --color-border: var(--border);
   --color-rule-strong: var(--rule-strong);
   --color-primary: var(--primary);
@@ -95,15 +96,89 @@
   a:focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
-  }
+}
 }
 
+/* Mock container contract — 72rem centered + clamped gutter (landing v2
+   approved mock). Overrides Tailwind's breakpoint container. */
+@utility container {
+  margin-inline: auto;
+  width: 100%;
+  max-width: 72rem;
+  padding-inline: clamp(1rem, 4vw, 2rem);
+}
 @layer components {
-  /* N5 floating pill surface — backdrop tokens live here because they combine
-     var() + relative-color syntax that utilities cannot express. */
-  .nav-pill {
-    background: oklch(from var(--background) l c h / 0.72);
+  /* N1b sticky bar surface — color-mix + backdrop tokens live here because
+     relative-color syntax can't be expressed as utilities. */
+  .nav-bar {
+    background: oklch(from var(--background) l c h / 0.68);
     -webkit-backdrop-filter: blur(14px) saturate(1.4);
     backdrop-filter: blur(14px) saturate(1.4);
   }
+
+  /* E6 ambient dot-grid canvas (hero backdrop) + pulsing accent dots. */
+  .dot-canvas {
+    background-image: radial-gradient(circle, var(--faint-foreground) 1px, transparent 1.5px);
+    background-size: 26px 26px;
+    opacity: 0.33;
+    -webkit-mask-image: radial-gradient(120% 95% at 62% 100%, var(--foreground) 0%, transparent 72%);
+    mask-image: radial-gradient(120% 95% at 62% 100%, var(--foreground) 0%, transparent 72%);
+  }
+  .dot-canvas i {
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--primary);
+    opacity: 0.2;
+    animation: dot-land 3.4s var(--ease-in-out) infinite;
+  }
+  .dot-canvas i:nth-child(1) { left: 19%; top: 42%; }
+  .dot-canvas i:nth-child(2) { left: 63%; top: 58%; animation-delay: 1.2s; }
+  .dot-canvas i:nth-child(3) { left: 86%; top: 30%; animation-delay: 2.3s; }
+  @keyframes dot-land {
+    0%, 100% { opacity: 0.18; transform: scale(1); }
+    50%      { opacity: 0.85; transform: scale(1.4); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dot-canvas i { animation: none; opacity: 0.4; }
+  }
+
+  /* HP3 cursor spotlight — pointer-tracked vars set by HeroSpotlight. */
+  .hero-spotlight {
+    background: radial-gradient(
+      22rem circle at var(--mx, 50%) var(--my, 30%),
+      oklch(from var(--primary) l c h / 0.13),
+      transparent 65%
+    );
+  }
+
+  /* Type-unmask entrance — the single orchestrated reveal. */
+  .title-unmask span {
+    display: inline-block;
+    clip-path: inset(-0.15em 100% -0.15em 0);
+    animation: unmask 480ms var(--ease-out) forwards;
+  }
+  .title-unmask span:nth-of-type(2) { animation-delay: 140ms; }
+  @keyframes unmask { to { clip-path: inset(-0.15em 0 -0.15em 0); } }
+  @media (prefers-reduced-motion: reduce) {
+    .title-unmask span { animation: none; clip-path: none; }
+  }
+
+  /* F3 matrix — Rextor column tint + hover row-tracking (hover pointers only). */
+  .rextor-col { background: oklch(from var(--card) l c h / 0.55); }
+  @media (hover: hover) {
+    .matrix-row:hover td { background: oklch(from var(--elevated) l c h / 0.4); }
+    .matrix-row:hover td.rextor-col { background: color-mix(in oklch, var(--elevated) 40%, var(--card)); }
+  }
+  @media (max-width: 60rem) {
+    .rextor-col { background: transparent; }
+  }
+
+  /* Mark system — half-fill dot shared with the hero receipt. */
+  .mark-partial {
+    background: conic-gradient(var(--warning) 0 50%, transparent 50% 100%);
+    box-shadow: inset 0 0 0 1px oklch(from var(--warning) l c h / 0.55);
+  }
+  .mark-no { box-shadow: inset 0 0 0 1px var(--rule-strong); }
 }

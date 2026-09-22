@@ -5,7 +5,7 @@
 import { AgentIdentityCard } from "@/components/agent-identity-card";
 import { ReviewLedger } from "@/components/review-ledger";
 import { ScoreHistory } from "@/components/score-history";
-import { Wordmark } from "@/components/pill-nav";
+import { Wordmark } from "@/components/nav";
 import { readAgentIdentity } from "@/lib/chain-read";
 import { DEFAULT_CHAIN_KEY, shortHex, webChainByName, WEB_CHAINS } from "@/lib/chains";
 import { fetchReviews } from "@/lib/reviews";

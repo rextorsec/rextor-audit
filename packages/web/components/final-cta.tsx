@@ -11,7 +11,7 @@ export function FinalCta() {
         each verdict on‑chain.
       </p>
       <Button asChild>
-        <a href="#install">Install the GitHub App</a>
+        <a href="https://github.com/apps/rextor-audit">Install the GitHub App</a>
       </Button>
     </section>
   );

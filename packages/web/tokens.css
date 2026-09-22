@@ -1,38 +1,43 @@
-/* Hallmark · genre: modern-minimal · macrostructure: Narrative Workflow · theme: studied-DNA (source: https://www.coderabbit.ai)
- * F4 Step sequence knobs: numbering=1.0/2.0/…, layout=vertical stack, connector=thick numbered rule
- * Nav: N5 Floating pill (knobs: width=content-sized, backdrop=blur+saturate, anchor=top-centred) · Footer: Ft2 Inline single line (knobs: order=wordmark/links/credit, separator=middot, density=spaced)
- * theme axes: paper=dark oklch(14% 0.008 300) · display=geometric-sans (Geist 700, single-family discipline) · accent=chromatic-other (raptor green oklch(77% 0.16 165), label amber oklch(85% 0.17 95))
- * iteration vs source: ONE axis changed — brand accent orange #ff570a → raptor green (per RECTOR, 2026-09-18); mauve paper + Geist/Hack register + shadcn token architecture kept
- * tokens are shadcn/ui-compatible by design (RECTOR stack lock 2026-09-18: Tailwind + shadcn/ui + Radix)
- * pre-emit critique: P4 H5 E4 S5 R4 V4
+/* Hallmark · genre: modern-minimal · macrostructure: Marquee Hero (studied-DNA variant: CTA-in-fold per source)
+ * H2 hero knobs: ratio=1/1.15, left=kicker+title+lede+CTA, right=E1 capture (6vw clip past gutter)
+ * F4 tour knobs: numbering=1.0-5.0, layout=split rows 7/5, connector=hairline top rule
+ * F3 matrix knobs: split tables (live/tracked from data), rule=every row, nums=tabular, mark system = dot language shared with hero receipt, Rextor column tint + row hover-track · T4 facts knobs: mono, tabular, live-read
+ * Nav: N1b SaaS three-section (centre links=5, frost=backdrop-blur sticky, no JS for frost) · Footer: Ft5 Statement
+ * theme: studied-DNA (source: https://linear.app) · paper oklch(14% 0.005 165) · ink 4-tier 93/73/63/54
+ * accent: raptor green oklch(77% 0.16 165) — sole chroma on landing, <=5% footprint (one axis changed: Linear indigo -> brand green)
+ * enrichment: E1 clipped-edge verdict receipt (tier-A CSS product artifact, no chrome) + E6 ambient dot-grid canvas
+ * polish: HP3 cursor-spotlight (22rem radial, 13% alpha, scoped to hero, reduced-motion pinned 50%/30%) · entrance: type-unmask (one-shot 2x480ms)
+ * motion budget: 3 primitives — dot-pulse loop · type-unmask entrance · spotlight tracking · pre-emit critique: P4 H5 E5 S5 R5 V4
+ * legacy: --label amber retained for install/dashboard surfaces until their v2 mocks land (landing no longer consumes it)
  */
 
 :root {
-  /* surfaces — dark mauve band (CR mauve-1/2/3 lineage, OKLCH re-expressed) */
-  --background: oklch(14% 0.008 300);
-  --card: oklch(17% 0.009 300);
-  --elevated: oklch(21% 0.010 300);
-  --inverse-foreground: oklch(14% 0.008 300);
+  /* surfaces — near-black band, green-tinted neutrals (Linear #08090a lineage, anchor-hue tinted) */
+  --background: oklch(14% 0.005 165);
+  --card: oklch(17.5% 0.006 165);
+  --elevated: oklch(21.5% 0.007 165);
+  --inverse-foreground: oklch(14% 0.005 165);
 
-  /* ink + neutrals (mauve-tinted, never flat grey) */
-  --foreground: oklch(93% 0.006 300);
-  --muted-foreground: oklch(64% 0.009 300);
-  --subtle-foreground: oklch(46% 0.010 300);
+  /* ink — four semantic tiers (Linear text-primary -> quaternary) */
+  --foreground: oklch(93% 0.006 165);
+  --muted-foreground: oklch(73% 0.007 165);
+  --subtle-foreground: oklch(63% 0.008 165);
+  --faint-foreground: oklch(54% 0.008 165);
 
   /* lines */
-  --border: oklch(24% 0.010 300);
-  --rule-strong: oklch(34% 0.012 300);
+  --border: oklch(24% 0.007 165);
+  --rule-strong: oklch(32% 0.008 165);
 
-  /* raptor accent — the thing that eats rabbits (replaces CR #ff570a) */
+  /* raptor accent — the only chroma on the landing surface */
   --primary: oklch(77% 0.16 165);
   --primary-strong: oklch(83% 0.15 165);
   --primary-foreground: oklch(16% 0.03 165);
 
-  /* label amber — stage numerals + eyebrows (CR amber-11 lineage, darkened for contrast) */
+  /* label amber — LEGACY: install/dashboard only; landing v2 does not consume it */
   --label: oklch(82% 0.15 90);
   --label-foreground: oklch(18% 0.05 90);
 
-  /* status */
+  /* status — functional, not decorative */
   --success: oklch(77% 0.16 165);
   --warning: oklch(82% 0.15 90);
   --danger: oklch(63% 0.19 25);
@@ -40,7 +45,7 @@
   /* focus */
   --ring: oklch(77% 0.16 165);
 
-  /* type — Geist + Geist Mono (Google Fonts), single-family display discipline */
+  /* type — Geist + Geist Mono (next/font), single-family display discipline */
   --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 
@@ -74,7 +79,7 @@
   --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --dur-fast: 120ms;
-  --dur-med: 220ms;
+  --dur-short: 220ms;
 
   /* z scale */
   --z-base: 1;
@@ -82,12 +87,8 @@
   --z-sticky: 200;
 }
 
-html {
-  overflow-x: clip;
-}
-body {
-  overflow-x: clip;
-}
+html { overflow-x: clip; }
+body { overflow-x: clip; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

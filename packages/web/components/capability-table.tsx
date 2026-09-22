@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import { cn } from "@/lib/utils";
 
 export type CompetitorCell = "no" | "partial" | "yes";
@@ -6,7 +8,7 @@ export interface RextorCell {
   shipped: boolean;
   receipt?: string;
   receiptLabel?: string;
-  /** Multiple live receipts for one claim (e.g. Tempo + Solana on
+  /** Multiple live receipts for one claim (e.g. Tempo + HyperEVM + Solana on
    *  onchain-verdict). When present, renders INSTEAD of the single receipt. */
   receipts?: Array<{ href: string; label: string }>;
   soon?: boolean;
@@ -25,8 +27,7 @@ export interface CapabilityRow {
 export interface Capabilities {
   asOf: string;
   /* Chapter soon-budget (rows visible with the dated-soon badge). Default 2 per
-     the matrix rules; the approved 2026-09-18 mock renders all 15 rows, so the
-     production data file raises it explicitly. */
+     the matrix rules; the production data file raises it explicitly. */
   maxSoonRows?: number;
   rows: CapabilityRow[];
 }
@@ -36,86 +37,130 @@ export function datedAsOf(asOf: string): string {
   return asOf.replaceAll("-", "‑");
 }
 
-const chapterPara = (asOf: string) => (
-  <p>
-    Every green check links a live artifact. Dashes mean "not evidenced on public product pages as
-    of {datedAsOf(asOf)}" — we date‑stamp the competition instead of guessing about it.
-  </p>
-);
+/* ── mark system — dot language shared with the hero receipt ─────────────── */
 
-const chapterFootnote = (asOf: string) => (
-  <p className="mt-4 max-w-[72ch] font-mono text-xs text-subtle-foreground">
-    ✔ = shipped, links to its live artifact. "Shipping Oct 2026" = on the plan, not yet shipped —
-    tracked openly in our repo, never faked. ●◐— relative to public product pages as of{" "}
-    {datedAsOf(asOf)}.
-  </p>
-);
-
-const chapterHead =
-  "mb-4 max-w-[55ch] [&>h2]:mb-2 [&>h2]:text-2xl [&>h2]:font-bold [&>h2]:leading-[1.1] [&>h2]:tracking-[-0.02em] [&>h2]:[overflow-wrap:anywhere] [&>p]:text-muted-foreground";
-
-const chapterCell =
-  "py-3 pr-4 border-b border-border align-top max-[60rem]:block max-[60rem]:border-b-0 max-[60rem]:py-1 max-[60rem]:before:inline-block max-[60rem]:before:min-w-[12ch] max-[60rem]:before:font-mono max-[60rem]:before:text-xs max-[60rem]:before:uppercase max-[60rem]:before:text-subtle-foreground max-[60rem]:before:content-[attr(data-label)]";
-
-const chapterValue: Record<CompetitorCell, string> = {
-  no: "text-subtle-foreground",
-  partial: "text-muted-foreground",
-  yes: "text-primary font-medium",
+const MARK_ARIA: Record<CompetitorCell, string> = {
+  yes: "shipped",
+  partial: "partial",
+  no: "not evidenced",
 };
 
-function competitorCell(value: CompetitorCell, label: string) {
+function Mark({ kind }: { kind: CompetitorCell }) {
   return (
-    <td data-label={label} className={cn(chapterCell, chapterValue[value])}>
-      {value === "no" ? "—" : value === "partial" ? "◐" : "✔"}
-    </td>
+    <span
+      role="img"
+      aria-label={MARK_ARIA[kind]}
+      className={cn(
+        "inline-block size-2 flex-none rounded-full align-[-0.5px]",
+        kind === "yes" && "bg-primary",
+        kind === "partial" && "mark-partial",
+        kind === "no" && "mark-no",
+      )}
+    />
   );
 }
 
+/* ── cells ──────────────────────────────────────────────────────────────── */
+
+const receiptLinkClass =
+  "font-mono text-xs no-underline whitespace-nowrap text-primary hover:underline hover:decoration-2 hover:underline-offset-[3px]";
+
+const cellClass =
+  "py-3 pr-4 border-b border-border align-top max-[60rem]:block max-[60rem]:border-b-0 max-[60rem]:py-1 max-[60rem]:before:mr-3 max-[60rem]:before:inline-block max-[60rem]:before:min-w-[7ch] max-[60rem]:before:font-mono max-[60rem]:before:text-xs max-[60rem]:before:uppercase max-[60rem]:before:text-faint-foreground max-[60rem]:before:content-[attr(data-label)] max-[60rem]:before:content-[attr(data-label)'·']";
+
+const thClass =
+  "border-b border-rule-strong py-3 pr-4 text-left font-mono text-xs font-normal tracking-[0.1em] uppercase text-subtle-foreground";
+
 function SoonBadge({ children }: { children: string }) {
   return (
-    <span className="inline-block rounded-full border border-border px-2 py-px font-mono text-xs whitespace-nowrap text-muted-foreground">
+    <span className="inline-block rounded-sm border border-border px-2 py-px font-mono text-xs whitespace-nowrap text-subtle-foreground">
       {children}
     </span>
   );
 }
 
-function RextorCellView({ rextor }: { rextor: CapabilityRow["rextor"] }) {
-  if (rextor.soon && !rextor.shipped) {
-    return (
+function CompetitorTd({ value, label }: { value: CompetitorCell; label: string }) {
+  return (
+    <td data-label={label} className={cellClass}>
+      <Mark kind={value} />
+    </td>
+  );
+}
+function RextorCellView({ rextor }: { rextor: RextorCell }) {
+  let content: ReactNode;
+  if (!rextor.shipped) {
+    content = <SoonBadge>Oct 2026</SoonBadge>;
+  } else {
+    content = (
       <>
-        ✔ <SoonBadge>Shipping Oct 2026</SoonBadge>
+        <Mark kind="yes" />{" "}
+        {rextor.receipts
+          ? rextor.receipts.map((r) => (
+              <span key={r.href}>
+                <a className={receiptLinkClass} href={r.href}>
+                  {r.label}
+                </a>{" "}
+              </span>
+            ))
+          : rextor.receipt && (
+              <a className={receiptLinkClass} href={rextor.receipt}>
+                {rextor.receiptLabel ?? rextor.receipt}
+              </a>
+            )}
       </>
     );
   }
   return (
     <>
-      ✔{" "}
-      {rextor.receipts
-        ? rextor.receipts.map((r, i) => (
-            <span key={r.href}>
-              {i > 0 && " · "}
-              <a
-                className="font-mono text-sm no-underline whitespace-nowrap text-primary hover:underline hover:decoration-2 hover:underline-offset-[3px]"
-                href={r.href}
-              >
-                {r.label}
-              </a>
-            </span>
-          ))
-        : rextor.receipt && (
-            <a
-              className="font-mono text-sm no-underline whitespace-nowrap text-primary hover:underline hover:decoration-2 hover:underline-offset-[3px]"
-              href={rextor.receipt}
-            >
-              {rextor.receiptLabel ?? rextor.receipt}
-            </a>
-          )}
+      {content}
       {rextor.soonChips?.map((chip) => (
-        <span key={chip} className="ml-2">
+        <span key={chip} className="ml-1">
           <SoonBadge>{chip}</SoonBadge>
         </span>
       ))}
     </>
+  );
+}
+
+/* ── table ──────────────────────────────────────────────────────────────── */
+
+function MatrixTable({ rows }: { rows: CapabilityRow[] }) {
+  return (
+    <table className="w-full border-collapse text-sm tabular-nums max-[60rem]:block">
+      <thead className="max-[60rem]:hidden">
+        <tr>
+          <th scope="col" className={thClass}>
+            Capability
+          </th>
+          <th scope="col" className={thClass}>
+            Generic AI review
+          </th>
+          <th scope="col" className={thClass}>
+            One-shot audit bots
+          </th>
+          <th scope="col" className={cn(thClass, "rextor-col")}>
+            Rextor Audit
+          </th>
+        </tr>
+      </thead>
+      <tbody className="max-[60rem]:block">
+        {rows.map((row) => (
+          <tr
+            key={row.id}
+            className="matrix-row transition-colors max-[60rem]:block max-[60rem]:border-t max-[60rem]:border-border max-[60rem]:py-4 max-[60rem]:first:border-t-0 [&>td]:transition-colors"
+          >
+            <td data-label="Capability" className={cn(cellClass, "font-medium text-foreground")}>
+              {row.capability}
+            </td>
+            <CompetitorTd value={row.generic} label="Generic" />
+            <CompetitorTd value={row.bots} label="Bots" />
+            <td data-label="Rextor" className={cn(cellClass, "rextor-col")}>
+              <RextorCellView rextor={row.rextor} />
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -130,60 +175,40 @@ export function CapabilityTable({ data }: { data: Capabilities }) {
     return true;
   });
 
+  // Split is DATA-driven: receipts land in "Live now", the rest stay "Tracked
+  // openly". The tracked group hides entirely when empty.
+  const liveRows = visibleRows.filter((row) => row.rextor.shipped);
+  const trackedRows = visibleRows.filter((row) => !row.rextor.shipped);
+
   return (
-    <section className="py-16" id="matrix" aria-label="Capability matrix">
-      <div className={chapterHead}>
-        <h2>What actually ships</h2>
-        {chapterPara(data.asOf)}
-      </div>
-      <table className="w-full border-collapse text-sm tabular-nums max-[60rem]:block">
-        <thead className="max-[60rem]:hidden">
-          <tr>
-            <th
-              scope="col"
-              className="border-b border-rule-strong py-3 pr-4 text-left font-mono text-xs font-normal tracking-[0.12em] uppercase text-subtle-foreground"
-            >
-              Capability
-            </th>
-            <th
-              scope="col"
-              className="border-b border-rule-strong py-3 pr-4 text-left font-mono text-xs font-normal tracking-[0.12em] uppercase text-subtle-foreground"
-            >
-              Generic AI review
-            </th>
-            <th
-              scope="col"
-              className="border-b border-rule-strong py-3 pr-4 text-left font-mono text-xs font-normal tracking-[0.12em] uppercase text-subtle-foreground"
-            >
-              One‑shot audit bots
-            </th>
-            <th
-              scope="col"
-              className="border-b border-rule-strong py-3 pr-4 text-left font-mono text-xs font-normal tracking-[0.12em] uppercase text-subtle-foreground"
-            >
-              Rextor Audit
-            </th>
-          </tr>
-        </thead>
-        <tbody className="max-[60rem]:block">
-          {visibleRows.map((row) => (
-            <tr
-              key={row.id}
-              className="max-[60rem]:block max-[60rem]:border-b max-[60rem]:border-border max-[60rem]:py-3"
-            >
-              <td data-label="Rextor" className={cn(chapterCell, "text-foreground")}>
-                {row.capability}
-              </td>
-              {competitorCell(row.generic, "Generic")}
-              {competitorCell(row.bots, "Bots")}
-              <td data-label="Rextor" className={cn(chapterCell, "font-medium text-primary")}>
-                <RextorCellView rextor={row.rextor} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {chapterFootnote(data.asOf)}
+    <section className="pb-16 pt-10" id="matrix" aria-label="Capability matrix">
+      <h2 className="mb-2 text-2xl font-semibold leading-[1.15] tracking-[-0.02em] [overflow-wrap:anywhere]">
+        What actually ships
+      </h2>
+      <p className="m-0 mb-10 max-w-[60ch] text-muted-foreground">
+        Live rows carry their receipt — every mark links its artifact. Competitor marks are
+        datestamped, not guessed.
+      </p>
+
+      <h3 className="m-0 mb-4 font-mono text-xs tracking-[0.1em] uppercase tabular-nums text-subtle-foreground">
+        Live now · <b className="font-medium text-foreground">{liveRows.length} receipts</b>
+      </h3>
+      <MatrixTable rows={liveRows} />
+
+      {trackedRows.length > 0 && (
+        <>
+          <h3 className="m-0 mt-16 mb-4 font-mono text-xs tracking-[0.1em] uppercase tabular-nums text-subtle-foreground">
+            Tracked openly ·{" "}
+            <b className="font-medium text-foreground">{trackedRows.length} on the plan</b>
+          </h3>
+          <MatrixTable rows={trackedRows} />
+        </>
+      )}
+
+      <p className="mt-4 m-0 max-w-[72ch] font-mono text-xs leading-[1.6] text-subtle-foreground">
+        <Mark kind="yes" /> shipped · <Mark kind="partial" /> partial · <Mark kind="no" /> not
+        evidenced — competitor marks relative to public product pages as of {datedAsOf(data.asOf)}.
+      </p>
     </section>
   );
 }
