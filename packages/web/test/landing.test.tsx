@@ -2,7 +2,7 @@
 // 2026-09-22). The chain-read seam is module-mocked per the dashboard pattern:
 // no viem client, no RPC, no live network.
 import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import LandingPage from "@/app/page";
 import { readAgentIdentity } from "@/lib/chain-read";
@@ -23,6 +23,11 @@ async function renderPage() {
 }
 
 describe("LandingPage", () => {
+  beforeEach(() => {
+    // Factory default (resolves null) — per-test implementations never leak.
+    identityMock.mockReset();
+  });
+
   it("renders the hero with the positioning copy, current contracts, and honest fallback facts", async () => {
     identityMock.mockResolvedValue(null);
     await renderPage();
@@ -31,8 +36,9 @@ describe("LandingPage", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/audits money changes/)).toBeInTheDocument();
     expect(screen.getAllByText(/chainId 42431/).length).toBeGreaterThan(0);
-    // v3 contract (the v2 0x7fe6 address is retired), HyperEVM mainnet fact.
-    expect(screen.getByText(/Attestation v3 · 0x51ac…495a/)).toBeInTheDocument();
+    // Contract v2, deploy #3 (0x51ac… — deploy #2 at 0x7fe6 is retired);
+    // HyperEVM mainnet fact.
+    expect(screen.getByText(/Attestation v2 · deploy #3 · 0x51ac…495a/)).toBeInTheDocument();
     expect(screen.getByText(/HyperEVM mainnet · 999 · 0x8f63…850c/)).toBeInTheDocument();
     expect(screen.getByText(/rextor-audit\[bot\] · active/)).toBeInTheDocument();
     // RPC outage → last-verified counts (5 on-chain as of 2026-09-22).
@@ -54,7 +60,7 @@ describe("LandingPage", () => {
     expect(screen.getByText("Step 02")).toBeInTheDocument();
     expect(screen.getByText("Step 03")).toBeInTheDocument();
     expect(screen.getByText(/machines find, citations prove, forks test/)).toBeInTheDocument();
-    expect(screen.getByText(/diff-scoped · Slither \+ Aderyn · Foundry fork-sim/)).toBeInTheDocument();
+    expect(screen.getByText(/diff-scoped · Slither · Foundry fork-sim/)).toBeInTheDocument();
   });
 
   it("renders the five-stage tour with honest artifact frames", async () => {
@@ -70,7 +76,7 @@ describe("LandingPage", () => {
     ]) {
       expect(screen.getByRole("heading", { name: stage })).toBeInTheDocument();
     }
-    expect(screen.getByText(/Slither 0\.11\.6 \+ Aderyn/)).toBeInTheDocument();
+    expect(screen.getByText(/Slither 0\.11\.6, Docker/)).toBeInTheDocument();
     expect(screen.getByText(/critical 60 · high 25 · medium 10 · low 3/)).toBeInTheDocument();
     // Stage 5 anchors BOTH live chains.
     const hyperLink = screen.getByRole("link", { name: "HyperEVM 999 ↗" });

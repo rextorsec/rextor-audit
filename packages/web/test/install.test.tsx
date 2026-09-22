@@ -61,10 +61,9 @@ describe("install page — document structure (approved mock)", () => {
     expect(
       screen.getByText("Audits are point‑in‑time. Code is continuous."),
     ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Rextor Security" })).toHaveAttribute(
-      "href",
-      "https://rextorsecurity.com",
-    );
+    // Firm name is plain text — rextorsecurity.com does not resolve
+    // (2026-09-22); relink when DNS goes live.
+    expect(screen.getByText("Rextor Security")).toBeInTheDocument();
   });
 });
 

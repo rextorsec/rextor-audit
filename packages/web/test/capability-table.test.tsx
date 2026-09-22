@@ -52,6 +52,16 @@ describe("CapabilityTable", () => {
     expect(receipt.closest("td")!.querySelector('[aria-label="shipped"]')).not.toBeNull();
   });
 
+  it("renders partial and not-evidenced marks inside competitor data cells", () => {
+    render(<CapabilityTable data={fixture} />);
+    const row = screen.getByRole("link", { name: "stage 2.0" }).closest("tr")!;
+    // Cell order after the row-header capability th: Generic, Bots, Rextor.
+    const cells = within(row).getAllByRole("cell");
+    expect(within(cells[0]).getByRole("img", { name: "not evidenced" })).toBeInTheDocument();
+    expect(within(cells[1]).getByRole("img", { name: "partial" })).toBeInTheDocument();
+    expect(within(cells[2]).getByRole("img", { name: "shipped" })).toBeInTheDocument();
+  });
+
   it("renders a soon badge for unshipped capabilities", () => {
     render(<CapabilityTable data={fixture} />);
     const badges = screen.getAllByText("Oct 2026");
@@ -85,7 +95,11 @@ describe("CapabilityTable", () => {
   });
 
   it("renders the production data file with real receipts and approved statuses", () => {
-    render(<CapabilityTable data={prodData as Capabilities} />);
+    // Counts derive from the ledger — never pinned literals (a legitimate
+    // ledger flip must not require a test edit).
+    const prod = prodData as Capabilities;
+    const liveCount = prod.rows.filter((row) => row.rextor.shipped).length;
+    render(<CapabilityTable data={prod} />);
 
     // Every shipped check links a live artifact.
     const receiptLinks = screen.getAllByRole("link");
@@ -114,13 +128,13 @@ describe("CapabilityTable", () => {
     );
     expect(solanaReceipt).toBeDefined();
 
-    // Receipt state: all 15 rows shipped — the split is fully live, no
+    // Receipt state: every ledger row shipped — the split is fully live, no
     // tracked group. The data file is the receipt ledger; the test follows it.
-    expect(screen.getByText(/Live now/).textContent).toContain("15 receipts");
+    expect(screen.getByText(/Live now/).textContent).toContain(`${liveCount} receipts`);
     expect(screen.queryByText(/Tracked openly/)).not.toBeInTheDocument();
     const body = screen.getAllByRole("rowgroup").at(-1)!;
     expect(within(body).queryAllByText(/Oct 2026/)).toHaveLength(0);
-    expect(within(body).getAllByRole("row")).toHaveLength(15);
+    expect(within(body).getAllByRole("row")).toHaveLength(liveCount);
 
     // ERC-8004 identity row carries the mainnet mint receipt
     // (ownerOf(50891) live-verified 2026-09-22).
