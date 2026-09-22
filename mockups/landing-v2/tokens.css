@@ -1,0 +1,95 @@
+/* Hallmark · genre: modern-minimal · macrostructure: Marquee Hero (studied-DNA variant: CTA-in-fold per source)
+ * H2 hero knobs: ratio=1/1.15, left=kicker+title+lede+CTA, right=E1 capture (6vw clip past gutter)
+ * F4 tour knobs: numbering=1.0-5.0, layout=split rows 7/5, connector=hairline top rule
+ * F3 matrix knobs: split tables (live 6 / tracked 9), rule=every row, nums=tabular, mark system = dot language shared with hero receipt (filled=shipped, conic half=partial, hollow=absent), Rextor column tint + row hover-track · T4 facts knobs: 4-up, mono, tabular
+ * Nav: N1b SaaS three-section (centre links=4, frost=backdrop-blur sticky, no JS) · Footer: Ft5 Statement (sentence 44ch, meta under)
+ * theme: studied-DNA (source: https://linear.app) · paper oklch(14% 0.005 165) · ink 4-tier 93/73/63/54
+ * accent: raptor green oklch(77% 0.16 165) — sole chroma, <=5% footprint (one axis changed: Linear indigo -> brand green)
+ * enrichment: E1 clipped-edge verdict receipt (tier-A CSS product artifact, no chrome) + E6 ambient dot-grid canvas
+ * polish: HP3 cursor-spotlight (22rem radial, 13% alpha, scoped to hero, reduced-motion pinned 50%/30%) · entrance: type-unmask (one-shot 2x480ms)
+ * motion budget: 3 primitives — dot-pulse loop · type-unmask entrance · spotlight tracking · pre-emit critique: P4 H5 E5 S5 R5 V4
+ */
+
+:root {
+  /* surfaces — near-black band, green-tinted neutrals (Linear #08090a lineage, anchor-hue tinted) */
+  --background: oklch(14% 0.005 165);
+  --card: oklch(17.5% 0.006 165);
+  --elevated: oklch(21.5% 0.007 165);
+  --foreground: oklch(93% 0.006 165);
+  --muted-foreground: oklch(73% 0.007 165);
+  --subtle-foreground: oklch(63% 0.008 165);
+  --faint-foreground: oklch(54% 0.008 165);
+
+  /* lines */
+  --border: oklch(24% 0.007 165);
+  --rule-strong: oklch(32% 0.008 165);
+
+  /* raptor accent — the only chroma on the page */
+  --primary: oklch(77% 0.16 165);
+  --primary-strong: oklch(83% 0.15 165);
+  --primary-foreground: oklch(16% 0.03 165);
+
+  /* status — functional, not decorative */
+  --success: oklch(77% 0.16 165);
+  --warning: oklch(82% 0.15 90);
+  --danger: oklch(63% 0.19 25);
+
+  /* focus */
+  --ring: oklch(77% 0.16 165);
+
+  /* type — Geist + Geist Mono (stack lock 2026-09-18), single-family display discipline */
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  /* scale — major third from 16px body (continuity with v1 tokens) */
+  --text-xs: 0.64rem;
+  --text-sm: 0.8rem;
+  --text-base: 1rem;
+  --text-md: 1.25rem;
+  --text-lg: 1.5625rem;
+  --text-xl: 1.9531rem;
+  --text-2xl: 2.4414rem;
+  --text-3xl: 3.0518rem;
+  --text-4xl: 3.8147rem;
+  --text-display: clamp(2.75rem, 5vw + 1rem, 5.25rem);
+  --text-display-s: clamp(2rem, 3.5vw + 0.75rem, 3.25rem);
+
+  /* spacing — 4pt scale, named by role */
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+  --space-3xl: 6rem;
+  --space-4xl: 9rem;
+
+  /* motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 120ms;
+  --dur-short: 220ms;
+
+  /* radii + rules */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --rule-hair: 1px;
+
+  /* z scale */
+  --z-base: 1;
+  --z-raised: 10;
+  --z-sticky: 200;
+}
+
+html { overflow-x: clip; }
+body { overflow-x: clip; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
