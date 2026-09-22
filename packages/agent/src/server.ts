@@ -50,6 +50,8 @@ export interface ReviewServerOptions {
   apiToken?: string;
   /** SPEC-7 §5 — @rextor-audit replies per PR per hour; default 5. */
   chatRateLimitPerHour?: number;
+  /** Queue stall-warn interval for a single run; default 10 min (queue.ts). */
+  stallWarnMs?: number;
 }
 
 /** HTTP server exposing the review queue drain as a test/ops affordance. */
@@ -79,7 +81,7 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
     cache: createChatReviewCache(),
     limiter: createChatRateLimiter(options.chatRateLimitPerHour),
   };
-  const queue = new ReviewQueue();
+  const queue = new ReviewQueue({ stallWarnMs: options.stallWarnMs });
   const server = createServer((req, res) => {
     const pathname = (req.url ?? "/").split("?")[0];
     if (req.method === "GET" && REVIEWS_PATH_RE.test(pathname)) {
@@ -233,13 +235,17 @@ async function handleWebhook(
       reply = buildChatReply(ctx);
     }
     if (reply !== "") {
-      void queue.enqueue(deliveryId, async () => {
-        try {
-          await deps.postComment(evt.prUrl, reply);
-        } catch (err) {
-          console.error("[rextor] chat reply failed:", err instanceof Error ? err.message : err);
-        }
-      });
+      void queue.enqueue(
+        deliveryId,
+        async () => {
+          try {
+            await deps.postComment(evt.prUrl, reply);
+          } catch (err) {
+            console.error("[rextor] chat reply failed:", err instanceof Error ? err.message : err);
+          }
+        },
+        `chat reply ${evt.prUrl}`,
+      );
     }
     json(res, { queued: true });
     return;
@@ -268,10 +274,14 @@ async function handleWebhook(
   // delivery id (GitHub redelivers after ~10s of silence) and contains
   // worker errors, so the enqueue promise is intentionally not awaited.
   // SPEC-7 §5 — the settled review becomes the chat answer source.
-  void queue.enqueue(deliveryId, async () => {
-    const result = await runReview(prUrl as string, deps);
-    if (result.commented) chat.cache.record(prUrl as string, result);
-  });
+  void queue.enqueue(
+    deliveryId,
+    async () => {
+      const result = await runReview(prUrl as string, deps);
+      if (result.commented) chat.cache.record(prUrl as string, result);
+    },
+    prUrl as string,
+  );
   json(res, { queued: true });
 }
 
