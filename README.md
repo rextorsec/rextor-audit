@@ -2,7 +2,7 @@
   <img src="assets/hero.svg" alt="Rextor Audit — Audits are point-in-time. Code is continuous. Every pull request that touches money-code becomes an audit event." width="100%">
 </div>
 
-# Rextor Audit
+<h1 align="center">Rextor Audit</h1>
 
 <div align="center">
 
