@@ -45,6 +45,17 @@ export const WEB_CHAINS: Record<WebChain["key"], WebChain> = {
   },
 };
 
+/** Solana devnet — the Anchor attestation program (pipeline reviews; PR-time
+ *  EVM reviews anchor on the WebChain pairs above). Not a WebChain: no EVM
+ *  rpc/attestation shape. Hero + FAQ link the program address directly. */
+export const SOLANA_DEVNET = {
+  key: "solana",
+  name: "Solana devnet",
+  program: "Aj6NxH8Ptjn7v3QVCZEQ9dPNWx8DjmaE2oPMNvnikMDs",
+  explorerUrl:
+    "https://explorer.solana.com/address/Aj6NxH8Ptjn7v3QVCZEQ9dPNWx8DjmaE2oPMNvnikMDs?cluster=devnet",
+} as const;
+
 export const DEFAULT_CHAIN_KEY: WebChain["key"] = "tempo";
 
 /** R1 — CWF aimed EVM rider tracks: attested via the HOME chain (no native

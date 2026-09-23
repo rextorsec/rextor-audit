@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { SOLANA_DEVNET } from "@/lib/chains";
 import { receiptLink } from "@/lib/receipt-link";
 
 const faqs: Array<{ q: string; a: ReactNode }> = [
@@ -14,10 +15,7 @@ const faqs: Array<{ q: string; a: ReactNode }> = [
         Tempo testnet runs the full loop today, and verdicts anchor on HyperEVM mainnet as of
         2026‑09‑21. Ethereum, Base, Arbitrum, and Robinhood Chain ride the same deterministic pass
         with home‑chain anchoring.{" "}
-        <a
-          className={receiptLink}
-          href="https://explorer.solana.com/address/Aj6NxH8Ptjn7v3QVCZEQ9dPNWx8DjmaE2oPMNvnikMDs?cluster=devnet"
-        >
+        <a className={receiptLink} href={SOLANA_DEVNET.explorerUrl}>
           Solana devnet is live ↗
         </a>
         .
