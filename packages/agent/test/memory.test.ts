@@ -153,3 +153,31 @@ describe("runReview × repoMemory", () => {
     expect(comments).toHaveLength(1);
   });
 });
+
+describe("re-drive dedup guard lookup (C1)", () => {
+  it("hasReview answers the exact (repo, pr, headSha) triple", async () => {
+    const store = await tempStore();
+    try {
+      store.insert({
+        repo: "o/r",
+        pr: 7,
+        head_sha: "a".repeat(40),
+        review_id: "0x" + "1".repeat(64),
+        chain: "tempo",
+        tx_hash: "",
+        explorer_url: "",
+        risk_score: 3,
+        finding_count: 1,
+        status: 0,
+        comment_url: "",
+        created_at: "2026-09-23T00:00:00.000Z",
+      });
+      expect(store.hasReview("o/r", 7, "a".repeat(40))).toBe(true);
+      expect(store.hasReview("o/r", 7, "b".repeat(40))).toBe(false); // new sha → reviewable
+      expect(store.hasReview("o/r", 8, "a".repeat(40))).toBe(false);
+      expect(store.hasReview("other/r", 7, "a".repeat(40))).toBe(false);
+    } finally {
+      store.close();
+    }
+  });
+});

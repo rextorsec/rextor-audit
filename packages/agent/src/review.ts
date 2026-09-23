@@ -9,11 +9,13 @@
 // comment with the reason. Never a silent clean pass.
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { scopeDiff, type DiffScopeResult } from "./diff-scope";
 import { buildAttestRecord, reviewIdFor, type AttestRecord } from "./attest";
+import type { FeedbackDep } from "./feedback";
 import type { ReviewRow, RepoMemory } from "./db";
-import { resolveChain, attestationChainId } from "./chains";
+import { resolveChain, attestationChainId, targetChainIdFromFoundry } from "./chains";
 import { NO_TRIAGE_MODEL, rawFindingsResult, type TriageResult } from "./triage";
 import { isAnchorRepo, runSimStage, sanitizePocSource, type PocRequest, type SimOutcomeMap } from "./sim";
 import {
@@ -70,6 +72,12 @@ export interface ReviewDeps {
   pin?: (report: ReviewResult) => Promise<{ uri: string; cid: string }>;
   /** SPEC-6 §3 review-index write-through; absent → no row recorded. */
   recordReview?: (row: ReviewRow) => void;
+  /** R2 — ERC-8004 reputation feedback. NOT invoked by runReview: the server
+   *  fires it fire-and-forget at the settle point (a settled attestation is
+   *  the precondition), so it never blocks a review; the drain holds the exit
+   *  until broadcasts settle (I1), and hard-incomplete reviews are withheld
+   *  (I2). */
+  feedback?: FeedbackDep;
   /** SPEC-7 §1 — reads `rextor.yaml` from the PR's BASE branch inside the
    *  clone dir (base-branch config is the only trusted silencing channel,
    *  invariant 21; resolving the base ref is the adapter's job). null = no
@@ -102,9 +110,11 @@ export interface ReviewResult {
   /** SPEC-4 §3 — on-chain anchoring outcome; set on every commented path
    *  EXCEPT a pre-clone github-setup failure (no headSha → no reviewId —
    *  nothing to attest; the INCOMPLETE reason carries the failure).
-   *  Success shapes when attested, { skipped } when not configured or failed. */
+   *  Success shapes when attested, { skipped } when not configured or failed.
+   *  findingsHash rides the success shape so the settle point can hand the
+   *  EXACT attested evidence to the R2 feedback dep (never re-derived). */
   attestation?:
-    | { chain: string; reviewId: string; findingsURI: string; targetChainId: number; txHash: string; explorerUrl: string; solanaVerdict?: SolanaVerdictInfo }
+    | { chain: string; reviewId: string; findingsURI: string; findingsHash?: `0x${string}`; targetChainId: number; txHash: string; explorerUrl: string; solanaVerdict?: SolanaVerdictInfo }
     | { skipped: string };
 }
 
@@ -445,7 +455,9 @@ export function incompleteCommentBody(reason: string): string {
 // PR_URL_RE (a shared import would make review.ts ↔ github.ts a runtime cycle).
 const PR_URL_RE = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/;
 
-function prIdentity(prUrl: string): { repoFullName: string; prNumber: number } {
+// Exported for server.ts — the R2 settle wiring derives the repo name for the
+// feedback tag2 from the same validated URL the review used.
+export function prIdentity(prUrl: string): { repoFullName: string; prNumber: number } {
   const match = prUrl.match(PR_URL_RE);
   if (!match) throw new Error(`not a GitHub PR URL: ${prUrl}`);
   return { repoFullName: `${match[1]}/${match[2]}`, prNumber: Number(match[3]) };
@@ -458,6 +470,17 @@ function activeChainName(): string {
     return resolveChain(process.env).name;
   } catch {
     return "tempo";
+  }
+}
+
+// R1 — the primary targetChainId source is the audited repo's own
+// foundry.toml. Missing/unreadable file → null (the fallback chain applies);
+// attestation can never block or fail the review.
+function readFoundryToml(repoDir: string): string | null {
+  try {
+    return readFileSync(join(repoDir, "foundry.toml"), "utf8");
+  } catch {
+    return null;
   }
 }
 
@@ -678,9 +701,16 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
       // SPEC-4 v2 — targetChainId resolves from the SPEC-5 registry chain via
       // the SHARED null-skip helper (same recipe as makeAttestDep); 0 on the
       // record = unresolved (uint32 has no null), the footer skips rendering.
+      // R1 — the repo's own foundry.toml chain_id hint is the PRIMARY source
+      // (the chain the audited code targets); the home chain is the fallback.
+      // PR content is untrusted: only the registry-validated integer crosses
+      // into the record — the file text is never rendered or logged.
       let targetChainId = 0;
       try {
-        targetChainId = attestationChainId(resolveChain(process.env)) ?? 0;
+        targetChainId =
+          targetChainIdFromFoundry(readFoundryToml(repoDir)) ??
+          attestationChainId(resolveChain(process.env)) ??
+          0;
       } catch { /* unknown chain key — 0 */ }
       const record = buildAttestRecord({
         repoFullName: identity.repoFullName,
@@ -699,6 +729,9 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
           chain: activeChainName(),
           reviewId: record.reviewId,
           findingsURI: record.findingsURI,
+          // R2 — the settle point's feedback dep reads the attested evidence
+          // straight off the result; re-deriving the hash could drift.
+          findingsHash: record.findingsHash,
           targetChainId: record.targetChainId,
           txHash: res.txHash,
           explorerUrl: res.explorerUrl,

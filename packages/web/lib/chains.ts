@@ -47,6 +47,24 @@ export const WEB_CHAINS: Record<WebChain["key"], WebChain> = {
 
 export const DEFAULT_CHAIN_KEY: WebChain["key"] = "tempo";
 
+/** R1 — CWF aimed EVM rider tracks: attested via the HOME chain (no native
+ *  deploys), the review's targetChainId anchoring the audited repo. Values
+ *  mirror the agent SPEC-5 registry verbatim — the agent package is never
+ *  imported here (same rule as WEB_CHAINS). Robinhood params stay null until
+ *  captured at integration — never fabricated (SPEC-5 invariant 16). */
+export interface RiderChain {
+  key: "ethereum" | "base" | "arbitrum" | "robinhood";
+  name: string;
+  chainId: number | null;
+}
+
+export const RIDER_TARGET_CHAINS: Record<RiderChain["key"], RiderChain> = {
+  ethereum: { key: "ethereum", name: "Ethereum", chainId: 1 },
+  base: { key: "base", name: "Base", chainId: 8453 },
+  arbitrum: { key: "arbitrum", name: "Arbitrum One", chainId: 42161 },
+  robinhood: { key: "robinhood", name: "Robinhood Chain", chainId: null },
+};
+
 export function isWebChainKey(key: string): key is WebChain["key"] {
   return Object.hasOwn(WEB_CHAINS, key);
 }

@@ -12,6 +12,9 @@ import type { AttestRecord } from "../src/attest";
 import { EMPTY_FINDINGS_SHA256 } from "./vectors";
 import { rawFindingsResult } from "../src/triage";
 import { execFileSync } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const docker = (() => {
@@ -659,5 +662,61 @@ describe("runReview ipfs pin (SPEC-4 v2 B3)", () => {
     expect(records[0]?.targetChainId).toBe(0);
     const footerLine = bodies[0].split("\n").find((l) => l.includes("reviewId `"));
     expect(footerLine).not.toContain("targetChainId");
+  });
+});
+
+describe("runReview targetChainId source (SPEC-4 v2 R1)", () => {
+  const findings0 = JSON.stringify({ file: "src/V.sol", line: 10, severity: "high", check: "c", description: "d" });
+  const attestDiff = "diff --git a/src/V.sol b/src/V.sol\n@@ -1 +1 @@\n+x";
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  const baseDeps = (over: Partial<ReviewDeps>): ReviewDeps => ({
+    clone: async () => ({ dir: "/tmp/fake", headSha: HEAD_SHA }),
+    fetchDiff: async () => attestDiff,
+    runAnalyzer: async () => findings0,
+    postComment: async () => {},
+    dispose: async () => {},
+    ...over,
+  });
+
+  // foundry.toml is repo content the clone provides — a real temp dir backs
+  // the fs read; null simulates the file's absence.
+  const repoWithFoundry = async (toml: string | null): Promise<string> => {
+    const dir = await mkdtemp(join(tmpdir(), "rextor-foundry-"));
+    tempDirs.push(dir);
+    if (toml !== null) await writeFile(join(dir, "foundry.toml"), toml);
+    return dir;
+  };
+
+  const recordFromRun = async (repoDir: string): Promise<AttestRecord | undefined> => {
+    const records: AttestRecord[] = [];
+    await runReview("https://github.com/o/r/pull/3", baseDeps({
+      clone: async () => ({ dir: repoDir, headSha: HEAD_SHA }),
+      attest: async (rec) => { records.push(rec); return { txHash: "0xabc", explorerUrl: "" }; },
+    }));
+    return records[0];
+  };
+
+  it("a registry-mapped foundry.toml chain_id anchors targetChainId over the home chain", async () => {
+    vi.stubEnv("REXTOR_DEFAULT_CHAIN", "tempo");
+    const repo = await repoWithFoundry("[profile.default]\nchain_id = 8453 # base rider\n");
+    expect((await recordFromRun(repo))?.targetChainId).toBe(8453);
+  });
+
+  it("no foundry.toml → home-chain id (the fallback)", async () => {
+    vi.stubEnv("REXTOR_DEFAULT_CHAIN", "tempo");
+    const repo = await repoWithFoundry(null);
+    expect((await recordFromRun(repo))?.targetChainId).toBe(42431);
+  });
+
+  it("a malformed hint (no bare integer) degrades to the home-chain id", async () => {
+    vi.stubEnv("REXTOR_DEFAULT_CHAIN", "tempo");
+    const repo = await repoWithFoundry('[profile.default]\nchain_id = "abc"\n');
+    expect((await recordFromRun(repo))?.targetChainId).toBe(42431);
   });
 });

@@ -6,15 +6,22 @@
 // work. Env vars are read at call time. Events other than
 // pull_request.opened/synchronize are ignored with 200 and no work.
 // Actionable deliveries are enqueued on a per-server ReviewQueue (delivery-id
-// dedup) and acknowledged 200 BEFORE the review completes — GitHub redelivers
-// when no response arrives within ~10s.
+// dedup) and acknowledged 200 BEFORE the review completes — GitHub never
+// auto-redelivers a failed (or unacknowledged) delivery, so nothing here
+// relies on it: a 503 mid-drain only MARKS the delivery failed, and boot-time
+// reconciliation (reconcile.ts) re-drives failed deliveries through this
+// handler after restart, with the persistent-index guard deduplicating work.
+// On SIGTERM/SIGINT the server drains gracefully instead (see installDrain):
+// in-flight reviews finish before exit.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { runReview, type ReviewDeps } from "./review";
+import { runReview, prIdentity, type ReviewDeps, type ReviewResult } from "./review";
+import { createFeedbackDep, feedbackDisabledReason, type FeedbackDep } from "./feedback";
 import { githubDeps } from "./github";
 import { MAX_BODY_BYTES, ReviewQueue } from "./queue";
 import { createReviewStore, type ReviewStore } from "./db";
+import { reconcileFailedDeliveries } from "./reconcile";
 import {
   buildChatReply,
   createChatRateLimiter,
@@ -58,6 +65,10 @@ export interface ReviewServerOptions {
 export interface ReviewServer extends Server {
   /** Resolves when the server's review queue has no queued or in-flight work. */
   idle(): Promise<void>;
+  /** True while a graceful drain is in progress (see installDrain): webhook
+   *  deliveries then answer 503 + Retry-After instead of an ACK that the
+   *  coming exit would turn into a silently lost review. */
+  draining: boolean;
 }
 
 export function createReviewServer(options: ReviewServerOptions = {}): ReviewServer {
@@ -71,10 +82,14 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
   // A caller-provided recordReview dep takes precedence over the store.
   // SPEC-7 §4 — the same store serves as the repo memory (dismissals +
   // learnings); ReviewStore structurally satisfies RepoMemory.
-  const deps: ReviewDeps =
+  const wired: ReviewDeps =
     store && !base.recordReview
       ? { ...base, recordReview: (row) => store.insert(row), repoMemory: store }
       : base;
+  // R2 — caller-provided feedback dep wins (tests); otherwise the env-gated
+  // default (undefined unless REXTOR_AUTO_FEEDBACK=on AND the wallet/registry
+  // env is set — default OFF, the mainnet broadcast is a RECTOR gate).
+  const deps: ReviewDeps = { ...wired, feedback: base.feedback ?? createFeedbackDep() };
   // SPEC-7 §5 — chat state lives with the server (cache dies on restart; the
   // reply says so honestly).
   const chat: { cache: ChatReviewCache; limiter: ChatRateLimiter } = {
@@ -84,7 +99,19 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
   const queue = new ReviewQueue({ stallWarnMs: options.stallWarnMs });
   const server = createServer((req, res) => {
     const pathname = (req.url ?? "/").split("?")[0];
-    if (req.method === "GET" && REVIEWS_PATH_RE.test(pathname)) {
+    const isDashboardRead = req.method === "GET" && REVIEWS_PATH_RE.test(pathname);
+    // Drain gate (R3): a delivery accepted mid-drain would be ACKed and then
+    // dropped by the coming exit. 503 + Retry-After MARKS the delivery failed
+    // on GitHub's side — which is safe only because boot-time reconciliation
+    // (reconcile.ts) re-drives failed deliveries after restart; the
+    // delivery-id dedup makes a replay single-shot. Read-only dashboard GETs
+    // still answer.
+    if (server.draining && !isDashboardRead) {
+      res.writeHead(503, { "retry-after": "30", "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "draining" }));
+      return;
+    }
+    if (isDashboardRead) {
       void handleReviews(req, res, store, options.apiToken).catch((err) => {
         console.error("[rextor] reviews handler crashed:", err);
         if (!res.headersSent) {
@@ -96,7 +123,7 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
       });
       return;
     }
-    void handleWebhook(req, res, options.secret, deps, queue, chat).catch((err) => {
+    void handleWebhook(req, res, options.secret, deps, queue, chat, store).catch((err) => {
       console.error("[rextor] webhook handler crashed:", err);
       if (!res.headersSent) {
         res.statusCode = 500;
@@ -107,7 +134,98 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
     });
   }) as ReviewServer;
   server.idle = () => queue.idle();
+  server.draining = false;
   return server;
+}
+
+/** Cap on the drain wait: reviews legitimately take minutes (the stall
+ *  watchdog warns at 10), so the default must outlast a real review. */
+const DEFAULT_DRAIN_TIMEOUT_MS = 15 * 60 * 1000;
+
+export interface DrainOptions {
+  /** Cap on the drain wait; default env REXTOR_DRAIN_TIMEOUT_MS, else 15 min. */
+  timeoutMs?: number;
+  /** Exit sink; default process.exit. Tests inject a recorder. */
+  exit?: (code: number) => void;
+}
+
+// Resolved ONCE at install time (= boot in production). Anything that is not
+// a positive number falls back to the default with a logged warning: a cap of
+// 0 would exit 1 on the FIRST signal and kill in-flight reviews post-ACK
+// (silent loss), and an unparseable value must never silently shrink the cap.
+function resolveDrainTimeoutMs(explicit: number | undefined): number {
+  if (explicit !== undefined) return explicit;
+  const raw = process.env.REXTOR_DRAIN_TIMEOUT_MS;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_DRAIN_TIMEOUT_MS;
+  const envMs = Number(raw);
+  if (Number.isFinite(envMs) && envMs > 0) return envMs;
+  console.error(
+    `[rextor] REXTOR_DRAIN_TIMEOUT_MS=${JSON.stringify(raw)} is not a positive number — using the default ${DEFAULT_DRAIN_TIMEOUT_MS}ms`,
+  );
+  return DEFAULT_DRAIN_TIMEOUT_MS;
+}
+
+/**
+ * R3 graceful drain for supervisor restarts (hub stop → SIGTERM). Reviews are
+ * ACKed BEFORE they run, so a hard kill silently loses the in-flight review —
+ * GitHub never auto-redelivers. On the first SIGTERM/SIGINT: flip the drain
+ * gate (new webhook deliveries get 503 + Retry-After, which MARKS them failed
+ * for boot-time reconciliation to re-drive after restart) and wait for the
+ * queue to go idle however long that takes. The listener stays up through the
+ * drain — closing it early would turn re-driven deliveries into ECONNREFUSED
+ * and bypass the Retry-After pacing. At the terminal step server.close()
+ * stops accepting connections before exit. Two ways out early: the wait hits
+ * the REXTOR_DRAIN_TIMEOUT_MS cap (log the state reached, exit 1 — the
+ * supervisor restart is the wedged-queue doctrine), or a second signal
+ * arrives (force exit 1). Returns a disposer removing the listeners (tests).
+ */
+export function installDrain(server: ReviewServer, options: DrainOptions = {}): () => void {
+  const exit = options.exit ?? ((code: number) => process.exit(code));
+  const timeoutMs = resolveDrainTimeoutMs(options.timeoutMs);
+  let signalCount = 0;
+  let cap: NodeJS.Timeout | undefined;
+
+  const onSignal = (signal: NodeJS.Signals): void => {
+    signalCount += 1;
+    if (signalCount > 1) {
+      console.error(`[rextor] second ${signal} during drain — force exit 1`);
+      exit(1);
+      return;
+    }
+    console.log(`[rextor] ${signal} — draining: finishing in-flight reviews`);
+    server.draining = true;
+    const startedAt = Date.now();
+    cap = setTimeout(() => {
+      console.error(`[rextor] drain timed out after ${timeoutMs}ms — queue or feedback still busy; exiting 1`);
+      server.close();
+      exit(1);
+    }, timeoutMs);
+    void server.idle().then(
+      () => {
+        // I1 — the queue is idle but feedback broadcasts may still be in
+        // flight; hold the exit until they settle. The cap above stays armed
+        // and bounds this wait (on cap: log + exit 1).
+        void feedbackIdle().then(() => {
+          clearTimeout(cap);
+          server.close();
+          console.log(`[rextor] queue drained in ${Math.round((Date.now() - startedAt) / 1000)}s — exit 0`);
+          exit(0);
+        });
+      },
+      (err: unknown) => {
+        clearTimeout(cap);
+        server.close();
+        console.error("[rextor] queue idle failed — exiting 1:", err instanceof Error ? err.message : err);
+        exit(1);
+      },
+    );
+  };
+
+  for (const signal of ["SIGTERM", "SIGINT"] as const) process.on(signal, onSignal);
+  return () => {
+    for (const signal of ["SIGTERM", "SIGINT"] as const) process.removeListener(signal, onSignal);
+    clearTimeout(cap);
+  };
 }
 
 // Timing-safe token comparison: same length-guard pattern as verifySignature.
@@ -158,6 +276,7 @@ async function handleWebhook(
   deps: ReviewDeps,
   queue: ReviewQueue,
   chat: { cache: ChatReviewCache; limiter: ChatRateLimiter },
+  store: ReviewStore | undefined,
 ): Promise<void> {
   // Cap the pre-signature buffer: stop accumulating the moment the ceiling is
   // crossed and answer 413 — signature work (and any review) never sees it.
@@ -199,7 +318,7 @@ async function handleWebhook(
 
   let payload: {
     action?: string;
-    pull_request?: { html_url?: string };
+    pull_request?: { html_url?: string; head?: { sha?: unknown } };
     issue?: { pull_request?: unknown; html_url?: string };
     comment?: { body?: unknown; user?: { login?: string } };
     sender?: { login?: string };
@@ -270,22 +389,111 @@ async function handleWebhook(
     return;
   }
 
+  // C1 — persistent-index re-drive guard. GitHub does not auto-redeliver, so
+  // a FAILED delivery is re-driven at boot (reconcile.ts) or manually; the
+  // replay arrives here with its ORIGINAL payload — and the review it belongs
+  // to may already sit in the index (ACKed-then-crashed). In-memory delivery
+  // dedup is fresh every boot, so THIS guard is what prevents duplicate
+  // reviews: (repo, pr, headSha) in the SQLite index → answered skipped with
+  // 200, which marks the redelivery OK. On-chain reviewId idempotency is the
+  // second net. Best-effort: a guard failure logs and proceeds to the normal
+  // enqueue rather than erroring a deliverable webhook.
+  if (store) {
+    const headSha = payload.pull_request?.head?.sha;
+    if (typeof headSha === "string" && typeof prUrl === "string") {
+      try {
+        const { repoFullName, prNumber } = prIdentity(prUrl);
+        if (store.hasReview(repoFullName, prNumber, headSha)) {
+          console.log(
+            `[rextor] delivery ${deliveryId} skipped: ${repoFullName}#${prNumber} @ ${headSha.slice(0, 12)} already reviewed`,
+          );
+          json(res, { skipped: "already reviewed" });
+          return;
+        }
+      } catch (err) {
+        console.error("[rextor] re-drive guard failed — enqueuing anyway:",
+          err instanceof Error ? err.message : err);
+      }
+    }
+  }
+
   // Hardening: acknowledge BEFORE the review runs. The queue dedups by
-  // delivery id (GitHub redelivers after ~10s of silence) and contains
-  // worker errors, so the enqueue promise is intentionally not awaited.
-  // SPEC-7 §5 — the settled review becomes the chat answer source.
+  // delivery id (a re-driven or manually redelivered delivery keeps its id)
+  // and contains worker errors, so the enqueue promise is intentionally not
+  // awaited. SPEC-7 §5 — the settled review becomes the chat answer source.
   void queue.enqueue(
     deliveryId,
     async () => {
       const result = await runReview(prUrl as string, deps);
       if (result.commented) chat.cache.record(prUrl as string, result);
+      // R2 settle point — feedback fires after the review lands, once, and
+      // never in the review's critical path (see settleFeedback).
+      settleFeedback(deps.feedback, prUrl as string, result);
     },
     prUrl as string,
   );
   json(res, { queued: true });
 }
 
-function header(req: IncomingMessage, name: string): string | undefined {
+// I1 — in-flight ERC-8004 feedback broadcasts. settleFeedback fires them
+// fire-and-forget after a review settles; this set lets the drain hold the
+// process exit until every broadcast settles. The reviews are already
+// settled and ACKed, so waiting can never block or delay a review — only
+// the exit — and the drain cap bounds the wait (on cap: log + exit 1).
+const inFlightFeedback = new Set<Promise<void>>();
+
+/** Resolves when every tracked feedback broadcast has settled. */
+export function feedbackIdle(): Promise<void> {
+  if (inFlightFeedback.size === 0) return Promise.resolve();
+  return Promise.allSettled([...inFlightFeedback]).then(() => undefined);
+}
+
+// R2 — ERC-8004 reputation feedback, fired ONCE per settled review, strictly
+// AFTER runReview returns and only when the artifact is ATTESTED (a skipped or
+// failed attestation is recorded as a skip with its reason — never feedback
+// without an attested artifact). Fire-and-forget from the review's
+// perspective: the dep call is not awaited by the settle point, so it can
+// never block, fail, or delay a review — but it is no longer invisible to the
+// drain: installDrain holds the exit until tracked broadcasts settle (I1).
+// Hard-incomplete reviews are withheld entirely (I2): their attestation is
+// status=1 with the empty-findings payload, and a public 95/100 rating over
+// that hash would be indistinguishable from a complete audit. Log line only —
+// no PR-comment rendering, no DB schema change; receipts are on-chain
+// indexable by client address.
+function settleFeedback(feedback: FeedbackDep | undefined, prUrl: string, result: ReviewResult): void {
+  if (!feedback) {
+    console.log(`[rextor] feedback skipped: ${feedbackDisabledReason(process.env)}`);
+    return;
+  }
+  // I2 — hard-incomplete-but-attested: withhold by name, never broadcast a
+  // full-quality rating over the empty-findings feedbackHash.
+  if (result.incomplete) {
+    console.log("[rextor] feedback skipped: review incomplete — feedback withheld");
+    return;
+  }
+  const att = result.attestation;
+  if (!att || "skipped" in att) {
+    const reason = att && "skipped" in att ? att.skipped : "review never attested";
+    console.log(`[rextor] feedback skipped: no attested artifact (${reason})`);
+    return;
+  }
+  // A successful attestation implies prIdentity already parsed this URL inside
+  // runReview, so this cannot throw on the settle path.
+  const { repoFullName } = prIdentity(prUrl);
+  // I1 — the tracked promise settles only after the outcome is logged.
+  const tracked = feedback({ findingsURI: att.findingsURI, findingsHash: att.findingsHash }, repoFullName)
+    .then((outcome) => {
+      if ("skipped" in outcome) console.log(`[rextor] feedback skipped: ${outcome.skipped}`);
+      else console.log(`[rextor] feedback recorded: tx ${outcome.txHash}`);
+    })
+    .catch((err: unknown) => {
+      console.error("[rextor] feedback failed:", err instanceof Error ? err.message : err);
+    });
+  inFlightFeedback.add(tracked);
+  void tracked.then(() => inFlightFeedback.delete(tracked));
+}
+
+function header(req: IncomingMessage, name: string): undefined | string {
   const value = req.headers[name];
   return Array.isArray(value) ? value[0] : value;
 }
@@ -299,7 +507,16 @@ function json(res: ServerResponse, body: unknown): void {
 const entry = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
 if (import.meta.url === entry) {
   const port = Number(process.env.PORT ?? 8080);
-  createReviewServer().listen(port, () => {
+  // C1 — re-drive FAILED deliveries from the previous run at boot, alongside
+  // listen: GitHub never auto-redelivers, so without this the mid-drain 503s
+  // (and any delivery lost to a crash) would be silent loss. Fire-and-forget:
+  // reconciliation is best-effort and can never block or crash boot.
+  void reconcileFailedDeliveries().catch((err: unknown) => {
+    console.error("[rextor] delivery reconciliation crashed:", err instanceof Error ? err.message : err);
+  });
+  const server = createReviewServer();
+  server.listen(port, () => {
     console.log(`[rextor] webhook listening on :${port}`);
   });
+  installDrain(server);
 }

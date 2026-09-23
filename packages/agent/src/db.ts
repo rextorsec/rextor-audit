@@ -32,6 +32,10 @@ export interface ReviewStore {
   insert(row: ReviewRow): void;
   /** Rows for `repo` ("owner/repo"), newest first; unknown repo → []. */
   listForRepo(repo: string): ReviewRow[];
+  /** C1 re-drive guard: true when a settled review row already exists for the
+   *  exact (repo, pr, headSha) — a re-driven delivery for reviewed work is
+   *  answered skipped instead of re-queued. */
+  hasReview(repo: string, pr: number, headSha: string): boolean;
   close(): void;
   /** SPEC-7 §4 — dismissals are repo-keyed, server-side (invariant 21): the
    *  base-branch yaml is synced in wholesale per review (the yaml IS the
@@ -106,6 +110,11 @@ export function createReviewStore(dbPath: string): ReviewStore {
   const listStmt = db.prepare(
     `SELECT ${COLUMNS} FROM reviews WHERE repo = ? ORDER BY created_at DESC, rowid DESC`,
   );
+  // C1 — the re-drive guard's point lookup (one row answers it; the repo
+  // prefix of reviews_repo_created keeps it cheap).
+  const hasReviewStmt = db.prepare(
+    `SELECT 1 FROM reviews WHERE repo = ? AND pr = ? AND head_sha = ? LIMIT 1`,
+  );
 
   // SPEC-7 §4 — server-side silencing memory (repo-file stores are an
   // injection vector; scope decision 5).
@@ -171,6 +180,9 @@ export function createReviewStore(dbPath: string): ReviewStore {
     },
     listForRepo(repo: string): ReviewRow[] {
       return (listStmt.all(repo) as Record<string, unknown>[]).map(toRow);
+    },
+    hasReview(repo: string, pr: number, headSha: string): boolean {
+      return hasReviewStmt.get(repo, pr, headSha) !== undefined;
     },
     close(): void {
       db.close();

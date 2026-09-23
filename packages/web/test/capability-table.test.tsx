@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { CapabilityTable, type Capabilities } from "@/components/capability-table";
+import { RIDER_TARGET_CHAINS } from "@/lib/chains";
 import prodData from "@/content/capabilities.json";
 
 const tempoExplorer = "https://explore.testnet.tempo.xyz";
@@ -143,5 +144,32 @@ describe("CapabilityTable", () => {
     );
     expect(ercReceipt).toBeDefined();
     expect(ercReceipt!.textContent).toContain("agentId 50891");
+
+    // R2 — reputation row discloses the automated, evidence-backed pipeline
+    // (the settled attestation's findingsURI+hash rides every feedback) while
+    // the mainnet broadcast stays config-gated (🔴 RECTOR flag, default OFF).
+    const reputationReceipt = receiptLinks.find((a) =>
+      a.getAttribute("href")?.includes("etherscan.io/tx/0x02e73670"),
+    );
+    expect(reputationReceipt).toBeDefined();
+    expect(reputationReceipt!.textContent).toContain("automated ingestion pipeline");
+    expect(reputationReceipt!.textContent).toContain("evidence-backed");
+    expect(reputationReceipt!.textContent).toContain("broadcast config-gated");
+  });
+
+  it("renders the rider-coverage footnote from RIDER_TARGET_CHAINS — robinhood shows params at integration, no receipt links", () => {
+    render(<CapabilityTable data={fixture} />);
+    // Names render interpolated from the constant — assert the paragraph's
+    // full text (getByText fails on split text nodes).
+    const footnote = screen.getByText(/Rider tracks/).closest("p")!;
+    const text = footnote.textContent ?? "";
+    for (const rider of Object.values(RIDER_TARGET_CHAINS)) {
+      expect(text).toContain(rider.name);
+      if (rider.chainId !== null) expect(text).toContain(String(rider.chainId));
+    }
+    expect(text).toContain("params at integration");
+    expect(text).toContain("targetChainId recorded per review");
+    // Receipts-not-claims: riders have no native deploys, so no links.
+    expect(within(footnote).queryAllByRole("link")).toHaveLength(0);
   });
 });

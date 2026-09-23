@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { RIDER_TARGET_CHAINS } from "@/lib/chains";
 import { receiptLinkXs } from "@/lib/receipt-link";
 import { cn } from "@/lib/utils";
 
@@ -215,6 +216,19 @@ export function CapabilityTable({ data }: { data: Capabilities }) {
       <p className="mt-4 m-0 max-w-[72ch] font-mono text-xs leading-[1.6] text-subtle-foreground">
         <Mark kind="yes" /> shipped · <Mark kind="partial" /> partial · <Mark kind="no" /> not
         evidenced — competitor marks relative to public product pages as of {datedAsOf(data.asOf)}.
+      </p>
+      <p className="mt-2 m-0 max-w-[72ch] font-mono text-xs leading-[1.6] text-subtle-foreground">
+        {/* Dumb renderer: rider names + chainId slots come straight from the
+            constant — a null chainId renders "params at integration". Riders
+            get no receipt links (no native deploys — receipts-not-claims). */}
+        {"Rider tracks — "}
+        {Object.values(RIDER_TARGET_CHAINS).map((rider, i) => (
+          <span key={rider.key}>
+            {i > 0 && ", "}
+            {`${rider.name} (${rider.chainId ?? "params at integration"})`}
+          </span>
+        ))}
+        {" — anchor via the home-chain attestation; targetChainId recorded per review (foundry hint)."}
       </p>
     </section>
   );
