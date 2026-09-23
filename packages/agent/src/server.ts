@@ -7,7 +7,9 @@
 // pull_request.opened/synchronize are ignored with 200 and no work.
 // Actionable deliveries are enqueued on a per-server ReviewQueue (delivery-id
 // dedup) and acknowledged 200 BEFORE the review completes — GitHub redelivers
-// when no response arrives within ~10s.
+// when no response arrives within ~10s. On SIGTERM/SIGINT the server drains
+// gracefully instead (see installDrain): in-flight reviews finish, new
+// deliveries get 503 + Retry-After so GitHub redelivers after restart.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { pathToFileURL } from "node:url";
@@ -58,6 +60,10 @@ export interface ReviewServerOptions {
 export interface ReviewServer extends Server {
   /** Resolves when the server's review queue has no queued or in-flight work. */
   idle(): Promise<void>;
+  /** True while a graceful drain is in progress (see installDrain): webhook
+   *  deliveries then answer 503 + Retry-After instead of an ACK that the
+   *  coming exit would turn into a silently lost review. */
+  draining: boolean;
 }
 
 export function createReviewServer(options: ReviewServerOptions = {}): ReviewServer {
@@ -84,7 +90,17 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
   const queue = new ReviewQueue({ stallWarnMs: options.stallWarnMs });
   const server = createServer((req, res) => {
     const pathname = (req.url ?? "/").split("?")[0];
-    if (req.method === "GET" && REVIEWS_PATH_RE.test(pathname)) {
+    const isDashboardRead = req.method === "GET" && REVIEWS_PATH_RE.test(pathname);
+    // Drain gate (R3): a delivery accepted mid-drain would be ACKed and then
+    // dropped by the coming exit — GitHub never redelivers an ACKed delivery.
+    // 503 + Retry-After sends it back for redelivery after restart; the
+    // delivery-id dedup makes that safe. Read-only dashboard GETs still answer.
+    if (server.draining && !isDashboardRead) {
+      res.writeHead(503, { "retry-after": "30", "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "draining" }));
+      return;
+    }
+    if (isDashboardRead) {
       void handleReviews(req, res, store, options.apiToken).catch((err) => {
         console.error("[rextor] reviews handler crashed:", err);
         if (!res.headersSent) {
@@ -107,7 +123,82 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
     });
   }) as ReviewServer;
   server.idle = () => queue.idle();
+  server.draining = false;
   return server;
+}
+
+/** Cap on the drain wait: reviews legitimately take minutes (the stall
+ *  watchdog warns at 10), so the default must outlast a real review. */
+const DEFAULT_DRAIN_TIMEOUT_MS = 15 * 60 * 1000;
+
+export interface DrainOptions {
+  /** Cap on the drain wait; default env REXTOR_DRAIN_TIMEOUT_MS, else 15 min. */
+  timeoutMs?: number;
+  /** Exit sink; default process.exit. Tests inject a recorder. */
+  exit?: (code: number) => void;
+}
+
+/**
+ * R3 graceful drain for supervisor restarts (hub stop → SIGTERM). Reviews are
+ * ACKed BEFORE they run, so a hard kill silently loses the in-flight review —
+ * GitHub never redelivers an ACKed delivery. On the first SIGTERM/SIGINT: flip
+ * the drain gate (new webhook deliveries get 503 + Retry-After and are
+ * redelivered after restart) and wait for the queue to go idle however long
+ * that takes. The listener stays up through the drain — closing it early would
+ * turn redeliveries into ECONNREFUSED and bypass the Retry-After pacing. At
+ * the terminal step server.close() stops accepting connections before exit.
+ * Two ways out early: the wait hits the REXTOR_DRAIN_TIMEOUT_MS cap (log the
+ * state reached, exit 1 — the supervisor restart is the wedged-queue
+ * doctrine), or a second signal arrives (force exit 1). Returns a disposer
+ * removing the listeners (tests).
+ */
+export function installDrain(server: ReviewServer, options: DrainOptions = {}): () => void {
+  const exit = options.exit ?? ((code: number) => process.exit(code));
+  let signalCount = 0;
+  let cap: NodeJS.Timeout | undefined;
+
+  const onSignal = (signal: NodeJS.Signals): void => {
+    signalCount += 1;
+    if (signalCount > 1) {
+      console.error(`[rextor] second ${signal} during drain — force exit 1`);
+      exit(1);
+      return;
+    }
+    console.log(`[rextor] ${signal} — draining: finishing in-flight reviews`);
+    server.draining = true;
+    const envMs = Number(process.env.REXTOR_DRAIN_TIMEOUT_MS);
+    const timeoutMs =
+      options.timeoutMs ??
+      (process.env.REXTOR_DRAIN_TIMEOUT_MS && Number.isFinite(envMs) && envMs >= 0
+        ? envMs
+        : DEFAULT_DRAIN_TIMEOUT_MS);
+    const startedAt = Date.now();
+    cap = setTimeout(() => {
+      console.error(`[rextor] drain timed out after ${timeoutMs}ms — queue still busy; exiting 1`);
+      server.close();
+      exit(1);
+    }, timeoutMs);
+    void server.idle().then(
+      () => {
+        clearTimeout(cap);
+        server.close();
+        console.log(`[rextor] queue drained in ${Math.round((Date.now() - startedAt) / 1000)}s — exit 0`);
+        exit(0);
+      },
+      (err: unknown) => {
+        clearTimeout(cap);
+        server.close();
+        console.error("[rextor] queue idle failed — exiting 1:", err instanceof Error ? err.message : err);
+        exit(1);
+      },
+    );
+  };
+
+  for (const signal of ["SIGTERM", "SIGINT"] as const) process.on(signal, onSignal);
+  return () => {
+    for (const signal of ["SIGTERM", "SIGINT"] as const) process.removeListener(signal, onSignal);
+    clearTimeout(cap);
+  };
 }
 
 // Timing-safe token comparison: same length-guard pattern as verifySignature.
@@ -299,7 +390,9 @@ function json(res: ServerResponse, body: unknown): void {
 const entry = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
 if (import.meta.url === entry) {
   const port = Number(process.env.PORT ?? 8080);
-  createReviewServer().listen(port, () => {
+  const server = createReviewServer();
+  server.listen(port, () => {
     console.log(`[rextor] webhook listening on :${port}`);
   });
+  installDrain(server);
 }
