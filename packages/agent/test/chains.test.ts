@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { attestationChainId, CHAIN_REGISTRY, resolveChain, type ChainKey } from "../src/chains";
+import {
+  attestationChainId,
+  CHAIN_REGISTRY,
+  resolveChain,
+  targetChainIdFromFoundry,
+  type ChainKey,
+} from "../src/chains";
 
 describe("CHAIN_REGISTRY", () => {
   it("carries verified testnet params for tempo + hyperliquid, nulls elsewhere", () => {
@@ -88,5 +94,28 @@ describe("resolveChain", () => {
         `unknown chain: ${evil} (known: tempo, hyperliquid, ethereum, base, arbitrum, robinhood, solana)`,
       );
     }
+  });
+});
+
+describe("targetChainIdFromFoundry", () => {
+  it("maps registry-known chain ids through testnet.chainId", () => {
+    expect(targetChainIdFromFoundry("chain_id = 8453")).toBe(8453);
+    expect(targetChainIdFromFoundry("chain_id = 1")).toBe(1);
+    expect(targetChainIdFromFoundry("chain_id = 42161")).toBe(42161);
+    expect(targetChainIdFromFoundry("chain_id = 42431")).toBe(42431);
+    expect(targetChainIdFromFoundry("chain_id = 999")).toBe(999);
+  });
+  it("unmapped ids, empty and null contents → null (never fabricated, invariant 16)", () => {
+    expect(targetChainIdFromFoundry("chain_id = 1337")).toBeNull();
+    expect(targetChainIdFromFoundry("")).toBeNull();
+    expect(targetChainIdFromFoundry(null)).toBeNull();
+  });
+  it("strips # and // comments before matching — a commented-out hint never matches", () => {
+    expect(targetChainIdFromFoundry("# chain_id = 1")).toBeNull();
+    expect(targetChainIdFromFoundry("// chain_id = 1")).toBeNull();
+    expect(targetChainIdFromFoundry("chain_id = 8453 # prod")).toBe(8453);
+  });
+  it("the first chain_id assignment wins", () => {
+    expect(targetChainIdFromFoundry("chain_id = 42431\nchain_id = 8453")).toBe(42431);
   });
 });

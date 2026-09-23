@@ -97,6 +97,31 @@ export function attestationChainId(chain: ResolvedChain): number | null {
   return chain.attestation.chainId ?? chain.testnet.chainId;
 }
 
+/**
+ * R1 — the audited repo's foundry.toml `chain_id` hint, mapped through the
+ * SPEC-5 registry: the PRIMARY targetChainId source (SPEC-4 v2 — the chain
+ * the audited code targets). Comments are stripped per line (# and //), then
+ * the FIRST chain_id assignment wins. An id matching no registry entry (e.g.
+ * a local 1337) returns null — never fabricated (invariant 16); Robinhood
+ * (chainId: null) can never match by the same rule.
+ */
+export function targetChainIdFromFoundry(contents: string | null): number | null {
+  if (!contents) return null;
+  const code = contents
+    .split("\n")
+    .map((line) => {
+      const hash = line.indexOf("#");
+      const slash = line.indexOf("//");
+      const cut = hash === -1 ? slash : slash === -1 ? hash : Math.min(hash, slash);
+      return cut === -1 ? line : line.slice(0, cut);
+    })
+    .join("\n");
+  const match = code.match(/^\s*chain_id\s*=\s*(\d+)/m);
+  if (!match) return null;
+  const id = Number(match[1]);
+  return Object.values(CHAIN_REGISTRY).some((entry) => entry.testnet.chainId === id) ? id : null;
+}
+
 export function resolveChain(env: { REXTOR_DEFAULT_CHAIN?: string; REXTOR_FORK_RPC_URL?: string }): ResolvedChain {
   const key = (env.REXTOR_DEFAULT_CHAIN ?? "tempo") as ChainKey;
   if (!Object.hasOwn(CHAIN_REGISTRY, key)) {

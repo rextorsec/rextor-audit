@@ -4,7 +4,7 @@
 // webChainByName — a name drift silently strands the row on the default).
 import { describe, expect, it } from "vitest";
 
-import { isWebChainKey, webChainByName, WEB_CHAINS } from "@/lib/chains";
+import { isWebChainKey, RIDER_TARGET_CHAINS, webChainByName, WEB_CHAINS } from "@/lib/chains";
 
 describe("WEB_CHAINS", () => {
   it("resolves live rows by their verbatim agent-side display names", () => {
@@ -26,5 +26,14 @@ describe("WEB_CHAINS", () => {
   it("guards the /api/chain path segment", () => {
     expect(isWebChainKey("hyperliquid")).toBe(true);
     expect(isWebChainKey("nope")).toBe(false);
+  });
+});
+
+describe("RIDER_TARGET_CHAINS", () => {
+  it("pins the four rider tracks verbatim from the agent registry — robinhood params unresolved (never fabricated)", () => {
+    expect(RIDER_TARGET_CHAINS.ethereum).toEqual({ key: "ethereum", name: "Ethereum", chainId: 1 });
+    expect(RIDER_TARGET_CHAINS.base).toEqual({ key: "base", name: "Base", chainId: 8453 });
+    expect(RIDER_TARGET_CHAINS.arbitrum).toEqual({ key: "arbitrum", name: "Arbitrum One", chainId: 42161 });
+    expect(RIDER_TARGET_CHAINS.robinhood).toEqual({ key: "robinhood", name: "Robinhood Chain", chainId: null });
   });
 });

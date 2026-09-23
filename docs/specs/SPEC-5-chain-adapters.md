@@ -24,7 +24,7 @@ interface ChainConfig {
 
 - Seeded (params verified 2026-09-16): tempo testnet 42431 / `rpc.moderato.tempo.xyz` · hyperliquid testnet 998 / `rpc.hyperliquid-testnet.xyz` · ethereum 1 · base 8453 · arbitrum 42161 · robinhood `chainId: null` (params captured at integration — never fabricated).
 - `resolveChain(env)` → active `ChainConfig` from `REXTOR_DEFAULT_CHAIN` (default `tempo`); unknown key → explicit error. `REXTOR_FORK_RPC_URL` overrides the registry fork target (per-deployment escape hatch).
-- Repo-side hint: `foundry.toml` chain id ≠ active chain → warning log + comment footnote (informational only in v1 — no gating).
+- Repo-side hint (R1): the audited repo's `foundry.toml` `chain_id` is the PRIMARY `targetChainId` source for the review's attestation record (SPEC-4 v2) when it maps to a registry chain; the active home chain's id is the fallback — 0 only when neither resolves. Still informational: no gating, and the hint never enters the reviewId identity derivation.
 
 ### 2. Track profiles (`docs/track-profiles.md`)
 

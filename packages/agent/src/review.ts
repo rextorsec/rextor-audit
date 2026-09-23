@@ -9,11 +9,12 @@
 // comment with the reason. Never a silent clean pass.
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { scopeDiff, type DiffScopeResult } from "./diff-scope";
 import { buildAttestRecord, reviewIdFor, type AttestRecord } from "./attest";
 import type { ReviewRow, RepoMemory } from "./db";
-import { resolveChain, attestationChainId } from "./chains";
+import { resolveChain, attestationChainId, targetChainIdFromFoundry } from "./chains";
 import { NO_TRIAGE_MODEL, rawFindingsResult, type TriageResult } from "./triage";
 import { isAnchorRepo, runSimStage, sanitizePocSource, type PocRequest, type SimOutcomeMap } from "./sim";
 import {
@@ -461,6 +462,17 @@ function activeChainName(): string {
   }
 }
 
+// R1 — the primary targetChainId source is the audited repo's own
+// foundry.toml. Missing/unreadable file → null (the fallback chain applies);
+// attestation can never block or fail the review.
+function readFoundryToml(repoDir: string): string | null {
+  try {
+    return readFileSync(join(repoDir, "foundry.toml"), "utf8");
+  } catch {
+    return null;
+  }
+}
+
 // SPEC-4 v2 — targetChainId: the chain the audited code targets, per the SPEC-5
 // registry the engine is pointed at. 0 = unresolved (degraded, shown as-is);
 // resolveChain throws on an unknown chain key, so degrade exactly like the name.
@@ -678,9 +690,16 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
       // SPEC-4 v2 — targetChainId resolves from the SPEC-5 registry chain via
       // the SHARED null-skip helper (same recipe as makeAttestDep); 0 on the
       // record = unresolved (uint32 has no null), the footer skips rendering.
+      // R1 — the repo's own foundry.toml chain_id hint is the PRIMARY source
+      // (the chain the audited code targets); the home chain is the fallback.
+      // PR content is untrusted: only the registry-validated integer crosses
+      // into the record — the file text is never rendered or logged.
       let targetChainId = 0;
       try {
-        targetChainId = attestationChainId(resolveChain(process.env)) ?? 0;
+        targetChainId =
+          targetChainIdFromFoundry(readFoundryToml(repoDir)) ??
+          attestationChainId(resolveChain(process.env)) ??
+          0;
       } catch { /* unknown chain key — 0 */ }
       const record = buildAttestRecord({
         repoFullName: identity.repoFullName,

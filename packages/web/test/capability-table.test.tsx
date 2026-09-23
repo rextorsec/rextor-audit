@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { CapabilityTable, type Capabilities } from "@/components/capability-table";
+import { RIDER_TARGET_CHAINS } from "@/lib/chains";
 import prodData from "@/content/capabilities.json";
 
 const tempoExplorer = "https://explore.testnet.tempo.xyz";
@@ -143,5 +144,21 @@ describe("CapabilityTable", () => {
     );
     expect(ercReceipt).toBeDefined();
     expect(ercReceipt!.textContent).toContain("agentId 50891");
+  });
+
+  it("renders the rider-coverage footnote from RIDER_TARGET_CHAINS — robinhood shows params at integration, no receipt links", () => {
+    render(<CapabilityTable data={fixture} />);
+    // Names render interpolated from the constant — assert the paragraph's
+    // full text (getByText fails on split text nodes).
+    const footnote = screen.getByText(/Rider tracks/).closest("p")!;
+    const text = footnote.textContent ?? "";
+    for (const rider of Object.values(RIDER_TARGET_CHAINS)) {
+      expect(text).toContain(rider.name);
+      if (rider.chainId !== null) expect(text).toContain(String(rider.chainId));
+    }
+    expect(text).toContain("params at integration");
+    expect(text).toContain("targetChainId recorded per review");
+    // Receipts-not-claims: riders have no native deploys, so no links.
+    expect(within(footnote).queryAllByRole("link")).toHaveLength(0);
   });
 });
