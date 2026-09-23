@@ -10,6 +10,12 @@ vi.mock("@/lib/chain-read", () => ({
   readAgentIdentity: vi.fn(),
 }));
 
+// Passthrough: no Next runtime in vitest — the data-cache wrapper reduces to
+// the underlying read.
+vi.mock("next/cache", () => ({
+  unstable_cache: (fn: (chainKey: string) => unknown) => fn,
+}));
+
 const readMock = vi.mocked(readAgentIdentity);
 
 describe("GET /api/chain/[chain]", () => {
