@@ -302,6 +302,20 @@ async function handleWebhook(
     chunks.push(buf);
   }
   if (oversized) {
+    // The delivery can never succeed at this cap: record it as permanently
+    // unrecoverable so boot reconcile does not re-drive — and re-refuse —
+    // it at every boot, crowding recoverable failures out of the page
+    // budget. Header is available without body work; absent id → nothing
+    // to record.
+    const oversizeDeliveryId = header(req, "x-github-delivery");
+    if (store && oversizeDeliveryId !== undefined) {
+      try {
+        store.skipDelivery(oversizeDeliveryId, "payload exceeds 1 MiB cap");
+      } catch (err) {
+        console.error("[rextor] skip-list write failed:",
+          err instanceof Error ? err.message : err);
+      }
+    }
     res.writeHead(413, { "content-type": "application/json" });
     // Destroy only after the response is flushed so the client sees the 413
     // instead of a connection reset.
@@ -555,12 +569,23 @@ if (import.meta.url === entry) {
   // listen: GitHub never auto-redelivers, so without this the mid-drain 503s
   // (and any delivery lost to a crash) would be silent loss. Fire-and-forget:
   // reconciliation is best-effort and can never block or crash boot.
-  void reconcileFailedDeliveries().catch((err: unknown) => {
-    console.error("[rextor] delivery reconciliation crashed:", err instanceof Error ? err.message : err);
-  });
+  // Deliveries recorded as permanently unrecoverable (413 over the cap) are
+  // filtered through the store's skip list — re-driving them would 413 again
+  // at every boot. Own connection, closed when the re-drive settles (WAL
+  // tolerates the overlap with the server's store).
+  const bootStore = process.env.REXTOR_DB_PATH ? createReviewStore(process.env.REXTOR_DB_PATH) : undefined;
+  void reconcileFailedDeliveries(bootStore ? { skipList: { has: (id) => bootStore.isDeliverySkipped(id) } } : {})
+    .catch((err: unknown) => {
+      console.error("[rextor] delivery reconciliation crashed:", err instanceof Error ? err.message : err);
+    })
+    .finally(() => bootStore?.close());
   const server = createReviewServer();
-  server.listen(port, () => {
-    console.log(`[rextor] webhook listening on :${port}`);
+  // Loopback only: the public path is the same-host cloudflared tunnel; the
+  // webhook (HMAC) and /reviews (token) endpoints have no business on LAN
+  // interfaces. An all-interface bind exposed gated-but-reachable surfaces
+  // to every peer on the network.
+  server.listen(port, "127.0.0.1", () => {
+    console.log(`[rextor] webhook listening on 127.0.0.1:${port}`);
   });
   installDrain(server);
 }

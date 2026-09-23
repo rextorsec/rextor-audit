@@ -62,8 +62,18 @@ export interface ChatRateLimiter {
 export function createChatRateLimiter(maxPerHour: number = DEFAULT_RATE_LIMIT_PER_HOUR): ChatRateLimiter {
   const hits = new Map<string, number[]>();
   const notices = new Map<string, number>();
+  // Bounded-state sweep threshold: keys for dead PRs are only pruned when
+  // the SAME key is probed again, so a long-lived multi-repo service grows
+  // the maps forever. Sweep once the map grows; a fully expired map is the
+  // steady state, active keys are re-inserted on their next hit.
+  const SWEEP_AT = 1024;
   return {
     allow(key: string, now = Date.now()): boolean {
+      if (hits.size >= SWEEP_AT) {
+        for (const [k, ts] of hits) {
+          if (ts.every((t) => t <= now - HOUR_MS)) hits.delete(k);
+        }
+      }
       const recent = (hits.get(key) ?? []).filter((t) => t > now - HOUR_MS);
       if (recent.length >= maxPerHour) return false;
       recent.push(now);
@@ -71,6 +81,11 @@ export function createChatRateLimiter(maxPerHour: number = DEFAULT_RATE_LIMIT_PE
       return true;
     },
     needsThrottleNotice(key: string, now = Date.now()): boolean {
+      if (notices.size >= SWEEP_AT) {
+        for (const [k, t] of notices) {
+          if (t <= now - HOUR_MS) notices.delete(k);
+        }
+      }
       const last = notices.get(key);
       if (last !== undefined && now - last < HOUR_MS) return false;
       notices.set(key, now);

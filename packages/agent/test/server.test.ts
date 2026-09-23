@@ -547,3 +547,28 @@ describe("flood control: coalescing, pending cap, in-run recheck", () => {
     }
   });
 });
+
+describe("oversize delivery skip list (reconcile loop break)", () => {
+  it("a 413ed delivery is recorded as unrecoverable for boot reconcile", async () => {
+    const { deps } = makeFakeDeps();
+    const dir = await mkdtemp(join(tmpdir(), "rextor-skip-db-"));
+    const store = createReviewStore(join(dir, "reviews.db"));
+    try {
+      await withServer({ deps, secret: SECRET, store }, async (port) => {
+        const big = "x".repeat(MAX_BODY_BYTES + 1);
+        const res = await post(port, big, {
+          "content-type": "application/json",
+          "x-github-event": "pull_request",
+          "x-hub-signature-256": "sha256=deadbeef",
+          "x-github-delivery": "uuid-413-1",
+        });
+        expect(res.status).toBe(413);
+      });
+      expect(store.isDeliverySkipped("uuid-413-1")).toBe(true);
+      expect(store.isDeliverySkipped("uuid-other")).toBe(false);
+    } finally {
+      store.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

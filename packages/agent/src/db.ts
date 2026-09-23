@@ -36,6 +36,11 @@ export interface ReviewStore {
    *  exact (repo, pr, headSha) — a re-driven delivery for reviewed work is
    *  answered skipped instead of re-queued. */
   hasReview(repo: string, pr: number, headSha: string): boolean;
+  /** Records a permanently-unrecoverable delivery (idempotent). */
+  skipDelivery(deliveryId: string, reason: string): void;
+  /** C1 companion: true when the delivery was recorded as unrecoverable —
+   *  boot reconcile must not re-drive it (and re-refuse it) every boot. */
+  isDeliverySkipped(deliveryId: string): boolean;
   close(): void;
   /** SPEC-7 §4 — dismissals are repo-keyed, server-side (invariant 21): the
    *  base-branch yaml is synced in wholesale per review (the yaml IS the
@@ -100,6 +105,11 @@ export function createReviewStore(dbPath: string): ReviewStore {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS reviews_repo_created ON reviews(repo, created_at);
+    CREATE TABLE IF NOT EXISTS skipped_deliveries (
+      delivery_id TEXT PRIMARY KEY,
+      reason TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
   `);
   // Duplicate-review race net (server re-checks hasReview at run start; this
   // index makes the STORE itself refuse a second row for one verdict).
@@ -125,6 +135,16 @@ export function createReviewStore(dbPath: string): ReviewStore {
   // prefix of reviews_repo_created keeps it cheap).
   const hasReviewStmt = db.prepare(
     `SELECT 1 FROM reviews WHERE repo = ? AND pr = ? AND head_sha = ? LIMIT 1`,
+  );
+
+  // Permanently-unrecoverable deliveries (413 over the 1 MiB cap): recorded
+  // by the webhook when it refuses the body, consulted by boot reconcile so
+  // the same delivery is not re-driven — and re-refused — at every boot.
+  const skipDeliveryStmt = db.prepare(
+    `INSERT OR IGNORE INTO skipped_deliveries (delivery_id, reason, created_at) VALUES (?, ?, ?)`,
+  );
+  const isDeliverySkippedStmt = db.prepare(
+    `SELECT 1 FROM skipped_deliveries WHERE delivery_id = ? LIMIT 1`,
   );
 
   // SPEC-7 §4 — server-side silencing memory (repo-file stores are an
@@ -194,6 +214,12 @@ export function createReviewStore(dbPath: string): ReviewStore {
     },
     hasReview(repo: string, pr: number, headSha: string): boolean {
       return hasReviewStmt.get(repo, pr, headSha) !== undefined;
+    },
+    skipDelivery(deliveryId: string, reason: string): void {
+      skipDeliveryStmt.run(deliveryId, reason, new Date().toISOString());
+    },
+    isDeliverySkipped(deliveryId: string): boolean {
+      return isDeliverySkippedStmt.get(deliveryId) !== undefined;
     },
     close(): void {
       db.close();

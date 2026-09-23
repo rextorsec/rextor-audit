@@ -126,6 +126,24 @@ export function tagFromRepo(repo: string): string {
   return out;
 }
 
+// The broadcast is a mainnet spend behind a fire-and-forget settle point: an
+// unbounded RPC wait would stretch shutdown to the drain cap (and abandon a
+// signed tx with no operator-visible reason). Consistent with attest.ts's
+// 30s guard — the underlying call is abandoned, NOT cancelled: it may still
+// land, and the skip reason says so.
+const FEEDBACK_BUDGET_MS = 30_000;
+
+function withBudget<T>(label: string, attempt: Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} did not settle within ${FEEDBACK_BUDGET_MS}ms (may still have landed)`)),
+      FEEDBACK_BUDGET_MS,
+    );
+  });
+  return Promise.race([attempt, deadline]).finally(() => clearTimeout(timer));
+}
+
 export async function submitFeedback(
   record: FeedbackRecord,
   repo: string,
@@ -139,8 +157,8 @@ export async function submitFeedback(
   let owner: string;
   let agentWallet: string;
   try {
-    owner = (await io.readIdentity("ownerOf", cfg.agentId)).toLowerCase();
-    agentWallet = (await io.readIdentity("getAgentWallet", cfg.agentId)).toLowerCase();
+    owner = (await withBudget("identity ownerOf", io.readIdentity("ownerOf", cfg.agentId))).toLowerCase();
+    agentWallet = (await withBudget("identity getAgentWallet", io.readIdentity("getAgentWallet", cfg.agentId))).toLowerCase();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { skipped: `identity registry read failed: ${msg}` };
@@ -153,7 +171,7 @@ export async function submitFeedback(
     return { skipped: "submitter is not the bound agentWallet (SetAgentWallet8004 first)" };
   }
   try {
-    const hash = await io.giveFeedback({
+    const hash = await withBudget("giveFeedback broadcast", io.giveFeedback({
       agentId: cfg.agentId,
       value: cfg.value,
       valueDecimals: cfg.valueDecimals,
@@ -162,9 +180,9 @@ export async function submitFeedback(
       endpoint: cfg.endpoint,
       feedbackURI: record.findingsURI,
       feedbackHash: record.findingsHash ?? zeroHash,
-    });
+    }));
     // Only a success receipt is feedback worth citing (attest.ts receipt guard).
-    await io.waitFor(hash);
+    await withBudget("feedback receipt wait", io.waitFor(hash));
     return { txHash: hash, explorerUrl: "" };
   } catch (err) {
     // Log the MESSAGE only — never stack traces/env that could echo secrets.

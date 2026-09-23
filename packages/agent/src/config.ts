@@ -64,6 +64,9 @@ const parseDismissal = (v: unknown): DismissalEntry | null => {
   if (typeof d.rule_id !== "string" || typeof d.path !== "string" || typeof d.reason !== "string") {
     return null;
   }
+  // Silencing carries a public why: an empty (or whitespace-only) reason
+  // rejects the whole config rather than planting an unexplained dismissal.
+  if (d.reason.trim().length === 0) return null;
   if (d.line_hint !== undefined && typeof d.line_hint !== "number") return null;
   return {
     ruleId: d.rule_id,
