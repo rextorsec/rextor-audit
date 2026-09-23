@@ -90,8 +90,12 @@ export async function pinReport(report: ReviewResult, opts: PinOptions = {}): Pr
       }
       throw new PinUnavailableError(`unparseable response: ${err instanceof Error ? err.message : String(err)}`);
     }
-    if (typeof data.IpfsHash !== "string" || data.IpfsHash.length === 0) {
-      throw new PinUnavailableError("response missing IpfsHash");
+    // CIDv0 (base58, 46 chars, "Qm…") and CIDv1 (base32) are alphanumeric;
+    // any other byte means a hostile/misbehaving pin response. The hash is
+    // rendered into the footer's inline code AND written on-chain — a
+    // backtick or markdown byte would break the footer's inert rendering.
+    if (typeof data.IpfsHash !== "string" || !/^[A-Za-z0-9]+$/.test(data.IpfsHash)) {
+      throw new PinUnavailableError("response missing IpfsHash or not a valid CID charset");
     }
     return { uri: `ipfs://${data.IpfsHash}`, cid: data.IpfsHash };
   } finally {
