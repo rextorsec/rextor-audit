@@ -43,6 +43,19 @@ describe("LandingPage", () => {
     expect(screen.getByText(/rextor-audit\[bot\] · active/)).toBeInTheDocument();
     // RPC outage → last-verified counts (5 on-chain as of 2026-09-22).
     expect(screen.getByText(/Attested reviews · 5/)).toBeInTheDocument();
+    // Hero CTA — receipts for ALL THREE attestation chains, never Tempo-only.
+    expect(screen.getByRole("link", { name: "Tempo ↗" })).toHaveAttribute(
+      "href",
+      "https://explore.testnet.tempo.xyz/address/0x51ac8214089daf85b188437b087519acfc6c495a",
+    );
+    expect(screen.getByRole("link", { name: "HyperEVM ↗" })).toHaveAttribute(
+      "href",
+      "https://hyperevmscan.io/address/0x8f63c0581ab3b2836c95f97fcf104d2dd962850c",
+    );
+    expect(screen.getByRole("link", { name: "Solana ↗" })).toHaveAttribute(
+      "href",
+      "https://explorer.solana.com/address/Aj6NxH8Ptjn7v3QVCZEQ9dPNWx8DjmaE2oPMNvnikMDs?cluster=devnet",
+    );
   });
 
   it("sums live review counts from the chain reads", async () => {

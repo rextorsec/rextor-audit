@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { HeroSpotlight } from "@/components/hero-spotlight";
 import { Button } from "@/components/ui/button";
 import type { AgentIdentity } from "@/lib/chain-read";
-import { WEB_CHAINS, shortHex } from "@/lib/chains";
+import { SOLANA_DEVNET, WEB_CHAINS, shortHex } from "@/lib/chains";
 import { receiptLink } from "@/lib/receipt-link";
 
 /**
@@ -57,12 +57,24 @@ export function Hero({ tempo, hyperliquid }: HeroProps) {
             <Button asChild>
               <a href="#install">Install the GitHub App</a>
             </Button>
-            <a
-              className={receiptLink}
-              href={`${WEB_CHAINS.tempo.explorer}/address/${WEB_CHAINS.tempo.attestation}`}
-            >
-              See a live verdict ↗
-            </a>
+            <p className="m-0 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
+              <span className="text-muted-foreground">Live verdicts:</span>
+              <a
+                className={receiptLink}
+                href={`${WEB_CHAINS.tempo.explorer}/address/${WEB_CHAINS.tempo.attestation}`}
+              >
+                Tempo ↗
+              </a>
+              <a
+                className={receiptLink}
+                href={`${WEB_CHAINS.hyperliquid.explorer}/address/${WEB_CHAINS.hyperliquid.attestation}`}
+              >
+                HyperEVM ↗
+              </a>
+              <a className={receiptLink} href={SOLANA_DEVNET.explorerUrl}>
+                Solana ↗
+              </a>
+            </p>
           </div>
         </div>
         <figure className="m-0 w-full justify-self-end min-[60rem]:w-[calc(100%+6vw)] min-[60rem]:mr-[-6vw]">
