@@ -115,8 +115,8 @@ describe("scopeDiff", () => {
     const { contractFiles } = scopeDiff(
       [
         'diff --git "a/contracts/my \\"vault\\" file.sol" "b/contracts/my \\"vault\\" file.sol"',
-        '--- a/contracts/my \\"vault\\" file.sol',
-        '+++ b/contracts/my \\"vault\\" file.sol',
+        '--- "a/contracts/my \\"vault\\" file.sol"',
+        '+++ "b/contracts/my \\"vault\\" file.sol"',
         "@@ -1 +1 @@",
         "-x",
         "+y",
@@ -185,5 +185,63 @@ describe("scopeDiff", () => {
     ].join("\n");
     const { contractFiles } = scopeDiff(diff);
     expect(contractFiles[0].changedLineRanges).toEqual([[2, 2], [22, 22]]);
+  });
+});
+
+describe("scopeDiff × rename declassification defense", () => {
+  // Attack: git emits rename headers unquoted when possible, so the b-side of
+  // `diff --git` can itself contain " b/" and the header has no agreeing
+  // split. The header fallback tail-parses the crafted name → "x.sol" fails
+  // CONTRACT_PATH_RE → silent no-op review. The `+++` line is authoritative.
+  const ADVERSARIAL_RENAME = [
+    "diff --git a/contracts/Vault.sol b/contracts/Vault2 b/x.sol",
+    "similarity index 90%",
+    "rename from contracts/Vault.sol",
+    "rename to contracts/Vault2 b/x.sol",
+    "--- a/contracts/Vault.sol",
+    "+++ b/contracts/Vault2 b/x.sol",
+    "@@ -1,2 +1,3 @@",
+    " contract Vault {}",
+    "+uint x;",
+  ].join("\n");
+
+  it("classifies a contract rename whose header contains an adversarial ' b/'", () => {
+    const { contractFiles, hasContractChanges } = scopeDiff(ADVERSARIAL_RENAME);
+    expect(hasContractChanges).toBe(true);
+    expect(contractFiles.map((f) => f.path)).toEqual(["contracts/Vault2 b/x.sol"]);
+  });
+
+  it("keeps the header path only when there is no +++ line (binary block)", () => {
+    const binary = "diff --git a/contracts/A.sol b/contracts/B.sol\nBinary files a/contracts/A.sol and b/contracts/B.sol differ";
+    const { contractFiles, hasContractChanges } = scopeDiff(binary);
+    expect(hasContractChanges).toBe(true);
+    expect(contractFiles.map((f) => f.path)).toEqual(["contracts/B.sol"]);
+  });
+
+  it("deleted contract files stay in scope via the header path (+++ /dev/null)", () => {
+    const deletion = [
+      "diff --git a/contracts/Old.sol b/contracts/Old.sol",
+      "deleted file mode 100644",
+      "--- a/contracts/Old.sol",
+      "+++ /dev/null",
+      "@@ -1,2 +1,0 @@",
+      "-contract Old {}",
+    ].join("\n");
+    const { contractFiles, hasContractChanges } = scopeDiff(deletion);
+    expect(hasContractChanges).toBe(true);
+    expect(contractFiles.map((f) => f.path)).toEqual(["contracts/Old.sol"]);
+    expect(contractFiles[0].changedLineRanges).toEqual([]);
+  });
+
+  it("unquotes and unescapes quoted +++ paths", () => {
+    const quoted = [
+      'diff --git "a/contracts/with space.sol" "b/contracts/with space.sol"',
+      "--- \"a/contracts/with space.sol\"",
+      "+++ \"b/contracts/with space.sol\"",
+      "@@ -1,1 +1,2 @@",
+      "+uint x;",
+    ].join("\n");
+    const { contractFiles } = scopeDiff(quoted);
+    expect(contractFiles.map((f) => f.path)).toEqual(["contracts/with space.sol"]);
   });
 });
