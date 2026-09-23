@@ -101,8 +101,19 @@ export function createReviewStore(dbPath: string): ReviewStore {
     );
     CREATE INDEX IF NOT EXISTS reviews_repo_created ON reviews(repo, created_at);
   `);
+  // Duplicate-review race net (server re-checks hasReview at run start; this
+  // index makes the STORE itself refuse a second row for one verdict).
+  // Pre-existing duplicate rows would fail index creation — degrade to no
+  // index (log loudly) rather than refuse to boot; INSERT OR IGNORE needs
+  // the index to no-op, otherwise it inserts as before.
+  try {
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS reviews_repo_pr_head ON reviews(repo, pr, head_sha)`);
+  } catch (err) {
+    console.error("[rextor] reviews unique-index creation failed (duplicate rows? keeping non-unique):",
+      err instanceof Error ? err.message : err);
+  }
   const insertStmt = db.prepare(
-    `INSERT INTO reviews (${COLUMNS})
+    `INSERT OR IGNORE INTO reviews (${COLUMNS})
      VALUES (@repo, @pr, @head_sha, @review_id, @chain, @tx_hash, @explorer_url, @risk_score, @finding_count, @status, @comment_url, @created_at)`,
   );
   // ISO-8601 created_at sorts lexicographically; rowid breaks ties between

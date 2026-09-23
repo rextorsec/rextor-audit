@@ -147,7 +147,8 @@ describe("stalled response body (deadline arms through the body read)", () => {
     const stalledFetch = async (_url: unknown, init?: RequestInit): Promise<Response> => {
       // Faithful stall model: the body never emits, and the read REJECTS when
       // the abort signal fires (real undici behavior the code relies on).
-      const { promise, reject } = Promise.withResolvers<unknown>();
+      let reject!: (e: unknown) => void;
+      const promise = new Promise<unknown>((_res, rej) => { reject = rej; });
       init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
       return { ok: true, json: () => promise } as unknown as Response;
     };

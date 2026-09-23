@@ -453,3 +453,97 @@ describe("C1 re-drive dedup guard", () => {
     }
   });
 });
+
+describe("flood control: coalescing, pending cap, in-run recheck", () => {
+  // ES2022 target: no Promise.withResolvers — executor form deferred.
+  function gate(): { promise: Promise<void>; resolve: () => void } {
+    let resolve!: () => void;
+    const promise = new Promise<void>((r) => { resolve = r; });
+    return { promise, resolve };
+  }
+  const shaBody = (sha: string, action = "opened"): string =>
+    JSON.stringify({
+      action,
+      number: 42,
+      pull_request: { html_url: "https://github.com/rextor/demo/pull/42", head: { sha } },
+    });
+
+  it("a synchronize burst coalesces to the tip: superseded heads never review", async () => {
+    const { deps, comments, cloned } = makeFakeDeps();
+    const firstDiff = gate();
+    let diffCalls = 0;
+    const gatedDeps: ReviewDeps = {
+      ...deps,
+      fetchDiff: async () => {
+        diffCalls += 1;
+        if (diffCalls === 1) await firstDiff.promise; // review 1 hangs mid-run
+        return FAKE_DIFF;
+      },
+    };
+    await withServer({ deps: gatedDeps, secret: SECRET }, async (port, server) => {
+      const r1 = await post(port, shaBody("a".repeat(40)), signed(shaBody("a".repeat(40)), SECRET));
+      expect(r1.status).toBe(200); // review 1 started (in-flight, not replaceable)
+      const r2 = await post(port, shaBody("b".repeat(40), "synchronize"), signed(shaBody("b".repeat(40), "synchronize"), SECRET));
+      expect(await r2.json()).toEqual({ queued: true });
+      const r3 = await post(port, shaBody("c".repeat(40), "synchronize"), signed(shaBody("c".repeat(40), "synchronize"), SECRET));
+      expect(await r3.json()).toEqual({ queued: true }); // replaces r2's pending slot
+
+      firstDiff.resolve();
+      await server.idle();
+      // Exactly two reviews ran: the in-flight one + the tip. The superseded
+      // b-sha never cloned, never commented (pre-fix: three full reviews).
+      expect(diffCalls).toBe(2);
+      expect(comments).toHaveLength(2);
+      expect(cloned).toHaveLength(2);
+    });
+  });
+
+  it("beyond maxPendingReviews the webhook answers 503 + Retry-After", async () => {
+    const { deps, cloned } = makeFakeDeps();
+    await withServer({ deps, secret: SECRET, maxPendingReviews: 0 }, async (port) => {
+      const res = await post(port, shaBody("a".repeat(40)), signed(shaBody("a".repeat(40)), SECRET));
+      expect(res.status).toBe(503);
+      expect(res.headers.get("retry-after")).toBe("120");
+      expect(cloned).toEqual([]);
+    });
+  });
+
+  it("in-run recheck: a duplicate delivery queued behind an in-flight review skips at run start", async () => {
+    const { deps, comments, cloned } = makeFakeDeps();
+    const dirs: string[] = [];
+    const dir = await mkdtemp(join(tmpdir(), "rextor-recheck-db-"));
+    dirs.push(dir);
+    const store = createReviewStore(join(dir, "reviews.db"));
+    try {
+      const firstDiff = gate();
+      let diffCalls = 0;
+      const gatedDeps: ReviewDeps = {
+        ...deps,
+        fetchDiff: async () => {
+          diffCalls += 1;
+          if (diffCalls === 1) await firstDiff.promise; // review 1 hangs
+          return FAKE_DIFF;
+        },
+      };
+      await withServer({ deps: gatedDeps, secret: SECRET, store }, async (port, server) => {
+        const shaA = "a".repeat(40);
+        await post(port, shaBody(shaA), signed(shaBody(shaA), SECRET)); // starts review 1
+        // Duplicate for the SAME sha queued while review 1 is in flight (the
+        // arrival-time guard passes — no settled row yet).
+        const r2 = await post(port, shaBody(shaA), signed(shaBody(shaA), SECRET));
+        expect(await r2.json()).toEqual({ queued: true });
+
+        firstDiff.resolve();
+        await server.idle();
+        // Review 1 settled → row inserted; the queued duplicate re-checks at
+        // run start and skips: one review, one comment, one clone.
+        expect(diffCalls).toBe(1);
+        expect(comments).toHaveLength(1);
+        expect(cloned).toHaveLength(1);
+      });
+    } finally {
+      store.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

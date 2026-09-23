@@ -282,9 +282,11 @@ describe("issue_comment webhook end-to-end", () => {
     try {
       const { deps, comments } = makeFakeDeps();
       let calls = 0;
-      // Never-settling promise (resolvers deliberately dropped): models the
-      // undici connect-phase hang that evades Octokit's request.timeout.
-      const hung = Promise.withResolvers<string>().promise;
+      // Never-settling promise (executor form, resolvers dropped): models
+      // the undici connect-phase hang that evades Octokit's request.timeout.
+      // ES2022 lib — no Promise.withResolvers.
+      let neverResolve!: (v: string) => void;
+      const hung = new Promise<string>((r) => { neverResolve = r; });
       const hungDeps: ReviewDeps = {
         ...deps,
         postComment: async (prUrl, body) => {

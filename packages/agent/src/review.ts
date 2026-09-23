@@ -836,9 +836,10 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     let commentUrl: string | undefined;
     let commentPosted = false;
     try {
-      commentUrl = await githubStage("postComment", deps.postComment(prUrl, withConfigNote(withFooter(
+      const posted = await githubStage("postComment", deps.postComment(prUrl, withConfigNote(withFooter(
         summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote, att, diff),
         att, findingsHash))));
+      commentUrl = typeof posted === "string" ? posted : undefined;
       commentPosted = true;
     } catch (err) {
       console.error(

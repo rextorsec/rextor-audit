@@ -126,3 +126,67 @@ describe("ReviewQueue", () => {
     }
   });
 });
+
+describe("ReviewQueue × coalescing (synchronize bursts review only the tip)", () => {
+  it("replaces a pending same-key slot: the superseded run never executes", async () => {
+    const q = new ReviewQueue();
+    const ran: string[] = [];
+    const gate = deferred();
+
+    // Occupies the tail (started, in-flight).
+    void q.enqueue("d1", async () => {
+      ran.push("d1");
+      await gate.promise;
+    });
+    await flush();
+
+    // Two pending deliveries for the same key; d3 replaces d2.
+    void q.enqueueCoalesced("k", "d2", async () => { ran.push("d2"); }, "two");
+    await flush();
+    expect(q.pendingCount()).toBe(1);
+    void q.enqueueCoalesced("k", "d3", async () => { ran.push("d3"); }, "three");
+    await flush();
+    expect(q.pendingCount()).toBe(1);
+
+    gate.resolve();
+    await q.idle();
+    expect(ran).toEqual(["d1", "d3"]);
+  });
+
+  it("a started run is never replaced: a same-key delivery after start appends", async () => {
+    const q = new ReviewQueue();
+    const ran: string[] = [];
+    const gate = deferred();
+
+    void q.enqueueCoalesced("k", "d1", async () => {
+      ran.push("d1");
+      await gate.promise;
+    });
+    await flush(); // d1 started → its slot left pendingByKey
+
+    void q.enqueueCoalesced("k", "d2", async () => { ran.push("d2"); }, "two");
+    await flush();
+    expect(q.pendingCount()).toBe(1);
+
+    gate.resolve();
+    await q.idle();
+    expect(ran).toEqual(["d1", "d2"]);
+  });
+
+  it("a superseded delivery id is marked processed (its own redelivery cannot resurrect it)", async () => {
+    const q = new ReviewQueue();
+    const ran: string[] = [];
+    const gate = deferred();
+    void q.enqueue("d0", async () => { ran.push("d0"); await gate.promise; });
+    await flush();
+    void q.enqueueCoalesced("k", "d1", async () => { ran.push("d1"); });
+    await flush();
+    void q.enqueueCoalesced("k", "d2", async () => { ran.push("d2"); }); // supersedes d1
+    await flush();
+    gate.resolve();
+    await q.idle();
+    // Redelivering the superseded d1 now no-ops (already processed).
+    await q.enqueue("d1", async () => { ran.push("d1-again"); });
+    expect(ran).toEqual(["d0", "d2"]);
+  });
+});
