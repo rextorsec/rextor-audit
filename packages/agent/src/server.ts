@@ -561,6 +561,18 @@ function json(res: ServerResponse, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+// Boot-path env sourcing for the documented knobs (SPEC-1 env-at-call-time;
+// .env.example documents both — an operator setting a var must see it take
+// effect, and an unset var falls to the code defaults).
+function envServerOptions(): ReviewServerOptions {
+  const opts: ReviewServerOptions = {};
+  const pending = Number(process.env.REXTOR_MAX_PENDING_REVIEWS);
+  if (Number.isInteger(pending) && pending > 0) opts.maxPendingReviews = pending;
+  const chatLimit = Number(process.env.REXTOR_CHAT_RATE_LIMIT_PER_HOUR);
+  if (Number.isInteger(chatLimit) && chatLimit > 0) opts.chatRateLimitPerHour = chatLimit;
+  return opts;
+}
+
 // tsx src/server.ts → listen; importing server.ts from tests → no side effects.
 const entry = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
 if (import.meta.url === entry) {
@@ -579,7 +591,7 @@ if (import.meta.url === entry) {
       console.error("[rextor] delivery reconciliation crashed:", err instanceof Error ? err.message : err);
     })
     .finally(() => bootStore?.close());
-  const server = createReviewServer();
+  const server = createReviewServer(envServerOptions());
   // Loopback only: the public path is the same-host cloudflared tunnel; the
   // webhook (HMAC) and /reviews (token) endpoints have no business on LAN
   // interfaces. An all-interface bind exposed gated-but-reachable surfaces

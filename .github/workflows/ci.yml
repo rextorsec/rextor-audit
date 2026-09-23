@@ -1,0 +1,54 @@
+# Root CI — enforces what the conventions promise: typecheck + tests on every
+# PR and push, gitleaks over full history, and an advisory dependency-audit
+# signal. pull_request ONLY (never pull_request_target: PR content must never
+# get access to secrets).
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (turbo, all packages)
+        run: pnpm typecheck
+
+      # The analyzer contract tests run against the real container image; they
+      # self-skip when docker is unavailable but RUN where the image exists —
+      # so CI builds it (they pin the INCOMPLETE-never-clean-pass contract).
+      - name: Build analyzer image (contract-test fixture)
+        run: docker build -t rextor/analyzer packages/agent/analyzer
+
+      - name: Tests (turbo, all packages)
+        run: pnpm test:run
+
+      # Advisory, non-blocking while next@14 remains (tracked upgrade:
+      # next@>=15.5.24 post-CWF). Flip to blocking after the upgrade.
+      - name: Dependency audit (advisory)
+        run: pnpm audit --prod --audit-level high
+        continue-on-error: true
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history — a leak that was added and removed still counts
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

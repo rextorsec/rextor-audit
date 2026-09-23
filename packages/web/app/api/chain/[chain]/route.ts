@@ -15,5 +15,16 @@ export async function GET(_req: Request, ctx: { params: { chain: string } }): Pr
   if (!identity) {
     return Response.json({ error: "chain read failed" }, { status: 502 });
   }
-  return Response.json({ chain: key, ...identity });
+  return Response.json(
+    { chain: key, ...identity },
+    {
+      // Amplification control: every uncached hit is a live function
+      // invocation + a live RPC read from our egress. Counts drift slowly,
+      // so the CDN serves each response for 60s and serves stale up to 5
+      // minutes while revalidating — the same staleness the landing already
+      // accepts (revalidate=300). Attackers looping the endpoint hit the
+      // edge, not the RPC.
+      headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300" },
+    },
+  );
 }

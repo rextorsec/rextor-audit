@@ -25,6 +25,33 @@ export interface ReviewRow {
 /** Honest result: data OR a reason — the page never guesses. */
 export type ReviewsResult = { ok: true; rows: ReviewRow[] } | { ok: false; reason: string };
 
+/** Per-row shape check at the trust boundary: one malformed row (partial
+ *  write, schema drift) must degrade that ROW, not 500 the whole dashboard
+ *  page with a TypeError on an undefined field. Consumers index fields
+ *  unguarded, so the boundary guarantees the shape they rely on. */
+function isReviewRow(v: unknown): v is ReviewRow {
+  if (typeof v !== "object" || v === null) return false;
+  const r = v as Record<string, unknown>;
+  return (
+    typeof r.repo === "string" &&
+    typeof r.pr === "number" &&
+    typeof r.head_sha === "string" &&
+    typeof r.review_id === "string" &&
+    typeof r.chain === "string" &&
+    typeof r.tx_hash === "string" &&
+    typeof r.explorer_url === "string" &&
+    typeof r.risk_score === "number" &&
+    typeof r.finding_count === "number" &&
+    typeof r.status === "number" &&
+    typeof r.comment_url === "string" &&
+    typeof r.created_at === "string"
+  );
+}
+
+/** Render cap: the dashboard is force-dynamic — a repo with thousands of
+ *  reviews would render every row per request (self-inflicted cost). */
+export const MAX_RENDERED_ROWS = 200;
+
 export interface FetchReviewsOptions {
   /** Default: env REXTOR_AGENT_URL (service base, no trailing slash needed). */
   baseUrl?: string;
@@ -49,7 +76,7 @@ export async function fetchReviews(
   try {
     res = await doFetch(
       `${baseUrl}/reviews/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
-      { headers: { "X-API-Token": token } },
+      { headers: { "X-API-Token": token }, signal: AbortSignal.timeout(10_000) },
     );
   } catch {
     return { ok: false, reason: "review index unreachable" };
@@ -62,7 +89,10 @@ export async function fetchReviews(
   } catch {
     return { ok: false, reason: "review index returned invalid JSON" };
   }
-  const reviews = (body as { reviews?: unknown }).reviews;
+  if (typeof body !== "object" || body === null || !("reviews" in body)) {
+    return { ok: false, reason: "review index returned an unexpected shape" };
+  }
+  const reviews: unknown = body.reviews;
   if (!Array.isArray(reviews)) return { ok: false, reason: "review index returned an unexpected shape" };
-  return { ok: true, rows: reviews as ReviewRow[] };
+  return { ok: true, rows: reviews.filter(isReviewRow).slice(0, MAX_RENDERED_ROWS) };
 }

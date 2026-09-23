@@ -6,6 +6,7 @@ node_modules/
 .env
 .env.*
 !.env.example
+!*/.env.example
 
 # build
 dist/
@@ -20,6 +21,12 @@ turbo-*.json
 .hallmark/preflight.json
 .DS_Store
 *.log
+
+# operator databases (REXTOR_DB_PATH is operator-set; the review index must
+# never be one `git add .` from being published)
+*.sqlite
+*.sqlite3
+*.db
 
 # foundry / anchor
 cache/
