@@ -16,7 +16,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { runReview, prIdentity, type ReviewDeps, type ReviewResult } from "./review";
+import { githubStage, runReview, prIdentity, type ReviewDeps, type ReviewResult } from "./review";
 import { createFeedbackDep, feedbackDisabledReason, type FeedbackDep } from "./feedback";
 import { githubDeps } from "./github";
 import { MAX_BODY_BYTES, ReviewQueue } from "./queue";
@@ -358,7 +358,11 @@ async function handleWebhook(
         deliveryId,
         async () => {
           try {
-            await deps.postComment(evt.prUrl, reply);
+            // Same hard deadline as every review GitHub stage: a hung
+            // postComment must not pin the shared queue tail (the undici
+            // connect-phase hang evades Octokit's request.timeout — the
+            // exact failure class GITHUB_STAGE_BUDGET_MS exists for).
+            await githubStage("chat postComment", deps.postComment(evt.prUrl, reply));
           } catch (err) {
             console.error("[rextor] chat reply failed:", err instanceof Error ? err.message : err);
           }

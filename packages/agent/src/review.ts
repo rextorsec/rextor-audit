@@ -157,12 +157,21 @@ function githubStage<T>(label: string, stage: Promise<T>): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const deadline = new Promise<never>((_, reject) => {
     timer = setTimeout(
-      () => reject(new Error(`${label} did not settle within ${GITHUB_STAGE_BUDGET_MS}ms (hard deadline)`)),
-      GITHUB_STAGE_BUDGET_MS,
+      () => reject(new Error(`${label} did not settle within ${githubStageBudgetMs()}ms (hard deadline)`)),
+      githubStageBudgetMs(),
     );
   });
   return Promise.race([stage, deadline]).finally(() => clearTimeout(timer));
 }
+
+// Budget is read at call time (SPEC-1 env idiom): an env override is an
+// ops/test affordance; production default is the 2×-Octokit constant above.
+export function githubStageBudgetMs(): number {
+  const parsed = Number(process.env.REXTOR_GITHUB_STAGE_BUDGET_MS);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : GITHUB_STAGE_BUDGET_MS;
+}
+
+export { GITHUB_STAGE_BUDGET_MS, githubStage };
 
 /**
  * Real analyzer runner: the PR repo is mounted READ-ONLY and analyzed inside a
@@ -819,13 +828,29 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     // SPEC-7 §1 enforcement invariant: the gate sees raw ∪ final (gateView) —
     // triage may reshape the comment, never the enforcement decision.
     const conclusion = gateConclusion(gateView(findings, simmed.findings), repoConfig, dismissedKeys);
-    const commentUrl = await githubStage("postComment", deps.postComment(prUrl, withConfigNote(withFooter(
-      summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote, att, diff),
-      att, findingsHash))));
+    // Settled-path comment: the verdict already exists (attested or visibly
+    // skipped). A comment failure here must NOT throw the result away — the
+    // delivery was ACKed 200 (no reconcile redrive) and a same-id redelivery
+    // is deduped, so a thrown result means an attested review that NO surface
+    // records. Write the index row regardless and keep the failure visible.
+    let commentUrl: string | undefined;
+    let commentPosted = false;
+    try {
+      commentUrl = await githubStage("postComment", deps.postComment(prUrl, withConfigNote(withFooter(
+        summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote, att, diff),
+        att, findingsHash))));
+      commentPosted = true;
+    } catch (err) {
+      console.error(
+        "[rextor] SETTLED-REVIEW COMMENT LOST (verdict exists; index row written; manual comment redrive needed):",
+        `${identity.repoFullName}#${identity.prNumber}@${headSha.slice(0, 10)} —`,
+        err instanceof Error ? err.message : err,
+      );
+    }
     await checkRunStage(conclusion,
       `rextor audit: riskScore ${scoreValue}/100 — severity gate ${conclusion}`);
     recordIndexRow(scoreValue, simmed.findings.length, false, att, commentUrl);
-    return { commented: true, score: scoreValue, attestation: att, findings: simmed.findings };
+    return { commented: commentPosted, score: scoreValue, attestation: att, findings: simmed.findings };
   } finally {
     // The clone dir must not outlive the review on any path (token-free but
     // still disk growth); cleanup failure never masks the review result.

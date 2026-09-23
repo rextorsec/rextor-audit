@@ -9,6 +9,7 @@ import {
   type Finding,
 } from "../src/review";
 import type { AttestRecord } from "../src/attest";
+import type { ReviewRow } from "../src/db";
 import { EMPTY_FINDINGS_SHA256 } from "./vectors";
 import { rawFindingsResult } from "../src/triage";
 import { execFileSync } from "node:child_process";
@@ -263,17 +264,25 @@ describe("runReview github-io hard deadlines (hung RPC can no longer pin the que
     }
   });
 
-  it("hung postComment on the main path: rejects within the deadline instead of pinning the queue", async () => {
+  it("hung postComment on the main path: settles within the deadline instead of pinning the queue — verdict preserved, comment marked lost", async () => {
     vi.useFakeTimers();
     try {
+      const recorded: ReviewRow[] = [];
       const { deps } = makeDeps({
         runAnalyzer: async () => ndjson,
         postComment: () => never<void | string>(),
+        recordReview: (row) => {
+          recorded.push(row);
+        },
       });
       const pending = runReview(PR_URL, deps);
-      // Handler attached BEFORE advancing: during the fake-timer advance the
-      // rejection must already be observed, or Node flags unhandledRejection.
-      const assertion = expect(pending).rejects.toThrow(/postComment did not settle within/);
+      // Handler attached BEFORE advancing: during the fake-timer advance any
+      // rejection is already observed, or Node flags unhandledRejection.
+      const assertion = expect(pending).resolves.toSatisfy((res: ReviewResult) => {
+        // The githubStage deadline still fires (the queue slot is released);
+        // the SETTLED verdict is preserved and the loss is explicit.
+        return res.commented === false && res.score > 0 && recorded.length === 1;
+      });
       await vi.advanceTimersByTimeAsync(120_000);
       await assertion;
     } finally {
@@ -718,5 +727,29 @@ describe("runReview targetChainId source (SPEC-4 v2 R1)", () => {
     vi.stubEnv("REXTOR_DEFAULT_CHAIN", "tempo");
     const repo = await repoWithFoundry('[profile.default]\nchain_id = "abc"\n');
     expect((await recordFromRun(repo))?.targetChainId).toBe(42431);
+  });
+});
+
+describe("runReview × settled-path comment loss", () => {
+  const HIGH = `{"file":"src/Vault.sol","line":17,"severity":"high","check":"reentrancy","description":"ext call before state zeroing"}\n`;
+
+  it("comment failure after settle: verdict survives (index row written, commented:false, no throw)", async () => {
+    const recorded: ReviewRow[] = [];
+    const { deps } = makeDeps({
+      runAnalyzer: async () => HIGH,
+      postComment: async () => {
+        throw new Error("422 during a GitHub incident — comment gone");
+      },
+      recordReview: (row) => {
+        recorded.push(row);
+      },
+    });
+    const result = await runReview(PR_URL, deps);
+    expect(result.commented).toBe(false);
+    expect(result.findings).toHaveLength(1);
+    expect(result.attestation).toBeDefined();
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0].repo).toBe("rextor/demo");
+    expect(recorded[0].finding_count).toBe(1);
   });
 });

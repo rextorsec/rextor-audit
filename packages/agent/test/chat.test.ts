@@ -4,7 +4,7 @@
 // Drain determinism: the server exposes idle() (queue empty) — every "did the
 // reply land / did nothing land" assertion waits on that signal, never on
 // wall-clock sleeps.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createHmac } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import {
@@ -274,5 +274,46 @@ describe("issue_comment webhook end-to-end", () => {
       await server.idle();
       expect(comments).toHaveLength(0);
     });
+  });
+
+  it("hung chat postComment: the githubStage deadline releases the shared queue tail (no starvation)", async () => {
+    const savedBudget = process.env.REXTOR_GITHUB_STAGE_BUDGET_MS;
+    process.env.REXTOR_GITHUB_STAGE_BUDGET_MS = "100";
+    try {
+      const { deps, comments } = makeFakeDeps();
+      let calls = 0;
+      // Never-settling promise (resolvers deliberately dropped): models the
+      // undici connect-phase hang that evades Octokit's request.timeout.
+      const hung = Promise.withResolvers<string>().promise;
+      const hungDeps: ReviewDeps = {
+        ...deps,
+        postComment: async (prUrl, body) => {
+          calls += 1;
+          if (calls === 2) return hung; // only the reply under test hangs
+          return deps.postComment(prUrl, body); // review + proof reply settle normally
+        },
+      };
+      await withServer({ deps: hungDeps, secret: SECRET }, async (port, server) => {
+        await post(port, PR_OPENED, "pull_request", "d1");
+        await server.idle();
+        expect(comments).toHaveLength(1); // review comment settled
+
+        const r = await post(port, chatComment("@rextor-audit?"), "issue_comment", "d2");
+        expect(r.status).toBe(200);
+        // idle() resolves only when the tail settles — i.e. only after the
+        // 100ms deadline fired and the task's catch released the slot.
+        await server.idle();
+        expect(comments).toHaveLength(1); // reply lost, loudly logged — never pinned
+
+        // Proof the tail moved: a NEW task after the hang runs to completion.
+        const r3 = await post(port, chatComment("@rextor-audit again"), "issue_comment", "d3");
+        expect(r3.status).toBe(200);
+        await server.idle();
+        expect(comments).toHaveLength(2);
+      });
+    } finally {
+      if (savedBudget === undefined) delete process.env.REXTOR_GITHUB_STAGE_BUDGET_MS;
+      else process.env.REXTOR_GITHUB_STAGE_BUDGET_MS = savedBudget;
+    }
   });
 });
