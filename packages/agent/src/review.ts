@@ -16,7 +16,7 @@ import { buildAttestRecord, reviewIdFor, type AttestRecord } from "./attest";
 import type { FeedbackDep } from "./feedback";
 import type { ReviewRow, RepoMemory } from "./db";
 import { resolveChain, attestationChainId, targetChainIdFromFoundry } from "./chains";
-import { NO_TRIAGE_MODEL, rawFindingsResult, type TriageResult } from "./triage";
+import { gateView, NO_TRIAGE_MODEL, rawFindingsResult, type TriageResult } from "./triage";
 import { isAnchorRepo, runSimStage, sanitizePocSource, type PocRequest, type SimOutcomeMap } from "./sim";
 import {
   canonicalFindingsJson,
@@ -816,7 +816,9 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     }
     const scoreValue = scoreV1(simmed.findings);
     const { att, findingsHash } = await attestStage(simmed.findings, scoreValue, false);
-    const conclusion = gateConclusion(simmed.findings, repoConfig, dismissedKeys);
+    // SPEC-7 §1 enforcement invariant: the gate sees raw ∪ final (gateView) —
+    // triage may reshape the comment, never the enforcement decision.
+    const conclusion = gateConclusion(gateView(findings, simmed.findings), repoConfig, dismissedKeys);
     const commentUrl = await githubStage("postComment", deps.postComment(prUrl, withConfigNote(withFooter(
       summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote, att, diff),
       att, findingsHash))));

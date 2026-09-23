@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  applyTriage, buildCitationUniverse, validateOps,
+  applyTriage, buildCitationUniverse, gateView, validateOps,
   type TriageOp, type UniverseEntry,
 } from "../src/triage";
 import { withIds, type Finding } from "../src/findings";
@@ -113,5 +113,36 @@ describe("applyTriage", () => {
     ]);
     expect(out).toHaveLength(1);
     expect(out[0].severity).toBe("high");
+  });
+});
+
+describe("gateView (severity gate is LLM-independent)", () => {
+  it("keeps a raw critical that triage reclassified down", () => {
+    const raw = withIds([
+      { file: "src/V.sol", line: 10, severity: "critical", check: "a", description: "da" },
+    ]);
+    const final = applyTriage(raw, [
+      { op: "reclassify", id: 0, severity: "low", reason: "injected: informational only" },
+    ]);
+    const view = gateView(raw, final);
+    expect(view.some((x) => x.severity === "critical")).toBe(true);
+  });
+
+  it("keeps a raw critical that an honest dedup merged away", () => {
+    const raw = withIds([
+      { file: "src/V.sol", line: 10, severity: "critical", check: "a", description: "da" },
+      { file: "src/V.sol", line: 11, severity: "low", check: "b", description: "db" },
+    ]);
+    const final = applyTriage(raw, [{ op: "dedup", canonicalId: 1, duplicateIds: [0] }]);
+    expect(final.some((x) => x.severity === "critical")).toBe(false);
+    expect(gateView(raw, final).some((x) => x.severity === "critical")).toBe(true);
+  });
+
+  it("includes LLM-added findings (adds can only add gate pressure)", () => {
+    const raw: Finding[] = [];
+    const final = withIds([
+      { file: "src/V.sol", line: 10, severity: "high", check: "rextor/missed", description: "d" },
+    ]);
+    expect(gateView(raw, final)).toHaveLength(1);
   });
 });

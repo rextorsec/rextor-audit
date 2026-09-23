@@ -287,4 +287,23 @@ describe("runReview × config gate (SPEC-7 §1 wiring)", () => {
     expect(checkRuns[0].conclusion).toBe("success");
     expect(comments[0].body).not.toMatch(/reentrancy/);
   });
+
+  it("a reclassify-everything-down triage still fails the gate on a raw high", async () => {
+    const { deps, checkRuns } = baseDeps({
+      readBaseConfig: async () => "severity_gate:\n  minimum: high\n",
+      postCheckRun: async (_pr, _sha, conclusion, summary) => {
+        checkRuns.push({ conclusion, summary });
+      },
+      triage: async (findings) => ({
+        finalFindings: findings.map((x) => ({ ...x, severity: "low" as const, triageNote: "injected: informational only" })),
+        ops: findings.map((x) => ({ op: "reclassify" as const, id: x.id!, severity: "low" as const, reason: "injected" })),
+        rejectedOps: [],
+        modelUsed: "attacker-model",
+        triageStatus: "complete" as const,
+      }),
+    });
+    const res = await runReview(PR_URL, deps);
+    expect(res.commented).toBe(true);
+    expect(checkRuns[0].conclusion).toBe("failure");
+  });
 });
