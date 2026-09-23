@@ -34,6 +34,8 @@ export interface PinOptions {
   fetchFn?: typeof fetch;
   /** Pinata metadata name; default `rextor-audit-report`. */
   name?: string;
+  /** Overrides PIN_TIMEOUT_MS (tests; mirrors openrouter config.timeoutMs). */
+  timeoutMs?: number;
 }
 
 export interface PinResult {
@@ -58,34 +60,43 @@ export async function pinReport(report: ReviewResult, opts: PinOptions = {}): Pr
   form.append("pinataMetadata", JSON.stringify({ name: opts.name ?? "rextor-audit-report" }));
   const doFetch = opts.fetchFn ?? fetch;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), PIN_TIMEOUT_MS);
-  let res: Response;
+  const budgetMs = opts.timeoutMs ?? PIN_TIMEOUT_MS;
+  // The deadline arms for the WHOLE exchange — headers AND body. A stalled
+  // Pinata body must hit the same deadline instead of hanging a serial queue
+  // slot until undici's default body timeout.
+  const timer = setTimeout(() => controller.abort(), budgetMs);
   try {
-    res = await doFetch(PINATA_URL, {
-      method: "POST",
-      headers: { authorization: `Bearer ${jwt}` },
-      body: form,
-      signal: controller.signal,
-    });
-  } catch (err) {
-    throw new PinUnavailableError(err instanceof Error ? err.message : String(err));
+    let res: Response;
+    try {
+      res = await doFetch(PINATA_URL, {
+        method: "POST",
+        headers: { authorization: `Bearer ${jwt}` },
+        body: form,
+        signal: controller.signal,
+      });
+    } catch (err) {
+      throw new PinUnavailableError(err instanceof Error ? err.message : String(err));
+    }
+    if (!res.ok) {
+      const detail = (await res.text().catch(() => "")).slice(0, 200);
+      throw new PinUnavailableError(`http ${res.status}${detail ? `: ${detail}` : ""}`);
+    }
+    let data: { IpfsHash?: unknown };
+    try {
+      data = (await res.json()) as typeof data;
+    } catch (err) {
+      if (controller.signal.aborted) {
+        throw new PinUnavailableError(`response body did not settle within ${budgetMs}ms`);
+      }
+      throw new PinUnavailableError(`unparseable response: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (typeof data.IpfsHash !== "string" || data.IpfsHash.length === 0) {
+      throw new PinUnavailableError("response missing IpfsHash");
+    }
+    return { uri: `ipfs://${data.IpfsHash}`, cid: data.IpfsHash };
   } finally {
     clearTimeout(timer);
   }
-  if (!res.ok) {
-    const detail = (await res.text().catch(() => "")).slice(0, 200);
-    throw new PinUnavailableError(`http ${res.status}${detail ? `: ${detail}` : ""}`);
-  }
-  let data: { IpfsHash?: unknown };
-  try {
-    data = (await res.json()) as typeof data;
-  } catch (err) {
-    throw new PinUnavailableError(`unparseable response: ${err instanceof Error ? err.message : String(err)}`);
-  }
-  if (typeof data.IpfsHash !== "string" || data.IpfsHash.length === 0) {
-    throw new PinUnavailableError("response missing IpfsHash");
-  }
-  return { uri: `ipfs://${data.IpfsHash}`, cid: data.IpfsHash };
 }
 
 /**

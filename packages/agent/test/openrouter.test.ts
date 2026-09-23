@@ -141,3 +141,21 @@ describe("profile v1", () => {
     expect(openTagMsg.split("<untrusted_pr_data>")).toHaveLength(2);
   });
 });
+
+describe("stalled response body (deadline arms through the body read)", () => {
+  it("a body that never settles rejects at the deadline instead of hanging the queue slot", async () => {
+    const stalledFetch = async (_url: unknown, init?: RequestInit): Promise<Response> => {
+      // Faithful stall model: the body never emits, and the read REJECTS when
+      // the abort signal fires (real undici behavior the code relies on).
+      const { promise, reject } = Promise.withResolvers<unknown>();
+      init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      return { ok: true, json: () => promise } as unknown as Response;
+    };
+    await expect(
+      chatCompletion(
+        { apiKey: "k", model: "m", timeoutMs: 50, fetchFn: stalledFetch as unknown as typeof fetch },
+        [{ role: "user", content: "hi" }],
+      ),
+    ).rejects.toThrow(/body did not settle within 50ms/);
+  });
+});
