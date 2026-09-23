@@ -6,7 +6,8 @@
 // REXTOR_AUTO_FEEDBACK=on AND the wallet/registry env set (default OFF — the
 // RECTOR flip is the point-of-risk gate), and the settle wiring fires it
 // fire-and-forget AFTER the review settles (it can never block, fail, or
-// delay a review, and it does not participate in the R3 drain).
+// delay a review; the drain HOLDS THE EXIT until in-flight broadcasts settle
+// — I1 — and hard-incomplete reviews are withheld entirely — I2).
 //
 // Wiring mirrors attest.ts's makeAttestDep: wallet client from
 // REXTOR_AGENT_PRIVATE_KEY (re-read at call time — a long-lived server must

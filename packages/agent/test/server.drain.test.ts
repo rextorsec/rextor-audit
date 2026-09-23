@@ -257,6 +257,75 @@ describe("graceful drain on SIGTERM", () => {
       }
     },
   );
+
+  it("exit 0 waits for the in-flight feedback broadcast (I1)", async () => {
+    // With REXTOR_AUTO_FEEDBACK=on a settled review's broadcast flies
+    // fire-and-forget; a restart landing near the settle used to kill the
+    // in-flight broadcast (queue idle resolves, exit(0), promise dies — and
+    // the ACKed delivery never re-fires it). The drain must hold the exit
+    // until the broadcast settles; the review itself is already done.
+    const { deps } = makeFakeDeps();
+    deps.attest = async () => ({ txHash: "0xabc", explorerUrl: "" });
+    let feedbackStarted = false;
+    const fb = gated<{ txHash: string; explorerUrl: string }>();
+    deps.feedback = async () => {
+      feedbackStarted = true;
+      return fb.done;
+    };
+    const { calls, firstCode, exit } = captureExit();
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await withDrainServer(deps, { timeoutMs: 5_000, exit }, async (port) => {
+        const acked = await post(port, BODY, signed(BODY));
+        expect(acked.status).toBe(200);
+        await acked.json();
+        await vi.waitFor(() => expect(feedbackStarted).toBe(true)); // broadcast in flight
+        process.emit("SIGTERM", "SIGTERM");
+        // Absence check on a real clock — the drain's cap timer and the HTTP
+        // stack under test are real timers (fake timers would freeze
+        // undici/node:http).
+        await new Promise<void>((resolve) => setTimeout(resolve, 30));
+        expect(calls).toEqual([]); // exit HELD while the broadcast flies
+        fb.release({ txHash: "0xfdb", explorerUrl: "" });
+        expect(await firstCode).toBe(0);
+        expect(calls).toEqual([0]);
+      });
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("the feedback wait is bounded by the drain cap (on cap: log, exit 1)", async () => {
+    const { deps } = makeFakeDeps();
+    deps.attest = async () => ({ txHash: "0xabc", explorerUrl: "" });
+    let feedbackStarted = false;
+    let releaseNever!: () => void;
+    const never = new Promise<{ txHash: string; explorerUrl: string }>((resolve) => {
+      releaseNever = () => resolve({ txHash: "0xfdb", explorerUrl: "" });
+    });
+    deps.feedback = async () => {
+      feedbackStarted = true;
+      return never;
+    };
+    const { firstCode, exit } = captureExit();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await withDrainServer(deps, { timeoutMs: 25, exit }, async (port) => {
+        const acked = await post(port, BODY, signed(BODY));
+        expect(acked.status).toBe(200);
+        await acked.json();
+        await vi.waitFor(() => expect(feedbackStarted).toBe(true));
+        process.emit("SIGTERM", "SIGTERM");
+        const startedAt = Date.now();
+        expect(await firstCode).toBe(1);
+        expect(Date.now() - startedAt).toBeGreaterThanOrEqual(20);
+        expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("drain timed out"));
+      });
+    } finally {
+      errSpy.mockRestore();
+      releaseNever(); // settle the tracked promise so later tests see an empty set
+    }
+  });
 });
 
 describe("main guard", () => {

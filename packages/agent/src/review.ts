@@ -74,8 +74,9 @@ export interface ReviewDeps {
   recordReview?: (row: ReviewRow) => void;
   /** R2 — ERC-8004 reputation feedback. NOT invoked by runReview: the server
    *  fires it fire-and-forget at the settle point (a settled attestation is
-   *  the precondition), so it never blocks a review and never participates in
-   *  the R3 drain. */
+   *  the precondition), so it never blocks a review; the drain holds the exit
+   *  until broadcasts settle (I1), and hard-incomplete reviews are withheld
+   *  (I2). */
   feedback?: FeedbackDep;
   /** SPEC-7 §1 — reads `rextor.yaml` from the PR's BASE branch inside the
    *  clone dir (base-branch config is the only trusted silencing channel,

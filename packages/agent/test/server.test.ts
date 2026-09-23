@@ -331,6 +331,36 @@ describe("R2 feedback settle wiring", () => {
       if (prevFlag !== undefined) process.env.REXTOR_AUTO_FEEDBACK = prevFlag;
     }
   });
+
+  it("hard-incomplete-but-attested review → feedback withheld (I2)", async () => {
+    // The analyzer crashed AFTER clone, so the review attested status=1 with
+    // the empty-findings payload. An ERC-8004 broadcast here would publish a
+    // 95/100 rating whose feedbackHash is the empty-findings constant — on a
+    // permanent public ledger, indistinguishable from a complete audit.
+    const { deps } = makeFakeDeps();
+    deps.runAnalyzer = async () => {
+      throw new Error("slither crashed");
+    };
+    deps.attest = async () => ({ txHash: "0xabc", explorerUrl: "" });
+    const calls: unknown[] = [];
+    deps.feedback = async (record, repo) => {
+      calls.push({ record, repo });
+      return { txHash: "0xfdb", explorerUrl: "" };
+    };
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await withServer({ deps, secret: SECRET }, async (port, server) => {
+        await post(port, BODY, signed(BODY, SECRET));
+        await server.idle();
+      });
+      expect(calls).toEqual([]); // incomplete reviews earn NO feedback
+      expect(log).toHaveBeenCalledWith(
+        "[rextor] feedback skipped: review incomplete — feedback withheld",
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
 });
 
 describe("C1 re-drive dedup guard", () => {

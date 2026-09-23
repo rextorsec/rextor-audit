@@ -196,16 +196,21 @@ export function installDrain(server: ReviewServer, options: DrainOptions = {}): 
     server.draining = true;
     const startedAt = Date.now();
     cap = setTimeout(() => {
-      console.error(`[rextor] drain timed out after ${timeoutMs}ms — queue still busy; exiting 1`);
+      console.error(`[rextor] drain timed out after ${timeoutMs}ms — queue or feedback still busy; exiting 1`);
       server.close();
       exit(1);
     }, timeoutMs);
     void server.idle().then(
       () => {
-        clearTimeout(cap);
-        server.close();
-        console.log(`[rextor] queue drained in ${Math.round((Date.now() - startedAt) / 1000)}s — exit 0`);
-        exit(0);
+        // I1 — the queue is idle but feedback broadcasts may still be in
+        // flight; hold the exit until they settle. The cap above stays armed
+        // and bounds this wait (on cap: log + exit 1).
+        void feedbackIdle().then(() => {
+          clearTimeout(cap);
+          server.close();
+          console.log(`[rextor] queue drained in ${Math.round((Date.now() - startedAt) / 1000)}s — exit 0`);
+          exit(0);
+        });
       },
       (err: unknown) => {
         clearTimeout(cap);
@@ -430,17 +435,40 @@ async function handleWebhook(
   json(res, { queued: true });
 }
 
+// I1 — in-flight ERC-8004 feedback broadcasts. settleFeedback fires them
+// fire-and-forget after a review settles; this set lets the drain hold the
+// process exit until every broadcast settles. The reviews are already
+// settled and ACKed, so waiting can never block or delay a review — only
+// the exit — and the drain cap bounds the wait (on cap: log + exit 1).
+const inFlightFeedback = new Set<Promise<void>>();
+
+/** Resolves when every tracked feedback broadcast has settled. */
+export function feedbackIdle(): Promise<void> {
+  if (inFlightFeedback.size === 0) return Promise.resolve();
+  return Promise.allSettled([...inFlightFeedback]).then(() => undefined);
+}
+
 // R2 — ERC-8004 reputation feedback, fired ONCE per settled review, strictly
 // AFTER runReview returns and only when the artifact is ATTESTED (a skipped or
 // failed attestation is recorded as a skip with its reason — never feedback
-// without an attested artifact). Fire-and-forget by doctrine: the dep call is
-// not awaited, so it can never block, fail, or delay a settled review, and it
-// does not participate in the R3 drain. Log line only — no PR-comment
-// rendering, no DB schema change; receipts are on-chain indexable by client
-// address.
+// without an attested artifact). Fire-and-forget from the review's
+// perspective: the dep call is not awaited by the settle point, so it can
+// never block, fail, or delay a review — but it is no longer invisible to the
+// drain: installDrain holds the exit until tracked broadcasts settle (I1).
+// Hard-incomplete reviews are withheld entirely (I2): their attestation is
+// status=1 with the empty-findings payload, and a public 95/100 rating over
+// that hash would be indistinguishable from a complete audit. Log line only —
+// no PR-comment rendering, no DB schema change; receipts are on-chain
+// indexable by client address.
 function settleFeedback(feedback: FeedbackDep | undefined, prUrl: string, result: ReviewResult): void {
   if (!feedback) {
     console.log(`[rextor] feedback skipped: ${feedbackDisabledReason(process.env)}`);
+    return;
+  }
+  // I2 — hard-incomplete-but-attested: withhold by name, never broadcast a
+  // full-quality rating over the empty-findings feedbackHash.
+  if (result.incomplete) {
+    console.log("[rextor] feedback skipped: review incomplete — feedback withheld");
     return;
   }
   const att = result.attestation;
@@ -452,7 +480,8 @@ function settleFeedback(feedback: FeedbackDep | undefined, prUrl: string, result
   // A successful attestation implies prIdentity already parsed this URL inside
   // runReview, so this cannot throw on the settle path.
   const { repoFullName } = prIdentity(prUrl);
-  void feedback({ findingsURI: att.findingsURI, findingsHash: att.findingsHash }, repoFullName)
+  // I1 — the tracked promise settles only after the outcome is logged.
+  const tracked = feedback({ findingsURI: att.findingsURI, findingsHash: att.findingsHash }, repoFullName)
     .then((outcome) => {
       if ("skipped" in outcome) console.log(`[rextor] feedback skipped: ${outcome.skipped}`);
       else console.log(`[rextor] feedback recorded: tx ${outcome.txHash}`);
@@ -460,6 +489,8 @@ function settleFeedback(feedback: FeedbackDep | undefined, prUrl: string, result
     .catch((err: unknown) => {
       console.error("[rextor] feedback failed:", err instanceof Error ? err.message : err);
     });
+  inFlightFeedback.add(tracked);
+  void tracked.then(() => inFlightFeedback.delete(tracked));
 }
 
 function header(req: IncomingMessage, name: string): undefined | string {
