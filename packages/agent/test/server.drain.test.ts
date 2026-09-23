@@ -214,13 +214,18 @@ describe("graceful drain on SIGTERM", () => {
 });
 
 describe("main guard", () => {
-  it("importing server.ts installs no signal handlers (main guard stays inert)", () => {
+  it("importing server.ts installs no signal handlers (main guard stays inert)", async () => {
     // Delta check, not absolute: vitest itself may hold listeners, but the
     // module under test must add none at import time — installDrain runs
-    // only from the tsx-entry main guard.
+    // only from the tsx-entry main guard. The dynamic import is deliberate
+    // (module-loading-boundary test): a static import would evaluate the
+    // module before this body runs and make the pin tautological, so
+    // resetModules + import re-evaluates it AFTER the baseline is captured.
+    vi.resetModules();
     const beforeTerm = process.listenerCount("SIGTERM");
     const beforeInt = process.listenerCount("SIGINT");
-    expect(typeof installDrain).toBe("function");
+    const mod = await import("../src/server");
+    expect(typeof mod.installDrain).toBe("function");
     expect(process.listenerCount("SIGTERM")).toBe(beforeTerm);
     expect(process.listenerCount("SIGINT")).toBe(beforeInt);
   });
