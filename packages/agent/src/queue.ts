@@ -1,6 +1,7 @@
 // Week-2 hardening: sequential review queue with GitHub delivery dedup.
-// GitHub redelivers after ~10s of no response; without dedup the same
-// delivery double-posts comments. Work runs strictly one-at-a-time in
+// GitHub never auto-redelivers, but a re-driven delivery (manual redeliver,
+// boot-time reconciliation) replays with the SAME delivery id; without dedup
+// it would double-post comments. Work runs strictly one-at-a-time in
 // arrival order; worker errors are contained (the webhook has already
 // acknowledged 200 and must never be rejected by the queue).
 const DELIVERY_TTL_MS = 15 * 60 * 1000;

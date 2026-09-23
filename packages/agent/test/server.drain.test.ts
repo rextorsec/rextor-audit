@@ -9,11 +9,12 @@ import {
 } from "../src/server";
 import type { ReviewDeps } from "../src/review";
 
-// Drain semantics (R3): reviews are ACKed before they run, so a supervisor
-// SIGTERM must finish in-flight reviews instead of silently dropping them —
-// GitHub never redelivers an ACKed delivery. These tests pin the drain gate
-// (503 + Retry-After to mid-drain deliveries), the idle wait, the drain cap,
-// and the second-signal force exit.
+// Drain semantics (R3 + C1): reviews are ACKed before they run, so a supervisor
+// SIGTERM must finish in-flight reviews instead of silently dropping them.
+// These tests pin the drain gate (503 + Retry-After to mid-drain deliveries,
+// which MARKS them failed for boot-time reconciliation to re-drive — GitHub
+// itself never auto-redelivers), the idle wait, the drain cap, and the
+// second-signal force exit.
 
 const SECRET = "rextor-test-secret";
 const BODY =
@@ -115,7 +116,8 @@ describe("graceful drain on SIGTERM", () => {
       process.emit("SIGTERM", "SIGTERM");
 
       // Established-connection delivery during drain gets 503 + Retry-After
-      // (GitHub redelivers it after restart) and is never enqueued.
+      // (marks it failed; boot-time reconciliation re-drives it) and is never
+      // enqueued.
       const redelivery = await post(port, BODY, { ...signed(BODY), "x-github-delivery": "mid-drain-1" });
       expect(redelivery.status).toBe(503);
       expect(redelivery.headers.get("retry-after")).toBe("30");
@@ -211,6 +213,50 @@ describe("graceful drain on SIGTERM", () => {
       else process.env.REXTOR_DRAIN_TIMEOUT_MS = prev;
     }
   });
+
+  it.each(["0", "-5", "abc"])(
+    "REXTOR_DRAIN_TIMEOUT_MS=%s falls back to the default cap (logged once, exit held past the signal)",
+    async (raw) => {
+      // A cap of 0 (or unparseable → a 0/immediate cap) would exit 1 on the
+      // FIRST signal and kill the in-flight review post-ACK — silent loss.
+      // Anything not a positive number must fall back to the 15-min default
+      // with a logged warning, exactly once, at boot (install time).
+      const { deps, cloned } = makeFakeDeps();
+      const diff = gated<string>();
+      let diffRequested = false;
+      deps.fetchDiff = async () => {
+        diffRequested = true;
+        return diff.done;
+      };
+      const { calls, firstCode, exit } = captureExit();
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const prev = process.env.REXTOR_DRAIN_TIMEOUT_MS;
+      process.env.REXTOR_DRAIN_TIMEOUT_MS = raw;
+      try {
+        await withDrainServer(deps, { exit }, async (port) => {
+          const acked = await post(port, BODY, signed(BODY));
+          expect(acked.status).toBe(200);
+          await acked.json();
+          await vi.waitFor(() => expect(diffRequested).toBe(true)); // review parked mid-run
+          process.emit("SIGTERM", "SIGTERM");
+          expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("REXTOR_DRAIN_TIMEOUT_MS"));
+          expect(errSpy).toHaveBeenCalledTimes(1); // once, at boot — not per tick
+          // Absence check on a real clock — the drain's cap timer and the HTTP
+          // stack under test are real timers (fake timers would freeze
+          // undici/node:http); same pattern as the held-exit test above.
+          await new Promise<void>((resolve) => setTimeout(resolve, 30));
+          expect(calls).toEqual([]); // exit HELD — the fallback cap is not 0
+          diff.release(FAKE_DIFF);
+          expect(await firstCode).toBe(0);
+          expect(cloned).toHaveLength(1); // the in-flight review finished
+        });
+      } finally {
+        errSpy.mockRestore();
+        if (prev === undefined) delete process.env.REXTOR_DRAIN_TIMEOUT_MS;
+        else process.env.REXTOR_DRAIN_TIMEOUT_MS = prev;
+      }
+    },
+  );
 });
 
 describe("main guard", () => {
