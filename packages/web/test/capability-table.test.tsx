@@ -144,6 +144,17 @@ describe("CapabilityTable", () => {
     );
     expect(ercReceipt).toBeDefined();
     expect(ercReceipt!.textContent).toContain("agentId 50891");
+
+    // R2 — reputation row discloses the automated, evidence-backed pipeline
+    // (the settled attestation's findingsURI+hash rides every feedback) while
+    // the mainnet broadcast stays config-gated (🔴 RECTOR flag, default OFF).
+    const reputationReceipt = receiptLinks.find((a) =>
+      a.getAttribute("href")?.includes("etherscan.io/tx/0x02e73670"),
+    );
+    expect(reputationReceipt).toBeDefined();
+    expect(reputationReceipt!.textContent).toContain("automated ingestion pipeline");
+    expect(reputationReceipt!.textContent).toContain("evidence-backed");
+    expect(reputationReceipt!.textContent).toContain("broadcast config-gated");
   });
 
   it("renders the rider-coverage footnote from RIDER_TARGET_CHAINS — robinhood shows params at integration, no receipt links", () => {

@@ -13,7 +13,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { runReview, type ReviewDeps } from "./review";
+import { runReview, prIdentity, type ReviewDeps, type ReviewResult } from "./review";
+import { createFeedbackDep, feedbackDisabledReason, type FeedbackDep } from "./feedback";
 import { githubDeps } from "./github";
 import { MAX_BODY_BYTES, ReviewQueue } from "./queue";
 import { createReviewStore, type ReviewStore } from "./db";
@@ -77,10 +78,14 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
   // A caller-provided recordReview dep takes precedence over the store.
   // SPEC-7 §4 — the same store serves as the repo memory (dismissals +
   // learnings); ReviewStore structurally satisfies RepoMemory.
-  const deps: ReviewDeps =
+  const wired: ReviewDeps =
     store && !base.recordReview
       ? { ...base, recordReview: (row) => store.insert(row), repoMemory: store }
       : base;
+  // R2 — caller-provided feedback dep wins (tests); otherwise the env-gated
+  // default (undefined unless REXTOR_AUTO_FEEDBACK=on AND the wallet/registry
+  // env is set — default OFF, the mainnet broadcast is a RECTOR gate).
+  const deps: ReviewDeps = { ...wired, feedback: base.feedback ?? createFeedbackDep() };
   // SPEC-7 §5 — chat state lives with the server (cache dies on restart; the
   // reply says so honestly).
   const chat: { cache: ChatReviewCache; limiter: ChatRateLimiter } = {
@@ -370,13 +375,48 @@ async function handleWebhook(
     async () => {
       const result = await runReview(prUrl as string, deps);
       if (result.commented) chat.cache.record(prUrl as string, result);
+      // R2 settle point — feedback fires after the review lands, once, and
+      // never in the review's critical path (see settleFeedback).
+      settleFeedback(deps.feedback, prUrl as string, result);
     },
     prUrl as string,
   );
   json(res, { queued: true });
 }
 
-function header(req: IncomingMessage, name: string): string | undefined {
+// R2 — ERC-8004 reputation feedback, fired ONCE per settled review, strictly
+// AFTER runReview returns and only when the artifact is ATTESTED (a skipped or
+// failed attestation is recorded as a skip with its reason — never feedback
+// without an attested artifact). Fire-and-forget by doctrine: the dep call is
+// not awaited, so it can never block, fail, or delay a settled review, and it
+// does not participate in the R3 drain. Log line only — no PR-comment
+// rendering, no DB schema change; receipts are on-chain indexable by client
+// address.
+function settleFeedback(feedback: FeedbackDep | undefined, prUrl: string, result: ReviewResult): void {
+  if (!feedback) {
+    console.log(`[rextor] feedback skipped: ${feedbackDisabledReason(process.env)}`);
+    return;
+  }
+  const att = result.attestation;
+  if (!att || "skipped" in att) {
+    const reason = att && "skipped" in att ? att.skipped : "review never attested";
+    console.log(`[rextor] feedback skipped: no attested artifact (${reason})`);
+    return;
+  }
+  // A successful attestation implies prIdentity already parsed this URL inside
+  // runReview, so this cannot throw on the settle path.
+  const { repoFullName } = prIdentity(prUrl);
+  void feedback({ findingsURI: att.findingsURI, findingsHash: att.findingsHash }, repoFullName)
+    .then((outcome) => {
+      if ("skipped" in outcome) console.log(`[rextor] feedback skipped: ${outcome.skipped}`);
+      else console.log(`[rextor] feedback recorded: tx ${outcome.txHash}`);
+    })
+    .catch((err: unknown) => {
+      console.error("[rextor] feedback failed:", err instanceof Error ? err.message : err);
+    });
+}
+
+function header(req: IncomingMessage, name: string): undefined | string {
   const value = req.headers[name];
   return Array.isArray(value) ? value[0] : value;
 }

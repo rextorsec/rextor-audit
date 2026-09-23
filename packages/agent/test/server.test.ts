@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createHmac } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import {
@@ -263,5 +263,68 @@ describe("hardening", () => {
       await server.idle();
     });
     expect(comments).toHaveLength(1);
+  });
+});
+
+describe("R2 feedback settle wiring", () => {
+  // Fake deps + a settled ATTESTED review — the exact evidence (findingsURI +
+  // findingsHash from the attestation) must ride the feedback record.
+  const attestedDeps = () => {
+    const { deps } = makeFakeDeps();
+    deps.attest = async () => ({ txHash: "0xabc", explorerUrl: "" });
+    return deps;
+  };
+
+  it("invokes feedback exactly once after a review settles with a successful attestation", async () => {
+    const deps = attestedDeps();
+    const calls: Array<{ record: { findingsURI: string; findingsHash?: string }; repo: string }> = [];
+    deps.feedback = async (record, repo) => {
+      calls.push({ record, repo });
+      return { txHash: "0xfdb", explorerUrl: "" };
+    };
+    await withServer({ deps, secret: SECRET }, async (port, server) => {
+      const res = await post(port, BODY, signed(BODY, SECRET));
+      expect(res.status).toBe(200);
+      await server.idle(); // feedback fires AFTER the settle point
+      await vi.waitFor(() => expect(calls).toHaveLength(1));
+    });
+    expect(calls[0].repo).toBe("rextor/demo");
+    // No pin dep → degraded findingsURI ""; findingsHash is the attested sha256.
+    expect(calls[0].record.findingsURI).toBe("");
+    expect(calls[0].record.findingsHash).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
+  it("attestation skipped → feedback skipped with a reason, never invoked", async () => {
+    const { deps } = makeFakeDeps(); // no attest dep → { skipped } attestation
+    const calls: unknown[] = [];
+    deps.feedback = async (record, repo) => {
+      calls.push({ record, repo });
+      return { txHash: "0xfdb", explorerUrl: "" };
+    };
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    await withServer({ deps, secret: SECRET }, async (port, server) => {
+      await post(port, BODY, signed(BODY, SECRET));
+      await server.idle();
+    });
+    expect(calls).toEqual([]); // NEVER feedback without an attested artifact
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/feedback skipped: no attested artifact/));
+  });
+
+  it("flag unset → undefined-dependency path records the exact disabled reason", async () => {
+    const prevFlag = process.env.REXTOR_AUTO_FEEDBACK;
+    delete process.env.REXTOR_AUTO_FEEDBACK;
+    try {
+      const deps = attestedDeps(); // attested review, no feedback dep at all
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      await withServer({ deps, secret: SECRET }, async (port, server) => {
+        await post(port, BODY, signed(BODY, SECRET));
+        await server.idle();
+      });
+      expect(log).toHaveBeenCalledWith(
+        "[rextor] feedback skipped: auto-feedback disabled (REXTOR_AUTO_FEEDBACK off)",
+      );
+    } finally {
+      if (prevFlag !== undefined) process.env.REXTOR_AUTO_FEEDBACK = prevFlag;
+    }
   });
 });
