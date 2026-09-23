@@ -49,6 +49,10 @@ jobs:
         with:
           fetch-depth: 0 # full history — a leak that was added and removed still counts
 
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # gitleaks/gitleaks-action v2 requires a paid license for organizations —
+      # run the pinned upstream binary directly instead (no license, same scan).
+      - name: gitleaks (full history)
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o /tmp/gitleaks.tgz
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          /tmp/gitleaks detect --source . --config .gitleaks.toml --redact --exit-code 1 --report-path /tmp/gitleaks-report.json

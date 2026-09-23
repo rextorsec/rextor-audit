@@ -97,9 +97,9 @@ describe.skipIf(!docker)("solana slice contract (SPEC-8 §1)", () => {
     const findings = stdout.trim().split("\n").map((l: string) => JSON.parse(l))
       .sort((a: { line: number }, b: { line: number }) => a.line - b.line);
     expect(findings).toEqual([
-      { file: "lib.rs", line: 19, severity: "low", check: "REXTOR-SOL-003", description: expect.any(String) },
-      { file: "lib.rs", line: 20, severity: "high", check: "REXTOR-SOL-001", description: expect.any(String) },
-      { file: "lib.rs", line: 30, severity: "high", check: "REXTOR-SOL-002", description: expect.any(String) },
+      { file: "src/lib.rs", line: 19, severity: "low", check: "REXTOR-SOL-003", description: expect.any(String) },
+      { file: "src/lib.rs", line: 20, severity: "high", check: "REXTOR-SOL-001", description: expect.any(String) },
+      { file: "src/lib.rs", line: 30, severity: "high", check: "REXTOR-SOL-002", description: expect.any(String) },
     ]);
   });
 
