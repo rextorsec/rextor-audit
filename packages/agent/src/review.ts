@@ -298,25 +298,32 @@ function findingRow(f: Finding): string {
 }
 
 // SPEC-7 §3 — quoted cited lines: extracted VERBATIM from the PR diff (never
-// LLM-written code). Parses the + side of hunks into (newLine → text) per
-// file; returns a ±1 window around the cited line, or null when the line is
-// outside the diff — absence renders no evidence, never an invention.
+// LLM-written code). Parses the + side of hunks into per-file (newLine →
+// text) maps; the cited file is matched EXACTLY first, then by a unique
+// "/"-suffix (analyzers may report basenames while the diff carries full
+// relative paths — an ambiguous suffix matches nothing, and absence renders
+// no evidence, never an invention). Line maps are per-file: a multi-file
+// diff must not let file B's line 12 answer file A's line 12.
 export function citedLinesFromDiff(
   diff: string,
   file: string,
   line: number,
 ): Array<[number, string]> | null {
-  const byNewLine = new Map<number, string>();
+  const byFile = new Map<string, Map<number, string>>();
   let currentFile: string | null = null;
+  let lines: Map<number, string> | null = null;
   let newLine = 0;
   for (const raw of diff.split("\n")) {
     if (raw.startsWith("diff --git ")) {
       currentFile = null;
+      lines = null;
       continue;
     }
     if (raw.startsWith("+++ ")) {
       const p = raw.slice(4);
       currentFile = p.startsWith('"b/') ? p.slice(3, -1) : p.startsWith("b/") ? p.slice(2) : p;
+      lines = byFile.get(currentFile) ?? new Map<number, string>();
+      byFile.set(currentFile, lines);
       continue;
     }
     if (raw.startsWith("--- ") || raw.startsWith("index ") || raw.startsWith("new file") ||
@@ -328,21 +335,27 @@ export function citedLinesFromDiff(
       newLine = Number(hunk[1]);
       continue;
     }
-    if (currentFile === null) continue;
+    if (lines === null) continue;
     if (raw.startsWith("+")) {
-      byNewLine.set(newLine, raw.slice(1));
+      lines.set(newLine, raw.slice(1));
       newLine += 1;
     } else if (raw.startsWith("-") || raw.startsWith("\\")) {
       // old-side / no-newline marker: absent from the new file
     } else if (raw.startsWith(" ")) {
-      byNewLine.set(newLine, raw.slice(1));
+      lines.set(newLine, raw.slice(1));
       newLine += 1;
     }
     // any other line (e.g. "\ No newline at end of file" handled above) ignored
   }
+  let target = byFile.get(file);
+  if (!target) {
+    const suffixMatches = [...byFile.keys()].filter((p) => p.endsWith(`/${file}`));
+    if (suffixMatches.length === 1) target = byFile.get(suffixMatches[0]);
+  }
+  if (!target) return null;
   const window: Array<[number, string]> = [];
   for (let n = line - 1; n <= line + 1; n++) {
-    const text = byNewLine.get(n);
+    const text = target.get(n);
     if (text !== undefined) window.push([n, text]);
   }
   return window.length > 0 ? window : null;

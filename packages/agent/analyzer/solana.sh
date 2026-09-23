@@ -49,7 +49,7 @@ for r in data.get("results", []):
     # is the documented fallback — never silent (SPEC-8 §1).
     sev = meta.get("rextor_severity") or SEV.get(extra.get("severity"), "low")
     print(json.dumps({
-        "file": (r.get("path") or "?").split("/")[-1],
+        "file": r.get("path") or "?",
         "line": (r.get("start") or {}).get("line") or 0,
         "severity": sev,
         "check": (r.get("check_id") or "?").split(".")[-1],
