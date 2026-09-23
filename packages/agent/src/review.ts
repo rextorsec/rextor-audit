@@ -776,7 +776,7 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
       const { att, findingsHash } = await attestStage([], 0, true);
       const commentUrl = await githubStage("postComment", deps.postComment(prUrl,
         withConfigNote(withFooter(incompleteCommentBody(`analyzer failed: ${reason}`), att, findingsHash))));
-      await checkRunStage("neutral", `review incomplete: ${reason}`);
+      await checkRunStage("neutral", `review incomplete: ${cell(reason)}`);
       recordIndexRow(0, 0, true, att, commentUrl);
       return { commented: true, score: 0, incomplete: reason, attestation: att, findings: [] };
     }
@@ -792,7 +792,7 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
       const { att, findingsHash } = await attestStage([], 0, true);
       const commentUrl = await githubStage("postComment", deps.postComment(prUrl,
         withConfigNote(withFooter(incompleteCommentBody(reason), att, findingsHash))));
-      await checkRunStage("neutral", `review incomplete: ${reason}`);
+      await checkRunStage("neutral", `review incomplete: ${cell(reason)}`);
       recordIndexRow(0, 0, true, att, commentUrl);
       return { commented: true, score: 0, incomplete: reason, attestation: att, findings: [] };
     }
