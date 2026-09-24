@@ -33,6 +33,14 @@ jobs:
       - name: Build analyzer image (contract-test fixture)
         run: docker build -t rextor/analyzer packages/agent/analyzer
 
+      - name: Dispatch probe (bind-mount visibility on runner)
+        run: |
+          DIR=$(mktemp -d -p "$PWD" .probe-anchor-XXXX)
+          touch "$DIR/Anchor.toml"
+          echo "--- host sees:"; ls -la "$DIR"
+          docker run --rm --entrypoint sh -v "$PWD/$DIR:/repo" rextor/analyzer -c 'echo "--- container sees:"; ls -la /repo; [ -f /repo/Anchor.toml ] && echo DISPATCH-PATH-TAKEN || echo DISPATCH-MISSED'
+          rm -rf "$DIR"
+
       - name: Tests (turbo, all packages)
         run: pnpm test:run
 

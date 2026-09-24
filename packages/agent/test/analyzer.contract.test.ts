@@ -81,10 +81,16 @@ describe.skipIf(!docker)("analyzer container contract", () => {
 });
 
 // SPEC-8 §1 — Solana (Anchor) slice contract: same NDJSON/incomplete rules as
-// the EVM path (invariant 25). Synthetic trees are built under the repo root,
-// NEVER os.tmpdir: colima bind-mounts /tmp paths EMPTY, which would make the
-// dispatch test vacuously fail (known environment gotcha, hit live 2026-09-19).
+// the EVM path (invariant 25). Synthetic trees are built under os.tmpdir():
+// on GitHub runners (2026-09-24), files created at job runtime under the
+// workspace do NOT propagate into docker bind mounts (checkout-time fixture
+// dirs do) — a workspace-mounted synthetic tree dispatches against an EMPTY
+// /repo and fails. os.tmpdir() is bind-mount-visible on the runner AND under
+// Docker Desktop (the colima /tmp caveat below is obsolete: this machine runs
+// Docker Desktop, which shares /tmp; sim.contract.test.ts already relied on
+// tmpdir mounts across both environments).
 import { mkdtempSync, mkdirSync, copyFileSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const solanaFixturePath = `${repoRoot}fixtures/solana-vault`;
@@ -104,7 +110,7 @@ describe.skipIf(!docker)("solana slice contract (SPEC-8 §1)", () => {
   });
 
   it("run.sh dispatches Anchor-shaped repos to the slice (default entrypoint, same findings)", { timeout: 240_000 }, () => {
-    const dir = mkdtempSync(join(repoRoot, ".tmp-anchor-dispatch-"));
+    const dir = mkdtempSync(join(tmpdir(), "anchor-dispatch-"));
     try {
       writeFileSync(join(dir, "Anchor.toml"), "");
       mkdirSync(join(dir, "programs/x/src"), { recursive: true });
@@ -122,7 +128,7 @@ describe.skipIf(!docker)("solana slice contract (SPEC-8 §1)", () => {
   });
 
   it("Anchor-dispatched repo without rust sources → incomplete no-rust-analyzed (never clean)", { timeout: 120_000 }, () => {
-    const dir = mkdtempSync(join(repoRoot, ".tmp-anchor-empty-"));
+    const dir = mkdtempSync(join(tmpdir(), "anchor-empty-"));
     try {
       writeFileSync(join(dir, "Anchor.toml"), "");
       const { status, stdout } = runAnalyzer(dir);
