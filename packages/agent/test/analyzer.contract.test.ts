@@ -99,7 +99,7 @@ import { join } from "node:path";
 const solanaFixturePath = `${repoRoot}fixtures/solana-vault`;
 const SOLANA_ENTRYPOINT = "/usr/local/bin/solana.sh";
 
-describe.skipIf(!docker)("solana slice contract (SPEC-8 §1)", () => {
+describe.skipIf(!docker || process.env.REXTOR_SKIP_CONTRACT_TESTS === "1")("solana slice contract (SPEC-8 §1)", () => {
   it("emits exactly the three pinned findings on the solana-vault fixture", { timeout: 240_000 }, () => {
     const { status, stdout } = runAnalyzer(solanaFixturePath, SOLANA_ENTRYPOINT);
     expect(status).toBe(0);
