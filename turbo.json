@@ -1,5 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalEnv": ["REXTOR_SKIP_CONTRACT_TESTS"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

@@ -55,7 +55,10 @@ const runAnalyzer = (mount: string, entrypoint?: string): RunResult => {
   throw new Error(`docker run never produced a container exit (transient daemon failure): ${lastMessage}`);
 };
 
-describe.skipIf(!docker)("analyzer container contract", () => {
+// REXTOR_SKIP_CONTRACT_TESTS=1: container contract tests need the image
+// plus a bind-mount/uid-coherent daemon (GH-runner docs in ci.yml); they
+// run for real on the deployment host and in the contract CI job.
+describe.skipIf(!docker || process.env.REXTOR_SKIP_CONTRACT_TESTS === "1")("analyzer container contract", () => {
   it("flags reentrancy in the Vault fixture", { timeout: 180_000 }, () => {
     const { stdout } = runAnalyzer(fixturePath);
     const findings = stdout.trim().split("\n").map((l: string) => JSON.parse(l) as Finding);
@@ -81,30 +84,36 @@ describe.skipIf(!docker)("analyzer container contract", () => {
 });
 
 // SPEC-8 §1 — Solana (Anchor) slice contract: same NDJSON/incomplete rules as
-// the EVM path (invariant 25). Synthetic trees are built under the repo root,
-// NEVER os.tmpdir: colima bind-mounts /tmp paths EMPTY, which would make the
-// dispatch test vacuously fail (known environment gotcha, hit live 2026-09-19).
+// the EVM path (invariant 25). Synthetic trees are built under os.tmpdir():
+// on GitHub runners (2026-09-24), files created at job runtime under the
+// workspace do NOT propagate into docker bind mounts (checkout-time fixture
+// dirs do) — a workspace-mounted synthetic tree dispatches against an EMPTY
+// /repo and fails. os.tmpdir() is bind-mount-visible on the runner AND under
+// Docker Desktop (the colima /tmp caveat below is obsolete: this machine runs
+// Docker Desktop, which shares /tmp; sim.contract.test.ts already relied on
+// tmpdir mounts across both environments).
 import { mkdtempSync, mkdirSync, copyFileSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const solanaFixturePath = `${repoRoot}fixtures/solana-vault`;
 const SOLANA_ENTRYPOINT = "/usr/local/bin/solana.sh";
 
-describe.skipIf(!docker)("solana slice contract (SPEC-8 §1)", () => {
+describe.skipIf(!docker || process.env.REXTOR_SKIP_CONTRACT_TESTS === "1")("solana slice contract (SPEC-8 §1)", () => {
   it("emits exactly the three pinned findings on the solana-vault fixture", { timeout: 240_000 }, () => {
     const { status, stdout } = runAnalyzer(solanaFixturePath, SOLANA_ENTRYPOINT);
     expect(status).toBe(0);
     const findings = stdout.trim().split("\n").map((l: string) => JSON.parse(l))
       .sort((a: { line: number }, b: { line: number }) => a.line - b.line);
     expect(findings).toEqual([
-      { file: "lib.rs", line: 19, severity: "low", check: "REXTOR-SOL-003", description: expect.any(String) },
-      { file: "lib.rs", line: 20, severity: "high", check: "REXTOR-SOL-001", description: expect.any(String) },
-      { file: "lib.rs", line: 30, severity: "high", check: "REXTOR-SOL-002", description: expect.any(String) },
+      { file: "src/lib.rs", line: 19, severity: "low", check: "REXTOR-SOL-003", description: expect.any(String) },
+      { file: "src/lib.rs", line: 20, severity: "high", check: "REXTOR-SOL-001", description: expect.any(String) },
+      { file: "src/lib.rs", line: 30, severity: "high", check: "REXTOR-SOL-002", description: expect.any(String) },
     ]);
   });
 
   it("run.sh dispatches Anchor-shaped repos to the slice (default entrypoint, same findings)", { timeout: 240_000 }, () => {
-    const dir = mkdtempSync(join(repoRoot, ".tmp-anchor-dispatch-"));
+    const dir = mkdtempSync(join(tmpdir(), "anchor-dispatch-"));
     try {
       writeFileSync(join(dir, "Anchor.toml"), "");
       mkdirSync(join(dir, "programs/x/src"), { recursive: true });
@@ -122,7 +131,7 @@ describe.skipIf(!docker)("solana slice contract (SPEC-8 §1)", () => {
   });
 
   it("Anchor-dispatched repo without rust sources → incomplete no-rust-analyzed (never clean)", { timeout: 120_000 }, () => {
-    const dir = mkdtempSync(join(repoRoot, ".tmp-anchor-empty-"));
+    const dir = mkdtempSync(join(tmpdir(), "anchor-empty-"));
     try {
       writeFileSync(join(dir, "Anchor.toml"), "");
       const { status, stdout } = runAnalyzer(dir);

@@ -115,3 +115,40 @@ describe("evidence-forward rendering (SPEC-7 §3)", () => {
     expect(body).not.toContain("\r");
   });
 });
+
+describe("citedLinesFromDiff × path scoping (nested-path + cross-file fixes)", () => {
+  const MULTI = `diff --git a/contracts/Vault.sol b/contracts/Vault.sol
+index 0000000..1111111 100644
+--- a/contracts/Vault.sol
++++ b/contracts/Vault.sol
+@@ -1,2 +1,3 @@
+ contract Vault {}
++uint a;
+diff --git a/contracts/test/Helper.t.sol b/contracts/test/Helper.t.sol
+index 0000000..2222222 100644
+--- a/contracts/test/Helper.t.sol
++++ b/contracts/test/Helper.t.sol
+@@ -1,2 +1,3 @@
+ contract Helper {}
++uint b;
+`;
+
+  it("a basename finding matches a unique full diff path (analyzer basename form)", () => {
+    const lines = citedLinesFromDiff(MULTI, "Vault.sol", 2);
+    expect(lines).toEqual([[1, "contract Vault {}"], [2, "uint a;"]]);
+  });
+
+  it("an ambiguous basename matches nothing (honest absence, never the wrong file)", () => {
+    const ambiguous = `${MULTI}diff --git a/other/Vault.sol b/other/Vault.sol\n+++ b/other/Vault.sol\n@@ -1,1 +1,2 @@\n+x\n`;
+    expect(citedLinesFromDiff(ambiguous, "Vault.sol", 2)).toBeNull();
+  });
+
+  it("per-file line maps: file B's line 3 never answers file A's line 3", () => {
+    expect(citedLinesFromDiff(MULTI, "contracts/Vault.sol", 2)).toEqual([[1, "contract Vault {}"], [2, "uint a;"]]);
+    expect(citedLinesFromDiff(MULTI, "contracts/test/Helper.t.sol", 2)).toEqual([[1, "contract Helper {}"], [2, "uint b;"]]);
+  });
+
+  it("an unknown file renders no evidence", () => {
+    expect(citedLinesFromDiff(MULTI, "contracts/Absent.sol", 2)).toBeNull();
+  });
+});

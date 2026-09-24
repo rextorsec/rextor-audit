@@ -16,7 +16,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { runReview, prIdentity, type ReviewDeps, type ReviewResult } from "./review";
+import { githubStage, runReview, prIdentity, type ReviewDeps, type ReviewResult } from "./review";
 import { createFeedbackDep, feedbackDisabledReason, type FeedbackDep } from "./feedback";
 import { githubDeps } from "./github";
 import { MAX_BODY_BYTES, ReviewQueue } from "./queue";
@@ -59,7 +59,15 @@ export interface ReviewServerOptions {
   chatRateLimitPerHour?: number;
   /** Queue stall-warn interval for a single run; default 10 min (queue.ts). */
   stallWarnMs?: number;
+  /** Pending-review cap: beyond it, webhook reviews answer 503 + Retry-After
+   *  (GitHub marks the delivery failed; boot reconcile re-drives it).
+   *  Flood control — a synchronize loop on any installed repo must not
+   *  starve every other repo for hours. Default 25. */
+  maxPendingReviews?: number;
 }
+
+/** Default for maxPendingReviews (see ReviewServerOptions). */
+export const DEFAULT_MAX_PENDING_REVIEWS = 25;
 
 /** HTTP server exposing the review queue drain as a test/ops affordance. */
 export interface ReviewServer extends Server {
@@ -123,7 +131,7 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
       });
       return;
     }
-    void handleWebhook(req, res, options.secret, deps, queue, chat, store).catch((err) => {
+    void handleWebhook(req, res, options.secret, deps, queue, chat, store, options.maxPendingReviews ?? DEFAULT_MAX_PENDING_REVIEWS).catch((err) => {
       console.error("[rextor] webhook handler crashed:", err);
       if (!res.headersSent) {
         res.statusCode = 500;
@@ -277,6 +285,7 @@ async function handleWebhook(
   queue: ReviewQueue,
   chat: { cache: ChatReviewCache; limiter: ChatRateLimiter },
   store: ReviewStore | undefined,
+  maxPendingReviews: number,
 ): Promise<void> {
   // Cap the pre-signature buffer: stop accumulating the moment the ceiling is
   // crossed and answer 413 — signature work (and any review) never sees it.
@@ -293,6 +302,20 @@ async function handleWebhook(
     chunks.push(buf);
   }
   if (oversized) {
+    // The delivery can never succeed at this cap: record it as permanently
+    // unrecoverable so boot reconcile does not re-drive — and re-refuse —
+    // it at every boot, crowding recoverable failures out of the page
+    // budget. Header is available without body work; absent id → nothing
+    // to record.
+    const oversizeDeliveryId = header(req, "x-github-delivery");
+    if (store && oversizeDeliveryId !== undefined) {
+      try {
+        store.skipDelivery(oversizeDeliveryId, "payload exceeds 1 MiB cap");
+      } catch (err) {
+        console.error("[rextor] skip-list write failed:",
+          err instanceof Error ? err.message : err);
+      }
+    }
     res.writeHead(413, { "content-type": "application/json" });
     // Destroy only after the response is flushed so the client sees the 413
     // instead of a connection reset.
@@ -358,7 +381,11 @@ async function handleWebhook(
         deliveryId,
         async () => {
           try {
-            await deps.postComment(evt.prUrl, reply);
+            // Same hard deadline as every review GitHub stage: a hung
+            // postComment must not pin the shared queue tail (the undici
+            // connect-phase hang evades Octokit's request.timeout — the
+            // exact failure class GITHUB_STAGE_BUDGET_MS exists for).
+            await githubStage("chat postComment", deps.postComment(evt.prUrl, reply));
           } catch (err) {
             console.error("[rextor] chat reply failed:", err instanceof Error ? err.message : err);
           }
@@ -417,13 +444,44 @@ async function handleWebhook(
     }
   }
 
+  // Flood control: beyond the pending cap, refuse with 503 + Retry-After.
+  // GitHub marks the delivery failed; boot reconciliation re-drives it once
+  // the queue has room. Without this, a synchronize loop on ANY installed
+  // repo occupies the serial tail for hours and starves every other repo.
+  if (queue.pendingCount() >= maxPendingReviews) {
+    console.error(`[rextor] delivery ${deliveryId} refused: ${queue.pendingCount()} reviews pending (cap ${maxPendingReviews})`);
+    res.writeHead(503, { "retry-after": "120", "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "review queue at capacity; retry later" }));
+    return;
+  }
+
   // Hardening: acknowledge BEFORE the review runs. The queue dedups by
-  // delivery id (a re-driven or manually redelivered delivery keeps its id)
-  // and contains worker errors, so the enqueue promise is intentionally not
-  // awaited. SPEC-7 §5 — the settled review becomes the chat answer source.
-  void queue.enqueue(
+  // delivery id (a re-driven or manually redelivered delivery keeps its id),
+  // COALESCES pending deliveries for the same PR (a synchronize burst leaves
+  // only the tip reviewed — runReview fetches the diff at execution time, so
+  // the pending closure is always "review the current tip"), and contains
+  // worker errors, so the enqueue promise is intentionally not awaited.
+  // SPEC-7 §5 — the settled review becomes the chat answer source.
+  void queue.enqueueCoalesced(
+    prUrl as string,
     deliveryId,
     async () => {
+      // C1 race net: the arrival-time guard ran before the wait in the tail;
+      // a duplicate delivery for the same (repo, pr, headSha) could pass both
+      // guards before either review settles. Re-check at run start.
+      const headSha = (payload.pull_request?.head?.sha ?? "") as string;
+      if (store && typeof headSha === "string" && headSha.length > 0) {
+        try {
+          const { repoFullName, prNumber } = prIdentity(prUrl as string);
+          if (store.hasReview(repoFullName, prNumber, headSha)) {
+            console.log(`[rextor] queued review skipped (already reviewed): ${repoFullName}#${prNumber} @ ${headSha.slice(0, 12)}`);
+            return;
+          }
+        } catch (err) {
+          console.error("[rextor] in-run re-drive guard failed — reviewing anyway:",
+            err instanceof Error ? err.message : err);
+        }
+      }
       const result = await runReview(prUrl as string, deps);
       if (result.commented) chat.cache.record(prUrl as string, result);
       // R2 settle point — feedback fires after the review lands, once, and
@@ -503,6 +561,18 @@ function json(res: ServerResponse, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+// Boot-path env sourcing for the documented knobs (SPEC-1 env-at-call-time;
+// .env.example documents both — an operator setting a var must see it take
+// effect, and an unset var falls to the code defaults).
+function envServerOptions(): ReviewServerOptions {
+  const opts: ReviewServerOptions = {};
+  const pending = Number(process.env.REXTOR_MAX_PENDING_REVIEWS);
+  if (Number.isInteger(pending) && pending > 0) opts.maxPendingReviews = pending;
+  const chatLimit = Number(process.env.REXTOR_CHAT_RATE_LIMIT_PER_HOUR);
+  if (Number.isInteger(chatLimit) && chatLimit > 0) opts.chatRateLimitPerHour = chatLimit;
+  return opts;
+}
+
 // tsx src/server.ts → listen; importing server.ts from tests → no side effects.
 const entry = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
 if (import.meta.url === entry) {
@@ -511,12 +581,23 @@ if (import.meta.url === entry) {
   // listen: GitHub never auto-redelivers, so without this the mid-drain 503s
   // (and any delivery lost to a crash) would be silent loss. Fire-and-forget:
   // reconciliation is best-effort and can never block or crash boot.
-  void reconcileFailedDeliveries().catch((err: unknown) => {
-    console.error("[rextor] delivery reconciliation crashed:", err instanceof Error ? err.message : err);
-  });
-  const server = createReviewServer();
-  server.listen(port, () => {
-    console.log(`[rextor] webhook listening on :${port}`);
+  // Deliveries recorded as permanently unrecoverable (413 over the cap) are
+  // filtered through the store's skip list — re-driving them would 413 again
+  // at every boot. Own connection, closed when the re-drive settles (WAL
+  // tolerates the overlap with the server's store).
+  const bootStore = process.env.REXTOR_DB_PATH ? createReviewStore(process.env.REXTOR_DB_PATH) : undefined;
+  void reconcileFailedDeliveries(bootStore ? { skipList: { has: (id) => bootStore.isDeliverySkipped(id) } } : {})
+    .catch((err: unknown) => {
+      console.error("[rextor] delivery reconciliation crashed:", err instanceof Error ? err.message : err);
+    })
+    .finally(() => bootStore?.close());
+  const server = createReviewServer(envServerOptions());
+  // Loopback only: the public path is the same-host cloudflared tunnel; the
+  // webhook (HMAC) and /reviews (token) endpoints have no business on LAN
+  // interfaces. An all-interface bind exposed gated-but-reachable surfaces
+  // to every peer on the network.
+  server.listen(port, "127.0.0.1", () => {
+    console.log(`[rextor] webhook listening on 127.0.0.1:${port}`);
   });
   installDrain(server);
 }

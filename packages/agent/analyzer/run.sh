@@ -24,7 +24,7 @@ TMP="$(mktemp -d)/slither.json" || { echo '{"status":"incomplete","reason":"tmpd
 # file is the source of truth.
 if slither . --json "$TMP" --fail-none >/dev/null 2>"$TMP.err"; then
   python3 - "$TMP" "$TMP.err" <<'PY'
-import json, sys
+import json, os, sys
 try:
     with open(sys.argv[1]) as f:
         data = json.load(f)
@@ -38,16 +38,35 @@ try:
 except OSError:
     stderr_text = ""
 # slither exits 0 even when it compiled nothing ("No contract was analyzed",
-# results: {}); that is an analyzer failure, never a clean pass.
-if not detectors and "No contract was analyzed" in stderr_text:
-    print('{"status":"incomplete","reason":"no-contract-analyzed"}')
-    sys.exit(3)
+# results: {}); that is an analyzer failure, never a clean pass. The message
+# check is the primary net; the .sol walk is the structural fallback (message
+# drift under an image bump must not turn an empty scan into a clean pass).
+# Vendored/tooling trees are pruned so only the repo's own sources count —
+# a genuinely clean repo (own .sol present, slither exit 0) stays a clean
+# pass; only a repo with nothing of its own to analyze is incomplete.
+if not detectors:
+    phrased = "No contract was analyzed" in stderr_text
+    has_own_sol = False
+    if not phrased:
+        for root, dirs, files in os.walk("."):
+            dirs[:] = [d for d in dirs if d not in
+                       ("lib", "node_modules", "out", "cache", "artifacts", "broadcast", ".git")]
+            if any(f.endswith(".sol") for f in files):
+                has_own_sol = True
+                break
+    if phrased or not has_own_sol:
+        reason = "no-contract-analyzed" if phrased else "no-sol-sources"
+        print(json.dumps({"status": "incomplete", "reason": reason}))
+        sys.exit(3)
 for d in detectors:
     sev = {"High": "high", "Medium": "medium", "Low": "low"}.get(d.get("impact"), "low")
     first = (d.get("elements") or [{}])[0]
     src = first.get("source_mapping", {}) or {}
     print(json.dumps({
-        "file": (src.get("filename_relative") or "?").split("/")[-1],
+        # Full repo-relative path (not the basename): SPEC-7 §3 evidence
+        # citations match diff paths, and a basename is ambiguous across
+        # nested layouts.
+        "file": src.get("filename_relative") or "?",
         "line": (src.get("lines") or [0])[0],
         "severity": sev,
         "check": d.get("check", "?"),
@@ -63,7 +82,7 @@ else
   # Interpolate through json.dumps: raw stderr can contain quotes, which would
   # break the single-line JSON contract.
   python3 - "$TMP.err" <<'PY'
-import json, sys
+import json, os, sys
 err = open(sys.argv[1], errors="replace").read()[:200].replace("\n", " ").strip()
 print(json.dumps({"status": "incomplete", "reason": f"slither-error: {err}"}))
 PY

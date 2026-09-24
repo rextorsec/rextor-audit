@@ -42,35 +42,45 @@ export async function chatCompletion(config: OpenRouterConfig, messages: ChatMes
 
 async function chatCompletionOnce(config: OpenRouterConfig, messages: ChatMessage[]): Promise<string> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), config.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS);
-  let res: Response;
+  const budgetMs = config.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS;
+  // The deadline arms for the WHOLE exchange — headers AND body. Clearing it
+  // after the headers land would let a stalled response body hang a serial
+  // queue slot indefinitely (the abort never fires; undici's default body
+  // timeout is a safety net, not a contract).
+  const timer = setTimeout(() => controller.abort(), budgetMs);
   try {
-    res = await (config.fetchFn ?? fetch)(OPENROUTER_URL, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${config.apiKey}` },
-      body: JSON.stringify({
-        model: config.model,
-        temperature: 0,
-        max_tokens: config.maxTokens ?? DEFAULT_MAX_TOKENS,
-        messages,
-      }),
-      signal: controller.signal,
-    });
-  } catch (err) {
-    throw new TriageUnavailableError(err instanceof Error ? err.message : String(err));
+    let res: Response;
+    try {
+      res = await (config.fetchFn ?? fetch)(OPENROUTER_URL, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${config.apiKey}` },
+        body: JSON.stringify({
+          model: config.model,
+          temperature: 0,
+          max_tokens: config.maxTokens ?? DEFAULT_MAX_TOKENS,
+          messages,
+        }),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      throw new TriageUnavailableError(err instanceof Error ? err.message : String(err));
+    }
+    if (!res.ok) throw new TriageUnavailableError(`http ${res.status}`);
+    let data: { choices?: Array<{ message?: { content?: unknown } }> };
+    try {
+      data = (await res.json()) as typeof data;
+    } catch (err) {
+      if (controller.signal.aborted) {
+        throw new TriageUnavailableError(`response body did not settle within ${budgetMs}ms`);
+      }
+      throw new TriageUnavailableError(`unparseable response: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const content = data.choices?.[0]?.message?.content;
+    if (typeof content !== "string") return "";
+    return content;
   } finally {
     clearTimeout(timer);
   }
-  if (!res.ok) throw new TriageUnavailableError(`http ${res.status}`);
-  let data: { choices?: Array<{ message?: { content?: unknown } }> };
-  try {
-    data = (await res.json()) as typeof data;
-  } catch (err) {
-    throw new TriageUnavailableError(`unparseable response: ${err instanceof Error ? err.message : String(err)}`);
-  }
-  const content = data.choices?.[0]?.message?.content;
-  if (typeof content !== "string") return "";
-  return content;
 }
 
 /** First balanced JSON array in the text (fences/prose tolerated), or null. */

@@ -58,6 +58,27 @@ function newPathFromHeader(line: string): string | undefined {
   return fallback === -1 ? undefined : rest.slice(fallback + " b/".length);
 }
 
+/**
+ * New-side path from the file's `+++ b/…` line — the AUTHORITATIVE new-side
+ * name (exactly one path, git-quoted when it contains specials). The
+ * `diff --git` header carries BOTH sides and is ambiguous for adversarial
+ * names: "… b/x.md b/contracts/Evil.sol" has no agreeing split for a rename,
+ * and tail-parsing a crafted rename can declassify a contract file into a
+ * silent no-op review. This line cannot lie about the new side. The header
+ * parse stays as the fallback for blocks with no `+++` line (binary diffs)
+ * and for deletions (`+++ /dev/null` keeps the header's old-side path so a
+ * deleted contract still lands in scope).
+ */
+function newPathFromPlusLine(line: string): string | undefined {
+  const rest = line.slice("+++ ".length);
+  if (rest === "/dev/null") return undefined;
+  if (rest.startsWith('"')) {
+    const inner = rest.slice(1, -1);
+    return unescapeGitPath(inner.startsWith("b/") ? inner.slice(2) : inner);
+  }
+  return rest.startsWith("b/") ? rest.slice(2) : rest;
+}
+
 function mergeRuns(lines: number[]): Array<[number, number]> {
   const ranges: Array<[number, number]> = [];
   for (const n of lines) {
@@ -97,6 +118,14 @@ export function scopeDiff(diff: string): DiffScopeResult {
       continue;
     }
     if (inHunk && newRemaining === 0 && oldRemaining === 0) inHunk = false;
+
+    // The `+++ b/…` line precedes the first hunk: correct the header-derived
+    // path with the authoritative new-side name (rename-declassify defense).
+    if (!inHunk && line.startsWith("+++ ")) {
+      const plusPath = newPathFromPlusLine(line);
+      if (plusPath !== undefined) path = plusPath;
+      continue;
+    }
 
     const hunk = HUNK_RE.exec(line);
     if (hunk) {

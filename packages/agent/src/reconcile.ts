@@ -40,6 +40,9 @@ export function reconciliationDisabledReason(env: NodeJS.ProcessEnv): string | u
 /** The one delivery field that matters here; everything else is ignored. */
 interface HookDelivery {
   id: number;
+  /** The webhook's x-github-delivery UUID — the identifier OUR handler sees
+   *  (the numeric id is GitHub-API-internal). The skip list is keyed by this. */
+  guid?: string;
   status: string;
 }
 
@@ -58,6 +61,10 @@ export interface ReconcileDeps {
   now?: () => number;
   /** PEM reader seam (tests); default readFileSync. */
   pemReader?: (path: string) => string;
+  /** Permanently-unrecoverable deliveries (e.g. 413 over the body cap):
+   *  recorded by the webhook, never re-driven here — re-driving them would
+   *  loop 413 at every boot and crowd out recoverable failures. */
+  skipList?: { has(deliveryId: string): boolean };
 }
 
 export async function reconcileFailedDeliveries(deps: ReconcileDeps = {}): Promise<ReconcileOutcome> {
@@ -93,7 +100,13 @@ export async function reconcileFailedDeliveries(deps: ReconcileDeps = {}): Promi
     const failed = deliveries.filter((d) => d.status === "failed").slice(0, RECONCILE_PAGE_SIZE);
     let redriven = 0;
     let failedRedrives = 0;
+    let skippedUnrecoverable = 0;
     for (const d of failed) {
+      const skipKey = d.guid ?? String(d.id);
+      if (deps.skipList?.has(skipKey)) {
+        skippedUnrecoverable += 1;
+        continue;
+      }
       try {
         const res = await fetchFn(`${API}/app/hook/deliveries/${d.id}/attempts`, {
           method: "POST",
@@ -113,7 +126,7 @@ export async function reconcileFailedDeliveries(deps: ReconcileDeps = {}): Promi
           err instanceof Error ? err.message : err);
       }
     }
-    console.log(`[rextor] delivery reconciliation: ${redriven} re-driven, ${failedRedrives} failed of ${deliveries.length} recent`);
+    console.log(`[rextor] delivery reconciliation: ${redriven} re-driven, ${failedRedrives} failed, ${skippedUnrecoverable} skipped (unrecoverable) of ${deliveries.length} recent`);
     return { redriven, failed: failedRedrives };
   } catch (err) {
     const reason = `delivery list failed: ${err instanceof Error ? err.message : String(err)}`;

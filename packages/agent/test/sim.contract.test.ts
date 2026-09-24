@@ -227,14 +227,14 @@ async function runSimContainerAnvil(repoDir: string, pocSource: string): Promise
 
 describe("runSimContainer (docker-gated)", () => {
   maybeIt("runs a passing PoC against a local anvil fork → confirmed", async () => {
-    if (!(await dockerUp())) return; // graceful skip
+    if (!(await dockerUp()) || process.env.REXTOR_SKIP_CONTRACT_TESTS === "1") return; // graceful skip (see ci.yml contract job)
     const out = await runSimContainerAnvil(FIXTURES_VAULT, VAULT_DRAIN_POC);
     expect(out.block).toBeGreaterThan(0);
     expect(out.results["testRextorPoc_0"]).toBe(true);
   }, 300_000);
 
   it("adversarial: PR foundry.toml ffi=true (linear + dotted forms) → ffi must stay denied", async () => {
-    if (!(await dockerUp())) return; // graceful skip
+    if (!(await dockerUp()) || process.env.REXTOR_SKIP_CONTRACT_TESTS === "1") return; // graceful skip (see ci.yml contract job)
     const anvil = await startAnvilContainer();
     try {
       for (const variant of FFI_TOML_VARIANTS) {
@@ -271,7 +271,7 @@ describe("runSimContainer (docker-gated)", () => {
   }, 300_000);
 
   it("FFI gate refusal writes its cause to /poc/stderr.txt (stderrTail visibility)", async () => {
-    if (!(await dockerUp())) return; // graceful skip
+    if (!(await dockerUp()) || process.env.REXTOR_SKIP_CONTRACT_TESTS === "1") return; // graceful skip (see ci.yml contract job)
     const fixtureCopy = await makeFixtureCopy("rextor-sim-gate-");
     // Inline-table profile form: valid TOML forge RESOLVES to ffi=true, but
     // sim.sh's line-based sed rewrite cannot match it — the exact gate-1
@@ -308,7 +308,7 @@ describe("runSimContainer (docker-gated)", () => {
   }, 300_000);
 
   it("decoy same-name contract cannot confirm: only test/RextorPoc.t.sol runs", async () => {
-    if (!(await dockerUp())) return; // graceful skip
+    if (!(await dockerUp()) || process.env.REXTOR_SKIP_CONTRACT_TESTS === "1") return; // graceful skip (see ci.yml contract job)
     const fixtureCopy = await makeFixtureCopy("rextor-sim-decoy-");
     await writeFile(join(fixtureCopy, "test", "ZZZ.t.sol"), DECOY_POC, "utf8");
     const anvil = await startAnvilContainer();

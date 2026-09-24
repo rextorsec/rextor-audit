@@ -16,7 +16,7 @@ import { buildAttestRecord, reviewIdFor, type AttestRecord } from "./attest";
 import type { FeedbackDep } from "./feedback";
 import type { ReviewRow, RepoMemory } from "./db";
 import { resolveChain, attestationChainId, targetChainIdFromFoundry } from "./chains";
-import { NO_TRIAGE_MODEL, rawFindingsResult, type TriageResult } from "./triage";
+import { gateView, NO_TRIAGE_MODEL, rawFindingsResult, type TriageResult } from "./triage";
 import { isAnchorRepo, runSimStage, sanitizePocSource, type PocRequest, type SimOutcomeMap } from "./sim";
 import {
   canonicalFindingsJson,
@@ -157,12 +157,21 @@ function githubStage<T>(label: string, stage: Promise<T>): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const deadline = new Promise<never>((_, reject) => {
     timer = setTimeout(
-      () => reject(new Error(`${label} did not settle within ${GITHUB_STAGE_BUDGET_MS}ms (hard deadline)`)),
-      GITHUB_STAGE_BUDGET_MS,
+      () => reject(new Error(`${label} did not settle within ${githubStageBudgetMs()}ms (hard deadline)`)),
+      githubStageBudgetMs(),
     );
   });
   return Promise.race([stage, deadline]).finally(() => clearTimeout(timer));
 }
+
+// Budget is read at call time (SPEC-1 env idiom): an env override is an
+// ops/test affordance; production default is the 2×-Octokit constant above.
+export function githubStageBudgetMs(): number {
+  const parsed = Number(process.env.REXTOR_GITHUB_STAGE_BUDGET_MS);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : GITHUB_STAGE_BUDGET_MS;
+}
+
+export { GITHUB_STAGE_BUDGET_MS, githubStage };
 
 /**
  * Real analyzer runner: the PR repo is mounted READ-ONLY and analyzed inside a
@@ -289,25 +298,32 @@ function findingRow(f: Finding): string {
 }
 
 // SPEC-7 §3 — quoted cited lines: extracted VERBATIM from the PR diff (never
-// LLM-written code). Parses the + side of hunks into (newLine → text) per
-// file; returns a ±1 window around the cited line, or null when the line is
-// outside the diff — absence renders no evidence, never an invention.
+// LLM-written code). Parses the + side of hunks into per-file (newLine →
+// text) maps; the cited file is matched EXACTLY first, then by a unique
+// "/"-suffix (analyzers may report basenames while the diff carries full
+// relative paths — an ambiguous suffix matches nothing, and absence renders
+// no evidence, never an invention). Line maps are per-file: a multi-file
+// diff must not let file B's line 12 answer file A's line 12.
 export function citedLinesFromDiff(
   diff: string,
   file: string,
   line: number,
 ): Array<[number, string]> | null {
-  const byNewLine = new Map<number, string>();
+  const byFile = new Map<string, Map<number, string>>();
   let currentFile: string | null = null;
+  let lines: Map<number, string> | null = null;
   let newLine = 0;
   for (const raw of diff.split("\n")) {
     if (raw.startsWith("diff --git ")) {
       currentFile = null;
+      lines = null;
       continue;
     }
     if (raw.startsWith("+++ ")) {
       const p = raw.slice(4);
       currentFile = p.startsWith('"b/') ? p.slice(3, -1) : p.startsWith("b/") ? p.slice(2) : p;
+      lines = byFile.get(currentFile) ?? new Map<number, string>();
+      byFile.set(currentFile, lines);
       continue;
     }
     if (raw.startsWith("--- ") || raw.startsWith("index ") || raw.startsWith("new file") ||
@@ -319,21 +335,27 @@ export function citedLinesFromDiff(
       newLine = Number(hunk[1]);
       continue;
     }
-    if (currentFile === null) continue;
+    if (lines === null) continue;
     if (raw.startsWith("+")) {
-      byNewLine.set(newLine, raw.slice(1));
+      lines.set(newLine, raw.slice(1));
       newLine += 1;
     } else if (raw.startsWith("-") || raw.startsWith("\\")) {
       // old-side / no-newline marker: absent from the new file
     } else if (raw.startsWith(" ")) {
-      byNewLine.set(newLine, raw.slice(1));
+      lines.set(newLine, raw.slice(1));
       newLine += 1;
     }
     // any other line (e.g. "\ No newline at end of file" handled above) ignored
   }
+  let target = byFile.get(file);
+  if (!target) {
+    const suffixMatches = [...byFile.keys()].filter((p) => p.endsWith(`/${file}`));
+    if (suffixMatches.length === 1) target = byFile.get(suffixMatches[0]);
+  }
+  if (!target) return null;
   const window: Array<[number, string]> = [];
   for (let n = line - 1; n <= line + 1; n++) {
-    const text = byNewLine.get(n);
+    const text = target.get(n);
     if (text !== undefined) window.push([n, text]);
   }
   return window.length > 0 ? window : null;
@@ -754,7 +776,7 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
       const { att, findingsHash } = await attestStage([], 0, true);
       const commentUrl = await githubStage("postComment", deps.postComment(prUrl,
         withConfigNote(withFooter(incompleteCommentBody(`analyzer failed: ${reason}`), att, findingsHash))));
-      await checkRunStage("neutral", `review incomplete: ${reason}`);
+      await checkRunStage("neutral", `review incomplete: ${cell(reason)}`);
       recordIndexRow(0, 0, true, att, commentUrl);
       return { commented: true, score: 0, incomplete: reason, attestation: att, findings: [] };
     }
@@ -770,7 +792,7 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
       const { att, findingsHash } = await attestStage([], 0, true);
       const commentUrl = await githubStage("postComment", deps.postComment(prUrl,
         withConfigNote(withFooter(incompleteCommentBody(reason), att, findingsHash))));
-      await checkRunStage("neutral", `review incomplete: ${reason}`);
+      await checkRunStage("neutral", `review incomplete: ${cell(reason)}`);
       recordIndexRow(0, 0, true, att, commentUrl);
       return { commented: true, score: 0, incomplete: reason, attestation: att, findings: [] };
     }
@@ -816,14 +838,33 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     }
     const scoreValue = scoreV1(simmed.findings);
     const { att, findingsHash } = await attestStage(simmed.findings, scoreValue, false);
-    const conclusion = gateConclusion(simmed.findings, repoConfig, dismissedKeys);
-    const commentUrl = await githubStage("postComment", deps.postComment(prUrl, withConfigNote(withFooter(
-      summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote, att, diff),
-      att, findingsHash))));
+    // SPEC-7 §1 enforcement invariant: the gate sees raw ∪ final (gateView) —
+    // triage may reshape the comment, never the enforcement decision.
+    const conclusion = gateConclusion(gateView(findings, simmed.findings), repoConfig, dismissedKeys);
+    // Settled-path comment: the verdict already exists (attested or visibly
+    // skipped). A comment failure here must NOT throw the result away — the
+    // delivery was ACKed 200 (no reconcile redrive) and a same-id redelivery
+    // is deduped, so a thrown result means an attested review that NO surface
+    // records. Write the index row regardless and keep the failure visible.
+    let commentUrl: string | undefined;
+    let commentPosted = false;
+    try {
+      const posted = await githubStage("postComment", deps.postComment(prUrl, withConfigNote(withFooter(
+        summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote, att, diff),
+        att, findingsHash))));
+      commentUrl = typeof posted === "string" ? posted : undefined;
+      commentPosted = true;
+    } catch (err) {
+      console.error(
+        "[rextor] SETTLED-REVIEW COMMENT LOST (verdict exists; index row written; manual comment redrive needed):",
+        `${identity.repoFullName}#${identity.prNumber}@${headSha.slice(0, 10)} —`,
+        err instanceof Error ? err.message : err,
+      );
+    }
     await checkRunStage(conclusion,
       `rextor audit: riskScore ${scoreValue}/100 — severity gate ${conclusion}`);
     recordIndexRow(scoreValue, simmed.findings.length, false, att, commentUrl);
-    return { commented: true, score: scoreValue, attestation: att, findings: simmed.findings };
+    return { commented: commentPosted, score: scoreValue, attestation: att, findings: simmed.findings };
   } finally {
     // The clone dir must not outlive the review on any path (token-free but
     // still disk growth); cleanup failure never masks the review result.

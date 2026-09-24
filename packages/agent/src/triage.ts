@@ -141,6 +141,21 @@ export function applyTriage(findings: Finding[], ops: TriageOp[]): Finding[] {
   return order.map((id) => byId.get(id)!);
 }
 
+/**
+ * SPEC-7 §1 enforcement invariant — the severity gate is LLM-independent.
+ * Triage reshapes presentation (dedup, reclassify, add) but must never lower
+ * ENFORCEMENT: a prompt-injected "reclassify everything to low" (or an honest
+ * mis-judged downgrade) cannot buy a green check-run. The gate view is the
+ * raw analyzer findings — unmutated severities, INCLUDING findings an honest
+ * dedup merged away — unioned with the final (post-triage) findings, whose
+ * adds can only add gate pressure. `gateConclusion` is a `.some()` over the
+ * list, so duplicates are harmless. Honest false-positive demotion belongs in
+ * maintainer dismissals (rextor.yaml), which this union still honors.
+ */
+export function gateView(rawFindings: Finding[], finalFindings: Finding[]): Finding[] {
+  return [...rawFindings, ...finalFindings];
+}
+
 /** Outcome of the triage stage: what SPEC-2 §4 renders and scores. */
 export interface TriageResult {
   finalFindings: Finding[];

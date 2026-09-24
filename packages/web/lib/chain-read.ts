@@ -40,6 +40,10 @@ function viemChainOf(chain: WebChain) {
   });
 }
 
+// Public RPCs hang sometimes: without a transport timeout, a wedged eth_call
+// holds the route (and any server render awaiting it) open indefinitely.
+const RPC_TIMEOUT_MS = 10_000;
+
 /**
  * Read agents(agent) → (name, active, reviewCount). Unknown chain or any
  * read failure → null; callers degrade honestly ("—" fields), never guess.
@@ -51,7 +55,7 @@ export async function readAgentIdentity(
   const chain = Object.hasOwn(WEB_CHAINS, chainKey) ? WEB_CHAINS[chainKey as keyof typeof WEB_CHAINS] : undefined;
   if (!chain) return null;
 
-  const client = createPublicClient({ chain: viemChainOf(chain), transport: http(chain.rpc) });
+  const client = createPublicClient({ chain: viemChainOf(chain), transport: http(chain.rpc, { timeout: RPC_TIMEOUT_MS }) });
   const read: AgentsRead =
     opts.read ??
     (async (params) =>

@@ -155,3 +155,30 @@ describe("reconcileFailedDeliveries", () => {
     errSpy.mockRestore();
   });
 });
+
+describe("reconcile × skip list (permanently unrecoverable deliveries)", () => {
+  it("skipped delivery ids are never re-driven", async () => {
+    const deliveries = [
+      { id: 1, guid: "uuid-a", status: "failed" },
+      { id: 2, guid: "uuid-b", status: "failed" },
+      { id: 3, guid: "uuid-c", status: "ok" },
+    ];
+    const attempts: string[] = [];
+    const fetchFn = (async (url: unknown): Promise<Response> => {
+      const u = String(url);
+      if (u.includes("/app/hook/deliveries?")) {
+        return new Response(JSON.stringify(deliveries), { status: 200 });
+      }
+      attempts.push(u);
+      return new Response(null, { status: 202 });
+    }) as unknown as typeof fetch;
+    const outcome = await reconcileFailedDeliveries({
+      fetchFn,
+      env: APP_ENV,
+      pemReader: () => PEM,
+      skipList: { has: (id) => id === "uuid-a" },
+    });
+    expect(outcome.redriven).toBe(1); // only uuid-b
+    expect(attempts.every((u) => u.includes("/2/attempts"))).toBe(true);
+  });
+});

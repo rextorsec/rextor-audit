@@ -119,3 +119,39 @@ describe("makePinDep", () => {
     expect(makePinDep(() => ({ IPFS_PINNING_JWT: "jwt" }))).toBeTypeOf("function");
   });
 });
+
+describe("stalled pin response body (deadline arms through the body read)", () => {
+  it("a body that never settles rejects at the deadline instead of hanging the queue slot", async () => {
+    const stalledFetch = async (_url: unknown, init?: RequestInit): Promise<Response> => {
+      // Faithful stall model: the body never emits, and the read REJECTS when
+      // the abort signal fires (real undici behavior the code relies on).
+      let reject!: (e: unknown) => void;
+      const promise = new Promise<unknown>((_res, rej) => { reject = rej; });
+      init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      return { ok: true, json: () => promise } as unknown as Response;
+    };
+    await expect(
+      pinReport(REPORT, { jwt: "j", timeoutMs: 50, fetchFn: stalledFetch as unknown as typeof fetch }),
+    ).rejects.toThrow(/body did not settle within 50ms/);
+  });
+});
+
+describe("IpfsHash charset validation", () => {
+  const jsonResponse = (body: string): typeof fetch =>
+    (async () => new Response(body, { status: 200 })) as unknown as typeof fetch;
+
+  it("rejects a hostile IpfsHash carrying markdown-breaking bytes", async () => {
+    await expect(
+      pinReport(REPORT, { jwt: "j", fetchFn: jsonResponse('{"IpfsHash":"QmAbc`payload"}') }),
+    ).rejects.toThrow(/valid CID charset/);
+  });
+
+  it("accepts a legitimate alphanumeric CIDv0", async () => {
+    const res = await pinReport(REPORT, {
+      jwt: "j",
+      fetchFn: jsonResponse('{"IpfsHash":"QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG"}'),
+    });
+    expect(res.cid).toBe("QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG");
+    expect(res.uri).toBe("ipfs://QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG");
+  });
+});

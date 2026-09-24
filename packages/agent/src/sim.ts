@@ -3,9 +3,9 @@
 // Every I/O seam (generation, harness) is injected; env is read per call.
 import { execFile } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { chatCompletion } from "./openrouter";
 import { POC_V1_SYSTEM, escapeUntrustedDelimiters } from "./profile";
@@ -47,10 +47,19 @@ export function isAnchorRepo(repoDir: string): boolean {
 }
 
 /** Numbered source excerpt (± `context` lines) for the PoC prompt; missing
- *  source degrades to a placeholder — the sim still runs, evidence just thins. */
+ *  source degrades to a placeholder — the sim still runs, evidence just thins.
+ *  Containment: `file` is analyzer/PR-derived, and the clone lives under the
+ *  host HOME — an unvalidated join could walk out via `..` or a symlink and
+ *  feed host files into the prompt. realpath both sides, then prefix-check:
+ *  every symlink in the path is resolved before the comparison. */
 export async function readExcerpt(repoDir: string, file: string, line: number, context = EXCERPT_CONTEXT): Promise<string> {
   try {
-    const text = await readFile(join(repoDir, file), "utf8");
+    const rootReal = await realpath(repoDir);
+    const targetReal = await realpath(join(repoDir, file));
+    if (targetReal !== rootReal && !targetReal.startsWith(rootReal + sep)) {
+      return `${file} (source unavailable)`;
+    }
+    const text = await readFile(targetReal, "utf8");
     const lines = text.split("\n");
     const from = Math.max(1, line - context);
     const to = Math.min(lines.length, line + context);
