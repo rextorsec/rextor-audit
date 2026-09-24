@@ -55,7 +55,10 @@ const runAnalyzer = (mount: string, entrypoint?: string): RunResult => {
   throw new Error(`docker run never produced a container exit (transient daemon failure): ${lastMessage}`);
 };
 
-describe.skipIf(!docker)("analyzer container contract", () => {
+// REXTOR_SKIP_CONTRACT_TESTS=1: container contract tests need the image
+// plus a bind-mount/uid-coherent daemon (GH-runner docs in ci.yml); they
+// run for real on the deployment host and in the contract CI job.
+describe.skipIf(!docker || process.env.REXTOR_SKIP_CONTRACT_TESTS === "1")("analyzer container contract", () => {
   it("flags reentrancy in the Vault fixture", { timeout: 180_000 }, () => {
     const { stdout } = runAnalyzer(fixturePath);
     const findings = stdout.trim().split("\n").map((l: string) => JSON.parse(l) as Finding);
