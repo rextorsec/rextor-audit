@@ -128,7 +128,7 @@ describe("runReview", () => {
     expect(comments[0].body).toContain(result.incomplete as string);
   });
 
-  describe.skipIf(!docker)("happy path (real analyzer container on the vault fixture)", () => {
+  describe.skipIf(!docker || process.env.REXTOR_SKIP_CONTRACT_TESTS === "1")("happy path (real analyzer container on the vault fixture)", () => {
     it(
       "posts exactly one comment carrying the top finding and the score",
       { timeout: 180_000 },
