@@ -16,13 +16,15 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage({
   params,
 }: {
-  params: { owner: string; repo: string };
+  params: Promise<{ owner: string; repo: string }>;
 }) {
+  // Next 15: page params are a Promise — awaited before use.
+  const { owner: ownerParam, repo: repoParam } = await params;
   // GitHub owner/repo is case-insensitive; the agent store compares BINARY.
   // Canonicalize at this layer so /dashboard/RextorSec/Demo resolves the same
   // ledger as /dashboard/rextorsec/demo (T9 review #2).
-  const owner = params.owner.toLowerCase();
-  const repo = params.repo.toLowerCase();
+  const owner = ownerParam.toLowerCase();
+  const repo = repoParam.toLowerCase();
   const repoFullName = `${owner}/${repo}`;
 
   const reviews = await fetchReviews(owner, repo);

@@ -41,7 +41,7 @@ function stubReviews(reviews: ReviewRow[]) {
 }
 
 async function renderPage(params: { owner: string; repo: string }) {
-  const ui = await DashboardPage({ params });
+  const ui = await DashboardPage({ params: Promise.resolve(params) });
   return render(ui);
 }
 
