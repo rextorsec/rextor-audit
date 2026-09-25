@@ -30,7 +30,8 @@ export interface ReviewRow {
 
 export interface ReviewStore {
   insert(row: ReviewRow): void;
-  /** Rows for `repo` ("owner/repo"), newest first; unknown repo → []. */
+  /** Rows for `repo` ("owner/name"), newest first, capped at
+   *  MAX_LISTED_REVIEWS; unknown repo → []. */
   listForRepo(repo: string): ReviewRow[];
   /** C1 re-drive guard: true when a settled review row already exists for the
    *  exact (repo, pr, headSha) — a re-driven delivery for reviewed work is
@@ -84,6 +85,11 @@ function toRow(raw: Record<string, unknown>): ReviewRow {
 const COLUMNS =
   "repo, pr, head_sha, review_id, chain, tx_hash, explorer_url, risk_score, finding_count, status, comment_url, created_at";
 
+/** Newest-rows-won listing cap for one repo (matches the web render cap).
+ *  Interpolated into the prepared statement as a literal — a constant, never
+ *  user input. */
+export const MAX_LISTED_REVIEWS = 200;
+
 export function createReviewStore(dbPath: string): ReviewStore {
   const db = new Database(dbPath);
   // Reviews are written from the webhook queue while the endpoint reads —
@@ -128,8 +134,11 @@ export function createReviewStore(dbPath: string): ReviewStore {
   );
   // ISO-8601 created_at sorts lexicographically; rowid breaks ties between
   // rows written in the same millisecond (deterministic newest-first).
+  // Server-side cap: the dashboard renders 200 (web MAX_RENDERED_ROWS) —
+  // bounding HERE means the transport never ships rows the dashboard would
+  // discard, however hot the repo gets (roast 2026-09-25 #2).
   const listStmt = db.prepare(
-    `SELECT ${COLUMNS} FROM reviews WHERE repo = ? ORDER BY created_at DESC, rowid DESC`,
+    `SELECT ${COLUMNS} FROM reviews WHERE repo = ? ORDER BY created_at DESC, rowid DESC LIMIT ${MAX_LISTED_REVIEWS}`,
   );
   // C1 — the re-drive guard's point lookup (one row answers it; the repo
   // prefix of reviews_repo_created keeps it cheap).

@@ -102,6 +102,23 @@ describe("GET /reviews/:owner/:repo", () => {
     store.close();
   });
 
+  it("caps the listing at 200 rows (newest kept) regardless of index size", async () => {
+    const store = await tempStore();
+    for (let pr = 1; pr <= 205; pr++) {
+      store.insert(row({ pr, created_at: new Date(Date.UTC(2026, 8, 18, 10, pr)).toISOString() }));
+    }
+
+    await withServer({ store, apiToken: TOKEN }, async (port) => {
+      const res = await get(port, "/reviews/rextorsec/demo", { "x-api-token": TOKEN });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { reviews: ReviewRow[] };
+      expect(body.reviews).toHaveLength(200);
+      expect(body.reviews[0].pr).toBe(205);
+      expect(body.reviews[199].pr).toBe(6);
+    });
+    store.close();
+  });
+
   it("answers 401 without a token and with a wrong token", async () => {
     const store = await tempStore();
     await withServer({ store, apiToken: TOKEN }, async (port) => {
