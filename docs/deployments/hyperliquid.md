@@ -21,6 +21,17 @@
 - `verify(unknown reviewId …)` → `false` — unknown reviewId rejects.
 - Funding: 0.051 HYPE sent to the owner (deBridge: Solana USDC → HYPE on HyperEVM, recipient = owner — no forwarding hop). At current 0.1 gwei this covers Gate B + **hundreds of attestations**.
 
+## Native twins (2026-09-25, CWF demo-week)
+
+Records proven against Tempo `verify()` = true first (exact tuples from the published PR footers), then attested natively — agent-side read-back `verify true` each:
+
+| Review | Source tx (Tempo) | Twin tx (HyperEVM mainnet) | Cost |
+|---|---|---|---|
+| `0xb0644c0e…` (pr 8, 90/100) | `0x56311f293f…` block 36628648 | [`0xeb16eb40a4a428cab93f7a3e6404d71acf729ce5c5c1e8c2b6bfe099d69864a7`](https://hyperevmscan.io/tx/0xeb16eb40a4a428cab93f7a3e6404d71acf729ce5c5c1e8c2b6bfe099d69864a7) | 0.0000194 HYPE |
+| `0x82f4bb7b…` (pr 7, 93/100) | `0x4a2a834416…` block 36366305 | [`0x1595853047fce8df0ea2c37565ce6ef37b5622d19880d985a3b5fa364f0fcbf9`](https://hyperevmscan.io/tx/0x1595853047fce8df0ea2c37565ce6ef37b5622d19880d985a3b5fa364f0fcbf9) | 0.0000355 HYPE |
+
+`agents(0x5f2b…47f37).reviewCount` → **3** (live at /api/chain/hyperliquid, 2026-09-25).
+
 ## Why mainnet (decision record)
 
 Every testnet faucet gates on anti-sybil proofs: Chainstack requires ≥0.08 ETH mainnet *sustained through an undocumented lookback* (`OLD_BALANCE_BELOW_THRESHOLD_ERROR` even for freshly-funded addresses), QuickNode requires a Hyperliquid L1 mainnet balance, thirdweb's faucet is paywalled, and the official drip gives mock USDC only. Meanwhile HyperEVM mainnet gas is 0.1 gwei: the entire Gate B + months of attestations ≈ 0.002 HYPE (~$0.19). Buying the gas outright beat the faucet war.

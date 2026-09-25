@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-09-19",
+  "asOf": "2026-09-25",
   "maxSoonRows": 15,
   "rows": [
     {
@@ -190,7 +190,7 @@
       "bots": "no",
       "rextor": {
         "shipped": true,
-        "receipt": "https://rextor-audit-web-rectors-primary-workspace.vercel.app/dashboard/rextorsec/rextor-audit-test",
+        "receipt": "https://www.rextoraudit.com/dashboard/rextorsec/rextor-audit-test",
         "receiptLabel": "live dashboard"
       },
       "backing": "A3/A4"

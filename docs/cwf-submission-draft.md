@@ -36,8 +36,8 @@ Traditional audits cover one commit; everything after ships unguarded, and the b
 | Claim | Receipt |
 |---|---|
 | Attestation contract, Tempo | registry code live on 42431; txs `0x56311f293f…` (block 36628648), `0x4a2a834416…`, `0x1323a45515…` all confirmed to registry |
-| Attestation contract, HyperEVM mainnet | registry code live on 999; twin tx `0x64e2a131…1834b5` status 1 |
-| Public verifiability | live identity reads: `/api/chain/tempo` → `active:true, reviewCount:8`; `/api/chain/hyperliquid` → `active:true, reviewCount:1` |
+| Attestation contract, HyperEVM mainnet | registry code live on 999; E1 twin `0x64e2a131…1834b5` + demo-week twins [`0xeb16eb40…9864a7`](https://hyperevmscan.io/tx/0xeb16eb40a4a428cab93f7a3e6404d71acf729ce5c5c1e8c2b6bfe099d69864a7) and [`0x15958530…f0fcbf9`](https://hyperevmscan.io/tx/0x1595853047fce8df0ea2c37565ce6ef37b5622d19880d985a3b5fa364f0fcbf9) (records proven on Tempo `verify()` first) — reviewCount 3 |
+| Public verifiability | live identity reads: `/api/chain/tempo` → `active:true, reviewCount:8`; `/api/chain/hyperliquid` → `active:true, reviewCount:3` (twins of Tempo-verified records, proven via `verify()` before attestation) |
 | Agent identity | ERC-8004 agentId **50891**, identity card live on landing |
 | Solana verdicts | program executable on devnet |
 | Dashboard | living audit report at `/dashboard/<owner>/<repo>` — 16-row ledger |

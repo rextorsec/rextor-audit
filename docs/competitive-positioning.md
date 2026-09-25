@@ -1,6 +1,6 @@
 # Competitive positioning — Rextor Audit
 
-**Date:** 2026-09-18 · **Status:** verified against public pages today (CodeRabbit Security launch post 2026-08-13 + pricing pages; our own Gate A scan `docs/gates/gate-a-competitive-scan-2026-09-15.md` had declared CodeRabbit an untested gap — this fills it). Snapshot doc; re-verify before demo week (CodeRabbit ships weekly).
+**Date:** 2026-09-18 · **Snapshot refresh: 2026-09-25** (see §Refresh at bottom). **Status:** verified against public pages today (CodeRabbit Security launch post 2026-08-13 + pricing pages; our own Gate A scan `docs/gates/gate-a-competitive-scan-2026-09-15.md` had declared CodeRabbit an untested gap — this fills it). Snapshot doc; re-verify before demo week (CodeRabbit ships weekly).
 
 ## The one line
 
@@ -46,3 +46,10 @@ Conatus proved the pattern: on-chain verdicts (real MNT, mainnet), ERC-8004 iden
 - Never "X can't" — always "not evidenced on public product pages as of `<date>`".
 - Every green check links a live artifact; `soon` badge for unshipped rows (see marketing-matrix doc).
 - Named competitor lives on `/compare` (SEO play, optional) and judge docs — not the landing table.
+
+## §Refresh — 2026-09-25 (demo-week snapshot)
+
+- **CodeRabbit pricing moved**: the standalone ~$40 Security plan is reportedly gone, folded into an Advanced tier (~$72 annual / ~$90 monthly) carrying continuous security monitoring + per-PR scanning — per a third-party post (tomrochette.com, 2026-09-13). **Verify on coderabbit.ai/pricing before submission** — if true, it reads as *validation* (security is now a paid first-class tier, not an add-on) and slightly narrows the "price anchor" row above (their anchor rose toward ours).
+- **Field otherwise stable** vs Gate A (2026-09-15): FYEO Scanner, Nethermind AuditAgent, Solidity Prism still show no deterministic-scoring + on-chain attestation on public pages (spot re-check 2026-09-25 — no new product posts surfaced).
+- **GPT-6 Astra** entered CodeRabbit's evaluation cycle (futurumgroup, 2026-09-05): model churn is their compounding axis, not ours — our receipts chain-anchored and model-agnostic (E2 comparison receipt pending, see endgame R6).
+- **Our surface changes since 09-18**: PR #36 hardening (gate reads raw analyzer severities, settle-path guarantees), PR #37 (Next 15 + nonce CSP), HyperEVM mainnet receipts re-verified live, CWF submission draft drafted (`docs/cwf-submission-draft.md`).
