@@ -81,3 +81,36 @@
 2. VO: your voice or synthesized? On-camera intro/outro or pure screen?
 3. Length hard-cap 3:00 — §5 is the flexible scene if we overrun.
 4. Domain: record with the Vercel URL or wait for F4? (Judges need SSO protection disabled either way — submission-week task.)
+
+---
+
+## RECEIPT RE-VERIFICATION — 2026-09-25 (autonomous sweep, pre-red-pen)
+
+Every artifact below re-verified against live chains today. **Two script facts are STALE and must not reach the camera.**
+
+### ⛔ Stale values to correct before recording
+
+| Script says | Reality (verified 2026-09-25) |
+|---|---|
+| Tempo v2 `0x7fe6…0bcd` for `verify()` calls | **RETIRED** (zeroed by the 09-21 testnet reset). Cast against **`0x51ac8214089daf85b188437b087519acfc6c495a`** (deploy #3) — code live on chainId 42431. |
+| IPFS pattern `ipfs://QmUqtDrt…`, tx `0xffa10497…` (Sep 19) | Use the current full-loop receipt: reviewId `0xb0644c0e…`, tx [`0x56311f293f…`](https://rpc.moderato.tempo.xyz) — status `0x1`, block 36628648, findingsURI `ipfs://QmWi8zD3…`. |
+
+### ✅ Verified live today (safe to show as-is)
+
+| Receipt | Evidence |
+|---|---|
+| Tempo registry `0x51ac…495a` | `eth_chainId` = 42431, `eth_getCode` non-empty |
+| Tempo attestation txs: smoke 90/100 (`0x56311f293f…`), 93 (`0x4a2a834416…`), 93 (`0x1323a45515…`) | receipts: all status `0x1`, all `to` = registry |
+| **HyperEVM MAINNET** registry `0x8f63…850c` | chainId 999, code live; twin tx `0x64e2a131…1834b5` status `0x1`, block 46562201, gas 194,330 — exact E1 record |
+| Prod identity reads | `/api/chain/tempo` → `active:true, reviewCount:8`; `/api/chain/hyperliquid` → `active:true, reviewCount:1` |
+| Solana devnet program `Aj6Nx…kMDs` | `getAccountInfo`: executable, BPFLoaderUpgradeable-owned — **B4 shipped, §6 Solana scene is recordable** |
+| Dashboard + landing | www.rextoraudit.com live, nonce-CSP deployed 09-25; ledger rows via `/dashboard/rextorsec/rextor-audit-test` (16 rows, newest pr 8) |
+| ERC-8004 identity | agentId 50891, identity card live on prod landing (C1 done) |
+| Chat + severity gate | chat proven (receipt 5742416145); severity-gate FAILURE check-run live in production smoke (rextor-audit-test#8) — the §5 gate scene no longer rides F5 |
+
+### Red-pen suggestions (decision, not rewrite)
+
+1. **§6 VO is understated now**: "Attested on Tempo today" → consider "Attested on **Tempo and Hyperliquid mainnet** today" — a mainnet attestation is the strongest sentence in the video and it's currently missing.
+2. §4 dashboard shot: record `www.rextoraudit.com` (F4 landed — open item #4 resolved).
+3. §2/§3 trigger PR: fresh branch on `rextor-audit-test` as planned; the deterministic catch to rehearse is the SmokeVault reentrancy pattern (high → trips the gate on camera).
+4. Check-run scene: keep it — gateView shipped in PR #36 and fired in the 09-24 production smoke.
