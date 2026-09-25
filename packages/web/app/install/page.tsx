@@ -14,6 +14,11 @@ export const metadata: Metadata = {
   title: "Install — Rextor Audit",
 };
 
+// Nonce-CSP requires per-request rendering (see app/page.tsx) — the
+// middleware's fresh nonce must stamp every inline script in the served
+// HTML, which build-time prerendering cannot do.
+export const dynamic = "force-dynamic";
+
 const REXTOR_YAML = `# paths audited on every PR (globs, relative to repo root)
 include:
   - "contracts/**/*.sol"

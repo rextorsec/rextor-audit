@@ -17,6 +17,13 @@ const capabilities = capabilitiesData as Capabilities;
 // the landing every 5 minutes; honest static fallbacks cover RPC outages.
 export const revalidate = 300;
 
+// Nonce-CSP requires per-request rendering: the middleware mints a fresh
+// nonce per request, so build-time-cached HTML would carry inline scripts no
+// live nonce can vouch for (verified empirically — prerendered HTML ships
+// unstamped scripts). The RPC reads stay Data-Cache-bounded; only the
+// template render runs per request.
+export const dynamic = "force-dynamic";
+
 export default async function LandingPage() {
   const [tempo, hyperliquid] = await Promise.all([
     readAgentIdentity("tempo"),

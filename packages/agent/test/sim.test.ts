@@ -6,7 +6,8 @@ import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  generatePocFromEnv, parseForgeJson, readExcerpt, runSimStage, sanitizePocSource, simEligible,
+  generatePocFromEnv, parseForgeJson, POC_DIR_MODE, readExcerpt, runSimStage, sanitizePocSource,
+  simContainerArgs, simEligible,
   type PocRequest, type SimOutcomeMap,
 } from "../src/sim";
 import { withIds, type Finding } from "../src/findings";
@@ -291,5 +292,33 @@ describe("runSimStage × Anchor repos (SPEC-8 §4)", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// Roast 2026-09-25 #3 — the PoC overlay must never be world-accessible, and
+// the analyzer user must still write through the bind mount. The container
+// gets the HOST process's gid as a supplementary group; the dir drops to
+// 0770. These pin the security contract of the real harness construction
+// (runSimContainer consumes both exports verbatim).
+describe("runSimContainer construction (perm + group contract)", () => {
+  it("POC_DIR_MODE grants group and owner but carries zero world bits", () => {
+    expect(POC_DIR_MODE & 0o007).toBe(0);
+    expect(POC_DIR_MODE & 0o770).toBe(0o770);
+  });
+
+  it("docker argv pins the host gid as a supplementary group (mount write path)", () => {
+    const args = simContainerArgs("/repo", "/poc/dir", "http://127.0.0.1:8545", 4242);
+    const i = args.indexOf("--group-add");
+    expect(i).toBeGreaterThan(-1);
+    expect(args[i + 1]).toBe("4242");
+  });
+
+  it("docker argv keeps the sim invariants: repo read-only, FFI denied, sim.sh entrypoint", () => {
+    const args = simContainerArgs("/repo", "/poc/dir", "http://127.0.0.1:8545", 4242);
+    const joined = args.join(" ");
+    expect(joined).toContain("/repo:ro");
+    expect(joined).toContain("FOUNDRY_FFI=false");
+    expect(joined).toContain("/usr/local/bin/sim.sh");
+    expect(args.filter((a) => a === "--network").length).toBe(1);
   });
 });

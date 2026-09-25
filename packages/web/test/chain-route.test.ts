@@ -21,7 +21,7 @@ const readMock = vi.mocked(readAgentIdentity);
 describe("GET /api/chain/[chain]", () => {
   it("404s an unknown chain without attempting a read", async () => {
     const res = await GET(new Request("https://web.local/api/chain/nope"), {
-      params: { chain: "nope" },
+      params: Promise.resolve({ chain: "nope" }),
     });
     expect(res.status).toBe(404);
     expect(readMock).not.toHaveBeenCalled();
@@ -30,7 +30,7 @@ describe("GET /api/chain/[chain]", () => {
   it("serves the identity read for a known chain", async () => {
     readMock.mockResolvedValue({ name: "rextor-audit[bot]", active: true, reviewCount: 1 });
     const res = await GET(new Request("https://web.local/api/chain/tempo"), {
-      params: { chain: "tempo" },
+      params: Promise.resolve({ chain: "tempo" }),
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -45,7 +45,7 @@ describe("GET /api/chain/[chain]", () => {
   it("502s honestly when the chain read fails", async () => {
     readMock.mockResolvedValue(null);
     const res = await GET(new Request("https://web.local/api/chain/tempo"), {
-      params: { chain: "tempo" },
+      params: Promise.resolve({ chain: "tempo" }),
     });
     expect(res.status).toBe(502);
     const body = (await res.json()) as { error: string };

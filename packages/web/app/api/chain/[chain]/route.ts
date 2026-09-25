@@ -23,8 +23,9 @@ const cachedIdentity = unstable_cache(
   { revalidate: 60 },
 );
 
-export async function GET(_req: Request, ctx: { params: { chain: string } }): Promise<Response> {
-  const key = ctx.params.chain;
+export async function GET(_req: Request, ctx: { params: Promise<{ chain: string }> }): Promise<Response> {
+  // Next 15: dynamic route params are a Promise — awaited before any read.
+  const { chain: key } = await ctx.params;
   if (!isWebChainKey(key)) {
     return Response.json({ error: "unknown chain" }, { status: 404 });
   }

@@ -18,7 +18,6 @@ const nextConfig = {
           // Clickjacking: the receipts UI is spoofable in a frame; nothing
           // on the site needs framing.
           { key: "X-Frame-Options", value: "DENY" },
-          { key: "Content-Security-Policy", value: CSP },
           // MIME confusion: never sniff responses as HTML.
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
@@ -29,21 +28,10 @@ const nextConfig = {
   },
 };
 
-// App Router ships framework bootstrap + RSC payload as inline <script>s, so
-// script-src needs 'unsafe-inline' — the CSP still pins object/base/frame
-// (the XSS second layer) until a nonce-based policy lands with the 15.x
-// upgrade. HTTPS/HSTS is enforced platform-side on Vercel.
-const CSP = [
-  "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data:",
-  "font-src 'self' data:",
-  "connect-src 'self'",
-  "object-src 'none'",
-  "base-uri 'none'",
-  "frame-ancestors 'none'",
-  "form-action 'self'",
-].join("; ");
+// The Content-Security-Policy moved to middleware.ts (roast 2026-09-25 #1):
+// a static header could only say 'unsafe-inline' for scripts. The middleware
+// mints a per-request nonce, Next stamps it onto bootstrap scripts, and
+// script-src upgrades to 'nonce-…' + 'strict-dynamic'. The non-CSP headers
+// stay here — they carry no per-request state.
 
 export default nextConfig;
