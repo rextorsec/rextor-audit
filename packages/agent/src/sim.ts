@@ -226,6 +226,40 @@ const SIM_IMAGE = "rextor/analyzer";
 // so a hang surfaces as SIGKILL, never a stuck webhook handler.
 const SIM_TIMEOUT_MS = 240_000;
 
+/** PoC overlay dir mode: owner+group rwx, ZERO world bits. The analyzer user
+ *  (uid 1000) writes through a supplementary group equal to the host
+ *  process's gid (--group-add below) — 0777 was the colima-era shortcut and
+ *  a world-writable dir under the host HOME was an audit smell (roast
+ *  2026-09-25 #3). On platforms without a POSIX gid (win32) the value is
+ *  inert; container deployments are POSIX. */
+export const POC_DIR_MODE = 0o770;
+
+/** docker argv for the sim run, extracted so the security contract (group
+ *  pin, read-only repo, FFI denial, sim.sh entrypoint) is unit-testable. The
+ *  --group-add value MUST match the pocDir's group — mkdtemp inherits the
+ *  host process's gid, so passing the same gid grants the analyzer user
+ *  exactly group-level write through the mount and nothing more. Env (fork
+ *  block) read per call, matching the SPEC-1 env-at-call-time rule. */
+export function simContainerArgs(
+  repoDir: string,
+  pocDir: string,
+  forkUrl: string,
+  hostGid: number,
+): string[] {
+  return [
+    "run", "--rm",
+    "--network", "bridge", // the ONLY network-enabled container (SPEC-3 §2)
+    "--group-add", String(hostGid),
+    "-v", `${resolve(repoDir)}:/repo:ro`,
+    "-v", `${pocDir}:/poc`,
+    "-e", `FORK_URL=${forkUrl}`,
+    ...(process.env.REXTOR_FORK_BLOCK ? ["-e", `FORK_BLOCK=${process.env.REXTOR_FORK_BLOCK}`] : []),
+    "-e", "FOUNDRY_FFI=false",
+    "--entrypoint", "/usr/local/bin/sim.sh",
+    SIM_IMAGE,
+  ];
+}
+
 /** Base dir for the PoC overlay: the docker daemon can only bind-mount paths
  *  it shares. colima (macOS dev) shares only $HOME — a /tmp bind silently
  *  degrades to an empty VM-local dir (empirically verified) — so darwin
@@ -270,22 +304,13 @@ export function parseForgeJson(raw: string): Record<string, boolean> {
  */
 export async function runSimContainer(repoDir: string, testSource: string, forkUrl: string): Promise<SimOutcomeMap> {
   const pocDir = await mkdtemp(join(simTmpBase(), "rextor-sim-"));
+  const hostGid = typeof process.getgid === "function" ? process.getgid() : 0;
   try {
-    // The image runs as the unprivileged analyzer user (uid 1000); mode 0777
-    // lets it write artifacts through the bind mount (colima maps host perms).
-    await chmod(pocDir, 0o777);
+    // Owner+group only (0770) — the container writes via the supplementary
+    // host gid pinned in simContainerArgs, never via world bits.
+    await chmod(pocDir, POC_DIR_MODE);
     await writeFile(join(pocDir, "RextorPoc.t.sol"), testSource, "utf8");
-    await execFileP("docker", [
-      "run", "--rm",
-      "--network", "bridge", // the ONLY network-enabled container (SPEC-3 §2)
-      "-v", `${resolve(repoDir)}:/repo:ro`,
-      "-v", `${pocDir}:/poc`,
-      "-e", `FORK_URL=${forkUrl}`,
-      ...(process.env.REXTOR_FORK_BLOCK ? ["-e", `FORK_BLOCK=${process.env.REXTOR_FORK_BLOCK}`] : []),
-      "-e", "FOUNDRY_FFI=false",
-      "--entrypoint", "/usr/local/bin/sim.sh",
-      SIM_IMAGE,
-    ], { timeout: SIM_TIMEOUT_MS, killSignal: "SIGKILL" });
+    await execFileP("docker", simContainerArgs(repoDir, pocDir, forkUrl, hostGid), { timeout: SIM_TIMEOUT_MS, killSignal: "SIGKILL" });
     // A sim.sh crash before/during forge (fork unreachable, compile crash,
     // gate refusal, timeout kill) leaves no usable artifacts. Surface the
     // container's stderr tail so the webhook log says WHY; runSimStage maps
