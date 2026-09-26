@@ -50,6 +50,7 @@ Both recomputed live 2026-09-26. **MATCH ✓ / verify true ✓.**
 
 1. **PoC sim stalled** — glm-5.3-flash body-stall (2nd occurrence this week). The guard degraded correctly, but a frontier PoC-generator would likely have produced a `confirmed` (the reentrancy is trivially exploitable). Evidence for the E2 model-flip decision, deferred to RECTOR.
 2. **Scope observation** — 4 of 8 findings cite `src/Vault.sol`, which this PR did not touch (only `src/PaymentPool.sol` did). The comment claims "in changed contract code." Either scopeDiff widened or the finding normalization predates scoping — needs a look (tracked, non-blocking; the gate consumed the in-scope high correctly).
+   **RESOLVED 2026-09-26** (`fix/diff-scope-claim`): engine behavior confirmed as design — SPEC-1 §4 makes the PR diff the *trigger* and the whole repo the analyzer *surface*. The bug was the comment's blanket claim (hardcoded "in changed contract code") with out-of-diff findings unmarked. Fixed: the banner now counts findings on lines the PR changes vs elsewhere in the repo, and out-of-diff rows are marked `*(outside PR diff)*`; gate/score/attestation semantics unchanged (whole-repo findings remain in-scope by design; repo owners narrow via `rextor.yaml` include/ignore or reasoned dismissals).
 3. App-hook `redeliveries` endpoint returned generic 404 (id precision handled; API-version header set) — re-review via `synchronize` push instead. Documented for ops.
 
 ## Verdict
