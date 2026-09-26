@@ -152,3 +152,65 @@ index 0000000..2222222 100644
     expect(citedLinesFromDiff(MULTI, "contracts/Absent.sol", 2)).toBeNull();
   });
 });
+
+// Scope claims: the analyzer audits the WHOLE repo (SPEC-1 §4 — the PR diff
+// is the trigger, not the surface). The banner claim and per-row markers must
+// say what is true: which findings sit on lines this PR changes, and which
+// are pre-existing repo surface.
+describe("summaryCommentBody scope claims (PR diff vs repo surface)", () => {
+  it("every finding on a changed line → the changed-code claim, no markers", () => {
+    const body = summaryCommentBody(
+      41,
+      triaged(withIds([mk({ file: "src/Vault.sol", line: 14 })])),
+      "", ATT, DIFF,
+    );
+    expect(body).toContain("**1 finding(s)** in the PR's changed contract code.");
+    expect(body).not.toContain("outside PR diff");
+  });
+
+  it("out-of-diff findings are split out in the banner and marked in the table", () => {
+    const body = summaryCommentBody(
+      41,
+      triaged(withIds([
+        mk({ file: "src/Vault.sol", line: 14 }), // added line → in-diff
+        mk({ file: "src/Vault.sol", line: 11 }), // touched file, untouched line
+        mk({ file: "src/Other.sol", line: 3 }), // file absent from the diff
+      ])),
+      "", ATT, DIFF,
+    );
+    expect(body).toContain(
+      "**3 finding(s)** — 1 on lines this PR changes, 2 elsewhere in the repo",
+    );
+    expect(body).not.toContain("**3 finding(s)** in changed contract code");
+    expect(body).toContain("src/Vault.sol:11 *(outside PR diff)*");
+    expect(body).toContain("src/Other.sol:3 *(outside PR diff)*");
+    // In-diff row stays unmarked (table cells, not the JSON payload).
+    expect(body).toContain("| src/Vault.sol:14 |");
+    expect(body).not.toContain("src/Vault.sol:14 *(outside PR diff)*");
+  });
+
+  it("no finding on changed lines → the repo claim says so explicitly", () => {
+    const body = summaryCommentBody(
+      41,
+      triaged(withIds([mk({ file: "src/Other.sol", line: 3 })])),
+      "", ATT, DIFF,
+    );
+    expect(body).toContain("**1 finding(s)** in the repo's contract code — none on lines this PR changes.");
+  });
+
+  it("no diff context → neutral repo claim, never a changed-code claim", () => {
+    const body = summaryCommentBody(41, triaged(withIds([mk()])), "", ATT);
+    expect(body).toContain("**1 finding(s)** in the repo's contract code.");
+    expect(body).not.toContain("changed contract code");
+  });
+
+  it("membership matches diff paths exact-first, then unique suffix (same convention as evidence)", () => {
+    const body = summaryCommentBody(
+      41,
+      triaged(withIds([mk({ file: "Vault.sol", line: 14 })])),
+      "", ATT, DIFF,
+    );
+    // "src/Vault.sol" is the only path ending in /Vault.sol in DIFF → in-diff.
+    expect(body).toContain("**1 finding(s)** in the PR's changed contract code.");
+  });
+});

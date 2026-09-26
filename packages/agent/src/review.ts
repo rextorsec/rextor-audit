@@ -286,7 +286,7 @@ function triageLine(t: TriageResult): string {
   return "_LLM triage not configured (set OPENROUTER_API_KEY, REXTOR_TRIAGE_MODEL, REXTOR_FRONTIER_MODEL)._";
 }
 
-function findingRow(f: Finding): string {
+function findingRow(f: Finding, outsideDiff = false): string {
   const baseNote = f.triageNote
     ?? (f.mergedChecks ? `merged: ${f.mergedChecks.join(", ")}` : "");
   // SPEC-7 §4 — recurrence annotation rides the note column.
@@ -294,16 +294,29 @@ function findingRow(f: Finding): string {
     ? (baseNote ? `${baseNote} · ${f.learningNote}` : f.learningNote)
     : baseNote;
   const sev = `${f.severity}${f.poc ? ` [poc:${f.poc.status}]` : ""}`;
-  return `| #${f.id ?? "—"} | ${sev} | ${cell(f.check)} | ${cell(f.file)}:${f.line} | ${cell(note)} |`;
+  const loc = outsideDiff
+    ? `${cell(f.file)}:${f.line} *(outside PR diff)*`
+    : `${cell(f.file)}:${f.line}`;
+  return `| #${f.id ?? "—"} | ${sev} | ${cell(f.check)} | ${loc} | ${cell(note)} |`;
 }
 
 // SPEC-7 §3 — quoted cited lines: extracted VERBATIM from the PR diff (never
 // LLM-written code). Parses the + side of hunks into per-file (newLine →
-// text) maps; the cited file is matched EXACTLY first, then by a unique
-// "/"-suffix (analyzers may report basenames while the diff carries full
-// relative paths — an ambiguous suffix matches nothing, and absence renders
-// no evidence, never an invention). Line maps are per-file: a multi-file
-// diff must not let file B's line 12 answer file A's line 12.
+// text) maps; path matching uses the shared exact-first/unique-suffix
+// convention (matchPath below).
+// Path-matching convention shared by evidence citations and scope claims:
+// the cited file is matched EXACTLY first, then by a unique "/"-suffix
+// (analyzers may report basenames while the diff carries full relative
+// paths — an ambiguous suffix matches nothing, and absence renders no
+// evidence, never an invention). Line maps are per-file: a multi-file diff
+// must not let file B's line 12 answer file A's line 12.
+function matchPath<T>(byPath: Map<string, T>, file: string): T | undefined {
+  const exact = byPath.get(file);
+  if (exact !== undefined) return exact;
+  const suffixes = [...byPath.keys()].filter((p) => p.endsWith(`/${file}`));
+  return suffixes.length === 1 ? byPath.get(suffixes[0]) : undefined;
+}
+
 export function citedLinesFromDiff(
   diff: string,
   file: string,
@@ -347,11 +360,7 @@ export function citedLinesFromDiff(
     }
     // any other line (e.g. "\ No newline at end of file" handled above) ignored
   }
-  let target = byFile.get(file);
-  if (!target) {
-    const suffixMatches = [...byFile.keys()].filter((p) => p.endsWith(`/${file}`));
-    if (suffixMatches.length === 1) target = byFile.get(suffixMatches[0]);
-  }
+  const target = matchPath(byFile, file);
   if (!target) return null;
   const window: Array<[number, string]> = [];
   for (let n = line - 1; n <= line + 1; n++) {
@@ -367,8 +376,35 @@ export function summaryCommentBody(
   simNote = "",
   att?: AttestationInfo,
   prDiff?: string,
+  scope?: DiffScopeResult,
 ): string {
   const findings = triaged.finalFindings;
+  // Scope membership (receipts-not-claims): the analyzer audits the WHOLE
+  // repo (SPEC-1 §4 — the PR diff is the trigger, not the surface), so the
+  // comment must not claim every finding sits in changed code. A finding is
+  // "in the PR diff" iff its line falls inside an added-line range of a diff
+  // file (exact path first, then unique "/"-suffix — same convention as the
+  // evidence sections). Scope comes from the pipeline's own scopeDiff result
+  // when available; otherwise it is derived from prDiff. No diff context →
+  // membership is unknown → the neutral repo claim, never a changed-code claim.
+  const effectiveScope = scope ?? (prDiff !== undefined ? scopeDiff(prDiff) : undefined);
+  const scopeMap = new Map(
+    effectiveScope?.contractFiles.map((c) => [c.path, c.changedLineRanges]),
+  );
+  const inChangedCode = (file: string, line: number): boolean =>
+    matchPath(scopeMap, file)?.some(([start, end]) => line >= start && line <= end) ?? false;
+  const hasScope = scopeMap.size > 0;
+  const diffClaim = (() => {
+    const n = findings.length;
+    if (!hasScope) return `**${n} finding(s)** in the repo's contract code.`;
+    const inDiff = findings.filter((f) => inChangedCode(f.file, f.line)).length;
+    const outDiff = n - inDiff;
+    if (outDiff === 0) return `**${n} finding(s)** in the PR's changed contract code.`;
+    if (inDiff === 0) {
+      return `**${n} finding(s)** in the repo's contract code — none on lines this PR changes.`;
+    }
+    return `**${n} finding(s)** — ${inDiff} on lines this PR changes, ${outDiff} elsewhere in the repo (the analyzer audits the repo's contract code; the PR is the trigger).`;
+  })();
   const sorted = [...findings].sort(
     (a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity),
   );
@@ -424,11 +460,11 @@ export function summaryCommentBody(
       : []),
     "",
     ...banner,
-    `**${findings.length} finding(s)** in changed contract code.`,
+    diffClaim,
     "",
     "| # | severity | check | location | note |",
     "| --- | --- | --- | --- | --- |",
-    ...rendered.map(findingRow),
+    ...rendered.map((f) => findingRow(f, hasScope && !inChangedCode(f.file, f.line))),
     ...(hidden > 0 ? ["", `...and ${hidden} more findings suppressed.`] : []),
     "",
     triageLine(triaged),
@@ -850,7 +886,7 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     let commentPosted = false;
     try {
       const posted = await githubStage("postComment", deps.postComment(prUrl, withConfigNote(withFooter(
-        summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote, att, diff),
+        summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote, att, diff, scope),
         att, findingsHash))));
       commentUrl = typeof posted === "string" ? posted : undefined;
       commentPosted = true;

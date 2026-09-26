@@ -22,7 +22,8 @@ export interface DismissalEntry {
 
 export interface RepoConfig {
   /** Glob allow-list for finding paths; empty = no include filter (the
-   * diff-scope already selected the audited surface). */
+   *  analyzer's surface is the whole repo per SPEC-1 §4 — the diff-scope
+   *  only decides WHETHER a PR is audited, never what findings survive). */
   include: string[];
   /** Glob deny-list; wins over include (test files are never reviewed). */
   ignore: string[];
