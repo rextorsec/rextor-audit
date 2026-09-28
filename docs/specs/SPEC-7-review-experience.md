@@ -43,6 +43,7 @@ Triage may emit an optional `suggestedDiff` per finding — only for findings it
 1. Verdict banner: riskScore + status + attestation chain/tx link + verify hint.
 2. Findings table (existing).
 3. Per finding: **quoted cited lines** — file:line-range + verbatim excerpt taken from the PR diff itself (not LLM-written code), then optional suggested diff (§2), then learning annotation if any (§4).
+4. Feedback + install CTA (trailing block, every **settled** review — attested, attestation-skipped, INCOMPLETE, gate-failure): a public [`audit-feedback` issue](/.github/ISSUE_TEMPLATE/audit-feedback.yml) on the product repo (title + review URL prefilled; quote consent is an explicit checkbox) plus the install link. The CTA is presentation-only: it never touches the canonical findings JSON the findingsHash covers, so the hash recipe is unchanged.
 
 ## 4. Dismissals + learnings memory (D4)
 
@@ -69,5 +70,6 @@ Server-side SQLite in the service container, keyed by repo — **a repo-file sto
 - `rextor.yaml` parse/gate unit tests: defaults on missing file, loud config-error note on malformed, gate mapping table above, dismissal matching on `(rule_id, path)`.
 - Fix-diff tests: label + fence present, no apply affordance, HTML-in-diff escaped.
 - Comment tests: cited excerpt verbatim from diff, banner fields from attestation record.
+- CTA tests: prefill params (template/title/review_url) + presence on attested AND INCOMPLETE comment bodies; non-PR URLs rejected by the shared PR identity registry.
 - D4 tests: base-branch sync writes dismissals with source sha; learnings annotate at ≥2 occurrences; PR-supplied yaml changes cannot dismiss.
 - D5 tests: mention-only trigger, rate limit, adversarial-comment fixture answers findings-only, refusal message for config/dismissal requests.

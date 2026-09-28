@@ -1,0 +1,56 @@
+name: Audit feedback
+description: Tell us how a Rextor Audit review worked for you (or didn't). Public by design — quotes only with your consent.
+title: "Audit feedback"
+labels: ["feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for running Rextor Audit — every PR an audit event.
+
+        This issue is public: your feedback tunes the engine, and quotable
+        lines (only with your consent below) may appear on rextoraudit.com and
+        in our materials. Findings are never silenced from here — dismissal is
+        the repo owner's `rextor.yaml`, on the base branch, with a public reason.
+  - type: input
+    id: review_url
+    attributes:
+      label: Review URL
+      description: The PR (comment) this feedback is about — prefilled when you arrive from a review.
+    validations:
+      required: true
+  - type: dropdown
+    id: useful
+    attributes:
+      label: Was the review useful?
+      options:
+        - Very useful — it caught real issues
+        - Useful — confirmed what I suspected
+        - Somewhat — noisy or shallow
+        - Not useful
+        - Broken / INCOMPLETE
+    validations:
+      required: true
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened?
+      description: What did it catch, miss, or get wrong? Be blunt — INCOMPLETE runs are never hidden from us either.
+    validations:
+      required: true
+  - type: input
+    id: project
+    attributes:
+      label: Project / team (optional)
+  - type: checkboxes
+    id: quote_consent
+    attributes:
+      label: Quote consent
+      description: Testimonials for the site and demo materials.
+      options:
+        - label: You may quote my feedback publicly, attributed to my GitHub handle.
+  - type: input
+    id: contact
+    attributes:
+      label: Contact (optional)
+      description: Telegram / X / email if you want a reply.
