@@ -4,6 +4,8 @@ import {
   runAnalyzerContainer,
   summaryCommentBody,
   incompleteCommentBody,
+  feedbackCta,
+  FEEDBACK_INSTALL_URL,
   type ReviewDeps,
   type ReviewResult,
   type Finding,
@@ -519,7 +521,8 @@ describe("runReview attestation integration (SPEC-4 §3)", () => {
     expect(res.attestation).toMatchObject({ txHash: "0xabc" });
     expect(bodies[0]).toContain("attested on");
     expect(bodies[0]).toContain("tx `0xabc`");
-    expect(bodies[0]).not.toContain("](https://");
+    // No explorer LINK for the tx itself; the CTA's own links are by design.
+    expect(bodies[0]).not.toContain("[tx `");
   });
 
   it("attest failure or absence never blocks the comment", async () => {
@@ -557,6 +560,54 @@ describe("runReview attestation integration (SPEC-4 §3)", () => {
     // sha256("[]") — EXTERNAL literal shared via ./vectors (printf %s '[]' | shasum -a 256).
     expect(seen[0]?.findingsHash).toBe("0x" + EMPTY_FINDINGS_SHA256);
     expect(seen[0]?.findingCount).toBe(0);
+  });
+});
+
+describe("feedback + install CTA (SPEC-7 §3)", () => {
+  it("prefills template, title, and encoded review URL; rejects non-PR URLs", () => {
+    const cta = feedbackCta("https://github.com/o/r/pull/3");
+    // Parse like GitHub will — URLSearchParams semantics (space = `+`).
+    const query = new URLSearchParams(cta.match(/issues\/new\?([^)]+)/)?.[1]);
+    expect(query.get("template")).toBe("audit-feedback.yml");
+    expect(query.get("title")).toBe("Audit feedback — o/r#3");
+    expect(query.get("review_url")).toBe("https://github.com/o/r/pull/3");
+    expect(cta).toContain(FEEDBACK_INSTALL_URL);
+    expect(() => feedbackCta("https://github.com/o/r/issues/3")).toThrow(/not a GitHub PR URL/);
+  });
+
+  it("every settled comment carries the CTA — attested and INCOMPLETE alike", async () => {
+    const bodies: string[] = [];
+    const post = async (_u: string, body: string) => { bodies.push(body); };
+    const diff = "diff --git a/src/V.sol b/src/V.sol\n@@ -1 +1 @@\n+x";
+    const ok = await runReview(PR_URL, {
+      clone: async () => ({ dir: "/tmp/fake", headSha: HEAD_SHA }),
+      fetchDiff: async () => diff,
+      runAnalyzer: async () => JSON.stringify({ file: "src/V.sol", line: 10, severity: "high", check: "c", description: "d" }),
+      postComment: post,
+      dispose: async () => {},
+      attest: async () => ({ txHash: "0xabc", explorerUrl: "" }),
+    });
+    expect(ok.commented).toBe(true);
+    const failed = await runReview(PR_URL, {
+      clone: async () => ({ dir: "/tmp/fake", headSha: HEAD_SHA }),
+      fetchDiff: async () => diff,
+      runAnalyzer: async () => { throw new Error("docker daemon down"); },
+      postComment: post,
+      dispose: async () => {},
+      attest: async () => null,
+    });
+    expect(failed.incomplete).toBe("docker daemon down");
+    expect(bodies).toHaveLength(2);
+    for (const body of bodies) {
+      expect(body).toContain("Open a public feedback issue");
+      expect(body).toContain(`[Install Rextor Audit](${FEEDBACK_INSTALL_URL})`);
+      // CTA's hr is blank-line separated — a text line followed by `---` is a
+      // setext H2 in GFM, not a rule.
+      expect(body).toMatch(/\n\n---\n🩺/);
+      expect(body.trimEnd().endsWith("every PR an audit event.")).toBe(true);
+    }
+    // the prefilled review URL carries the real PR identity
+    expect(bodies[0]).toContain(`review_url=${encodeURIComponent(PR_URL)}`);
   });
 });
 

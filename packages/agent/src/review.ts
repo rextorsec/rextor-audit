@@ -456,7 +456,7 @@ export function summaryCommentBody(
     // SPEC-7 §3 — the verdict banner leads with the on-chain anchor and the
     // anyone-can-verify path (the footer carries the full recipe).
     ...(att && "chain" in att
-      ? [`> ⚖ attested on ${cell(att.chain)} · [tx \`${att.txHash.slice(0, 10)}…\`](${att.explorerUrl}) · verify: recompute sha256 of the findings JSON below and compare with the on-chain findingsHash.`]
+      ? [`> ⚖ attested on ${cell(att.chain)} · ${att.explorerUrl ? `[tx \`${att.txHash.slice(0, 10)}…\`](${att.explorerUrl})` : `tx \`${att.txHash}\``} · verify: recompute sha256 of the findings JSON below and compare with the on-chain findingsHash.`]
       : []),
     "",
     ...banner,
@@ -585,9 +585,36 @@ function attestationFooter(att: AttestationInfo, findingsHash?: string): string[
   return lines;
 }
 
-// Append the footer to a comment body (footer's first row is a blank line).
-function withFooter(body: string, att: AttestationInfo, findingsHash?: string): string {
-  return [body, ...attestationFooter(att, findingsHash)].join("\n");
+// SPEC-7 §3 — the traction loop closes here: every settled review comment asks
+// its reader for feedback and points the next user at the install page. The
+// sink is a public `audit-feedback` issue on the product repo (zero new
+// account for the commenter; testimonials land as consent-gated public social
+// proof). Title + review URL prefill via issue-form query params; prUrl is
+// registry-validated by PR_URL_RE above and encoded anyway.
+export const FEEDBACK_INSTALL_URL = "https://www.rextoraudit.com/install";
+
+export function feedbackCta(prUrl: string): string {
+  const { repoFullName, prNumber } = prIdentity(prUrl);
+  const query = new URLSearchParams({
+    template: "audit-feedback.yml",
+    title: `Audit feedback — ${repoFullName}#${prNumber}`,
+    review_url: prUrl,
+  });
+  // Leading "" keeps the `---` blank-line separated: a text line followed
+  // directly by `---` renders as a setext H2 in GFM, not a rule.
+  return [
+    "",
+    "---",
+    `🩺 **Feedback (30s):** was this review useful, and did it save you time? [Open a public feedback issue](https://github.com/rextorsec/rextor-audit/issues/new?${query.toString()}) — nothing is quoted without your consent.`,
+    `**Want this on your repo?** [Install Rextor Audit](${FEEDBACK_INSTALL_URL}) — every PR an audit event.`,
+  ].join("\n");
+}
+
+// Append the footer — and the feedback/install CTA, so EVERY settled review
+// (attested, attestation-skipped, INCOMPLETE, gate-failure) closes the loop.
+// prUrl is required: there is no silent-drop path.
+function withFooter(body: string, att: AttestationInfo, findingsHash: string | undefined, prUrl: string): string {
+  return [body, ...attestationFooter(att, findingsHash), feedbackCta(prUrl)].join("\n");
 }
 
 export async function runReview(prUrl: string, deps: ReviewDeps): Promise<ReviewResult> {
@@ -811,7 +838,7 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
       const reason = err instanceof Error ? err.message : String(err);
       const { att, findingsHash } = await attestStage([], 0, true);
       const commentUrl = await githubStage("postComment", deps.postComment(prUrl,
-        withConfigNote(withFooter(incompleteCommentBody(`analyzer failed: ${reason}`), att, findingsHash))));
+        withConfigNote(withFooter(incompleteCommentBody(`analyzer failed: ${reason}`), att, findingsHash, prUrl))));
       await checkRunStage("neutral", `review incomplete: ${cell(reason)}`);
       recordIndexRow(0, 0, true, att, commentUrl);
       return { commented: true, score: 0, incomplete: reason, attestation: att, findings: [] };
@@ -827,7 +854,7 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
           : `unparseable analyzer report: ${err instanceof Error ? err.message : String(err)}`;
       const { att, findingsHash } = await attestStage([], 0, true);
       const commentUrl = await githubStage("postComment", deps.postComment(prUrl,
-        withConfigNote(withFooter(incompleteCommentBody(reason), att, findingsHash))));
+        withConfigNote(withFooter(incompleteCommentBody(reason), att, findingsHash, prUrl))));
       await checkRunStage("neutral", `review incomplete: ${cell(reason)}`);
       recordIndexRow(0, 0, true, att, commentUrl);
       return { commented: true, score: 0, incomplete: reason, attestation: att, findings: [] };
@@ -887,7 +914,7 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     try {
       const posted = await githubStage("postComment", deps.postComment(prUrl, withConfigNote(withFooter(
         summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote, att, diff, scope),
-        att, findingsHash))));
+        att, findingsHash, prUrl))));
       commentUrl = typeof posted === "string" ? posted : undefined;
       commentPosted = true;
     } catch (err) {
