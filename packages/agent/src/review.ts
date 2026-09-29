@@ -20,7 +20,7 @@ import { gateView, NO_TRIAGE_MODEL, rawFindingsResult, type TriageResult } from 
 import { isAnchorRepo, runSimStage, sanitizePocSource, type PocRequest, type SimOutcomeMap } from "./sim";
 import {
   canonicalFindingsJson,
-  normalizeFindings,
+  parseAnalyzerReport,
   scoreV1,
   withIds,
   IncompleteReportError,
@@ -377,6 +377,7 @@ export function summaryCommentBody(
   att?: AttestationInfo,
   prDiff?: string,
   scope?: DiffScopeResult,
+  analyzerNote = "",
 ): string {
   const findings = triaged.finalFindings;
   // Scope membership (receipts-not-claims): the analyzer audits the WHOLE
@@ -468,6 +469,7 @@ export function summaryCommentBody(
     ...(hidden > 0 ? ["", `...and ${hidden} more findings suppressed.`] : []),
     "",
     triageLine(triaged),
+    ...(analyzerNote ? ["", analyzerNote] : []),
     ...(simNote ? ["", simNote] : []),
     "",
     "<details><summary>Findings JSON — sha256 of this exact line (no trailing newline) = on-chain findingsHash</summary>",
@@ -845,8 +847,16 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     }
 
     let findings: Finding[];
+    let analyzerNote = "";
     try {
-      findings = normalizeFindings(ndjson);
+      // SPEC-8 §1 — dual dispatch: scoped incompletes degrade to a visible
+      // note instead of discarding the side that scanned clean; unscoped
+      // incompletes (single-shape repos) still hard-throw INCOMPLETE.
+      const report = parseAnalyzerReport(ndjson);
+      findings = report.findings;
+      if (report.degraded.length > 0) {
+        analyzerNote = `_(analyzer: ${cell(report.degraded.join(" · "))} — that side was not scanned)_`;
+      }
     } catch (err) {
       const reason =
         err instanceof IncompleteReportError
@@ -913,7 +923,7 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     let commentPosted = false;
     try {
       const posted = await githubStage("postComment", deps.postComment(prUrl, withConfigNote(withFooter(
-        summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote, att, diff, scope),
+        summaryCommentBody(scoreValue, { ...triaged, finalFindings: simmed.findings }, simmed.simNote, att, diff, scope, analyzerNote),
         att, findingsHash, prUrl))));
       commentUrl = typeof posted === "string" ? posted : undefined;
       commentPosted = true;

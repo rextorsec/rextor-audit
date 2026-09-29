@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   normalizeFindings,
+  parseAnalyzerReport,
   score,
   IncompleteReportError,
   type Finding,
@@ -88,6 +89,45 @@ describe("normalizeFindings", () => {
   it("throws on a negative line number (corrupt analyzer output)", () => {
     const line = JSON.stringify({ ...finding("high"), line: -3 });
     expect(() => normalizeFindings(line)).toThrowError(/line/);
+  });
+});
+
+describe("parseAnalyzerReport (SPEC-8 §1 dual dispatch)", () => {
+  it("findings + scoped incomplete → findings flow, degradation returned, never throws", () => {
+    const nd = [
+      JSON.stringify(finding("high")),
+      JSON.stringify({ status: "incomplete", reason: "slither-error: boom", scope: "evm" }),
+    ].join("\n");
+    const { findings, degraded } = parseAnalyzerReport(nd);
+    expect(findings).toEqual([finding("high")]);
+    expect(degraded).toEqual(["evm: slither-error: boom"]);
+  });
+
+  it("zero findings + scoped incompletes → throws with every scope joined", () => {
+    const nd = [
+      JSON.stringify({ status: "incomplete", reason: "no-rust-analyzed", scope: "solana" }),
+      JSON.stringify({ status: "incomplete", reason: "slither-error: boom", scope: "evm" }),
+    ].join("\n");
+    let thrown: IncompleteReportError | undefined;
+    try {
+      parseAnalyzerReport(nd);
+    } catch (e) {
+      thrown = e as IncompleteReportError;
+    }
+    expect(thrown).toBeInstanceOf(IncompleteReportError);
+    expect(thrown?.reason).toBe("solana: no-rust-analyzed | evm: slither-error: boom");
+  });
+
+  it("unscoped incomplete stays a hard throw", () => {
+    expect(() =>
+      parseAnalyzerReport(JSON.stringify({ status: "incomplete", reason: "x" })),
+    ).toThrowError(IncompleteReportError);
+  });
+
+  it("normalizeFindings stays strict: scoped incompletes throw there too", () => {
+    expect(() =>
+      normalizeFindings(JSON.stringify({ status: "incomplete", reason: "x", scope: "evm" })),
+    ).toThrowError(IncompleteReportError);
   });
 });
 

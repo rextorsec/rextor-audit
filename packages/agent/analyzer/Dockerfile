@@ -49,6 +49,7 @@ RUN set -ex \
 WORKDIR /repo
 USER root
 COPY run.sh /usr/local/bin/run.sh
+COPY evm.sh /usr/local/bin/evm.sh
 COPY sim.sh /usr/local/bin/sim.sh
 COPY solana.sh /usr/local/bin/solana.sh
 # Known-good forge-std, baked for the sim harness: sim.sh pins the
@@ -58,7 +59,7 @@ COPY vendor/forge-std /opt/rextor/forge-std
 # SPEC-8 §1 — Solana rule pack, baked read-only at /opt/rextor/rules: a PR
 # never supplies the rules it is judged by.
 COPY rules/solana-anchor /opt/rextor/rules/solana-anchor
-RUN chmod +x /usr/local/bin/run.sh /usr/local/bin/sim.sh /usr/local/bin/solana.sh
+RUN chmod +x /usr/local/bin/run.sh /usr/local/bin/evm.sh /usr/local/bin/sim.sh /usr/local/bin/solana.sh
 USER analyzer
 # Self-termination just inside the runner's 150s execFile timeout: SIGKILL on
 # the CLI would otherwise strand a hung container holding its 2g/2cpu budget.
