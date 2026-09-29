@@ -1,0 +1,110 @@
+#!/usr/bin/env sh
+# EVM (Slither) analyzer slice — extracted verbatim from pre-dual run.sh.
+# Same contract (SPEC-1 §1): NDJSON findings on stdout; exit 3 + a
+# {"status":"incomplete","reason":…} line on analyzer failure; exit 0 with
+# findings (possibly zero) on completion. run.sh tags incomplete lines with
+# "scope" in dual-dispatch mode; this script stays untagged (single-shape
+# repos behave byte-identically to pre-dual).
+set -u
+if ! command -v slither >/dev/null 2>&1; then
+  echo '{"status":"incomplete","reason":"slither-missing"}'; exit 3
+fi
+# Foundry projects nest (monorepos carry contracts under e.g. contracts/<name>/
+# with the foundry.toml THERE, not at the clone root): run the slither unit at
+# the foundry.toml root when the mount root has none. One unit per repo today —
+# multi-foundry monorepos are future work (documented limitation). A repo with
+# no foundry.toml keeps the root-run legacy path (bare .sol trees compile via
+# the solc-select shim).
+RUNDIR="/repo"
+if [ ! -f /repo/foundry.toml ]; then
+  nested="$(find /repo -name foundry.toml -not -path '*/lib/*' -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | head -1)"
+  if [ -n "$nested" ]; then
+    RUNDIR="$(dirname "$nested")"
+  fi
+fi
+# Copy the mounted PR into a writable workdir and analyze THERE: the container
+# runs as an unprivileged user (the mount may be read-only or unwritable), and
+# a PR's forge build must never write back into the mounted repo.
+WORK="$(mktemp -d)" || { echo '{"status":"incomplete","reason":"workdir-unavailable"}'; exit 3; }
+cp -r "$RUNDIR"/. "$WORK"/ 2>/dev/null || true
+cd "$WORK"
+TMP="$(mktemp -d)/slither.json" || { echo '{"status":"incomplete","reason":"tmpdir-unavailable"}'; exit 3; }
+# --fail-none keeps the exit code a completion signal: slither 0.11.6 defaults to
+# fail_on=pedantic — it exits 255 whenever ANY finding exists (any impact) — which
+# would misroute a finding-rich (clean) run into the incomplete branch. The JSON
+# file is the source of truth.
+if slither . --json "$TMP" --fail-none >/dev/null 2>"$TMP.err"; then
+  python3 - "$TMP" "$TMP.err" <<'PY'
+import json, os, sys
+try:
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
+except Exception as e:
+    print(json.dumps({"status": "incomplete", "reason": f"slither-json-unparseable: {e}"}))
+    sys.exit(3)
+detectors = data.get("results", {}).get("detectors", [])
+try:
+    with open(sys.argv[2], errors="replace") as f:
+        stderr_text = f.read()
+except OSError:
+    stderr_text = ""
+# slither exits 0 even when it compiled nothing ("No contract was analyzed",
+# results: {}); that is an analyzer failure, never a clean pass. The message
+# check is the primary net; the .sol walk is the structural fallback (message
+# drift under an image bump must not turn an empty scan into a clean pass).
+# Vendored/tooling trees are pruned so only the repo's own sources count —
+# a genuinely clean repo (own .sol present, slither exit 0) stays a clean
+# pass; only a repo with nothing of its own to analyze is incomplete.
+if not detectors:
+    phrased = "No contract was analyzed" in stderr_text
+    has_own_sol = False
+    if not phrased:
+        for root, dirs, files in os.walk("."):
+            dirs[:] = [d for d in dirs if d not in
+                       ("lib", "node_modules", "out", "cache", "artifacts", "broadcast", ".git")]
+            if any(f.endswith(".sol") for f in files):
+                has_own_sol = True
+                break
+    if phrased or not has_own_sol:
+        reason = "no-contract-analyzed" if phrased else "no-sol-sources"
+        print(json.dumps({"status": "incomplete", "reason": reason}))
+        sys.exit(3)
+for d in detectors:
+    sev = {"High": "high", "Medium": "medium", "Low": "low"}.get(d.get("impact"), "low")
+    first = (d.get("elements") or [{}])[0]
+    src = first.get("source_mapping", {}) or {}
+    print(json.dumps({
+        # Full repo-relative path (not the basename): SPEC-7 §3 evidence
+        # citations match diff paths, and a basename is ambiguous across
+        # nested layouts.
+        "file": src.get("filename_relative") or "?",
+        "line": (src.get("lines") or [0])[0],
+        "severity": sev,
+        "check": d.get("check", "?"),
+        "description": d.get("description", "")[:500],
+    }))
+PY
+  rc=$?
+  rm -rf "$(dirname "$TMP")"
+  # rc 0 = findings printed; rc 3 = a deliberate incomplete line is already on
+  # stdout (parse-level failure); ANY other rc means the parser itself died
+  # before reporting — emit the contract's crash line. (The old guard fired on
+  # rc 3 too, appending a spurious second "crash" line after every planned
+  # incomplete emission.)
+  if [ "$rc" -eq 0 ]; then
+    exit 0
+  fi
+  if [ "$rc" -ne 3 ]; then
+    echo '{"status":"incomplete","reason":"crash"}'
+  fi
+  exit 3
+else
+  # Interpolate through json.dumps: raw stderr can contain quotes, which would
+  # break the single-line JSON contract.
+  python3 - "$TMP.err" <<'PY'
+import json, os, sys
+err = open(sys.argv[1], errors="replace").read()[:200].replace("\n", " ").strip()
+print(json.dumps({"status": "incomplete", "reason": f"slither-error: {err}"}))
+PY
+  rm -rf "$(dirname "$TMP")"; exit 3
+fi

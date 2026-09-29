@@ -1,90 +1,101 @@
 #!/usr/bin/env sh
 # Contract: NDJSON findings on stdout; exit 3 + {"status":"incomplete"} on analyzer failure.
 set -u
-# SPEC-8 §1 — chain dispatch by repo shape: Anchor.toml at the repo root, or
+# SPEC-8 §1 — chain dispatch by repo shape. Anchor.toml at the repo root, or
 # anchor-lang declared under programs/*/Cargo.toml, routes to the Solana
-# (semgrep) slice; every other repo takes the Slither path byte-identical to
-# pre-SPEC-8 behavior. The NDJSON/incomplete contract is chain-blind.
-if [ -f /repo/Anchor.toml ] || grep -qs 'anchor-lang' /repo/programs/*/Cargo.toml; then
+# (semgrep) slice; own .sol sources route to the EVM (Slither) slice. A MIXED
+# repo (both shapes — e.g. a monorepo with contracts/ AND programs/) runs BOTH
+# and merges the NDJSON: a monorepo must not lose its EVM half just because an
+# Anchor program shares the tree. The NDJSON/incomplete contract is
+# chain-blind; in dual mode each side's incomplete line carries
+# "scope":"solana"|"evm" so the pipeline can degrade per scope instead of
+# discarding a side that scanned clean (parseAnalyzerReport, SPEC-1 §1).
+anchor=false
+[ -f /repo/Anchor.toml ] && anchor=true
+if [ "$anchor" = false ] && grep -qs 'anchor-lang' /repo/programs/*/Cargo.toml; then
+  anchor=true
+fi
+# Own-source check mirrors evm.sh's vendored-tree walker: lib/, node_modules/,
+# out/, cache/, artifacts/, broadcast/, .git/ are never the repo's own code.
+own_sol=false
+if find /repo -name '*.sol' -not -path '*/lib/*' -not -path '*/node_modules/*' \
+     -not -path '*/out/*' -not -path '*/cache/*' -not -path '*/artifacts/*' \
+     -not -path '*/broadcast/*' -not -path '*/.git/*' 2>/dev/null | grep -q .; then
+  own_sol=true
+fi
+if [ "$anchor" = true ] && [ "$own_sol" = false ]; then
   exec /usr/local/bin/solana.sh
 fi
-if ! command -v slither >/dev/null 2>&1; then
-  echo '{"status":"incomplete","reason":"slither-missing"}'; exit 3
+if [ "$anchor" = false ]; then
+  exec /usr/local/bin/evm.sh
 fi
-# Copy the mounted PR into a writable workdir and analyze THERE: the container
-# runs as an unprivileged user (the mount may be read-only or unwritable), and
-# a PR's forge build must never write back into the mounted repo.
+# DUAL — both shapes present: run each side, tag its incompletes, merge.
 WORK="$(mktemp -d)" || { echo '{"status":"incomplete","reason":"workdir-unavailable"}'; exit 3; }
-cp -r /repo/. "$WORK"/ 2>/dev/null || true
-cd "$WORK"
-TMP="$(mktemp -d)/slither.json" || { echo '{"status":"incomplete","reason":"tmpdir-unavailable"}'; exit 3; }
-# --fail-none keeps the exit code a completion signal: slither 0.11.6 defaults to
-# fail_on=pedantic — it exits 255 whenever ANY finding exists (any impact) — which
-# would misroute a finding-rich (clean) run into the incomplete branch. The JSON
-# file is the source of truth.
-if slither . --json "$TMP" --fail-none >/dev/null 2>"$TMP.err"; then
-  python3 - "$TMP" "$TMP.err" <<'PY'
-import json, os, sys
-try:
-    with open(sys.argv[1]) as f:
-        data = json.load(f)
-except Exception as e:
-    print(json.dumps({"status": "incomplete", "reason": f"slither-json-unparseable: {e}"}))
+/usr/local/bin/solana.sh >"$WORK/solana.ndjson"; s_rc=$?
+/usr/local/bin/evm.sh >"$WORK/evm.ndjson"; e_rc=$?
+python3 - "$WORK/solana.ndjson" "$WORK/evm.ndjson" "$s_rc" "$e_rc" <<'PY'
+import json, sys
+
+def load(path):
+    out = []
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        out.append(("rec", json.loads(line)))
+                    except Exception:
+                        out.append(("raw", line))
+    except OSError:
+        pass
+    return out
+
+def side(lines, rc, scope):
+    findings, reason = [], None
+    for kind, rec in lines:
+        if kind == "raw":
+            findings.append(rec)  # never mangled; passes through verbatim
+            continue
+        if isinstance(rec, dict) and rec.get("status") == "incomplete":
+            reason = str(rec.get("reason", f"{scope}-crash"))
+        else:
+            findings.append(rec)
+    # A side that died without producing its own incomplete line (SIGKILL,
+    # python crash) is still a failure — synthesize the contract's reason.
+    if rc not in (0, 3) and reason is None:
+        reason = f"{scope}-crash (exit {rc})"
+    return findings, reason
+
+sf, si = side(load(sys.argv[1]), int(sys.argv[3]), "solana")
+ef, ei = side(load(sys.argv[2]), int(sys.argv[4]), "evm")
+for f in sf + ef:
+    print(json.dumps(f))
+degraded = [(s, r) for s, r in (("solana", si), ("evm", ei)) if r]
+if not sf and not ef:
+    # Both sides failed: the report is incomplete — emit both scoped reasons.
+    for scope, reason in degraded:
+        print(json.dumps({"status": "incomplete", "reason": reason, "scope": scope}))
     sys.exit(3)
-detectors = data.get("results", {}).get("detectors", [])
-try:
-    with open(sys.argv[2], errors="replace") as f:
-        stderr_text = f.read()
-except OSError:
-    stderr_text = ""
-# slither exits 0 even when it compiled nothing ("No contract was analyzed",
-# results: {}); that is an analyzer failure, never a clean pass. The message
-# check is the primary net; the .sol walk is the structural fallback (message
-# drift under an image bump must not turn an empty scan into a clean pass).
-# Vendored/tooling trees are pruned so only the repo's own sources count —
-# a genuinely clean repo (own .sol present, slither exit 0) stays a clean
-# pass; only a repo with nothing of its own to analyze is incomplete.
-if not detectors:
-    phrased = "No contract was analyzed" in stderr_text
-    has_own_sol = False
-    if not phrased:
-        for root, dirs, files in os.walk("."):
-            dirs[:] = [d for d in dirs if d not in
-                       ("lib", "node_modules", "out", "cache", "artifacts", "broadcast", ".git")]
-            if any(f.endswith(".sol") for f in files):
-                has_own_sol = True
-                break
-    if phrased or not has_own_sol:
-        reason = "no-contract-analyzed" if phrased else "no-sol-sources"
-        print(json.dumps({"status": "incomplete", "reason": reason}))
-        sys.exit(3)
-for d in detectors:
-    sev = {"High": "high", "Medium": "medium", "Low": "low"}.get(d.get("impact"), "low")
-    first = (d.get("elements") or [{}])[0]
-    src = first.get("source_mapping", {}) or {}
+# At least one side completed: findings flow; scoped incompletes ride along as
+# visible degradation (parseAnalyzerReport surfaces them as a comment note —
+# never silent, never report-losing).
+if degraded:
     print(json.dumps({
-        # Full repo-relative path (not the basename): SPEC-7 §3 evidence
-        # citations match diff paths, and a basename is ambiguous across
-        # nested layouts.
-        "file": src.get("filename_relative") or "?",
-        "line": (src.get("lines") or [0])[0],
-        "severity": sev,
-        "check": d.get("check", "?"),
-        "description": d.get("description", "")[:500],
+        "status": "incomplete",
+        "reason": " | ".join(f"{s}: {r}" for s, r in degraded),
+        "scope": "dual",
     }))
+sys.exit(0)
 PY
-  rc=$?
-  rm -rf "$(dirname "$TMP")"
-  # A post-parse crash (python killed, disk full) must still carry the
-  # incomplete line — exit 3 with empty stdout reads as a contract violation.
-  [ "$rc" -eq 0 ] || { echo '{"status":"incomplete","reason":"crash"}'; exit 3; }
-else
-  # Interpolate through json.dumps: raw stderr can contain quotes, which would
-  # break the single-line JSON contract.
-  python3 - "$TMP.err" <<'PY'
-import json, os, sys
-err = open(sys.argv[1], errors="replace").read()[:200].replace("\n", " ").strip()
-print(json.dumps({"status": "incomplete", "reason": f"slither-error: {err}"}))
-PY
-  rm -rf "$(dirname "$TMP")"; exit 3
+rc=$?
+rm -rf "$WORK"
+# rc 0 = merged report on stdout; rc 3 = both-failed incompletes already
+# emitted; anything else is a dispatcher crash — emit the contract line.
+if [ "$rc" -eq 0 ]; then
+  exit 0
 fi
+if [ "$rc" -ne 3 ]; then
+  echo '{"status":"incomplete","reason":"crash"}'
+fi
+exit 3

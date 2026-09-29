@@ -57,15 +57,96 @@ export class IncompleteReportError extends Error {
   }
 }
 
+type ParsedLine =
+  | { kind: "finding"; finding: Finding }
+  | { kind: "incomplete"; reason: string; scope?: string };
+
+function classifyFindingLine(line: string, lineNo: number): ParsedLine {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch (cause) {
+    const preview = line.length > 120 ? line.slice(0, 117) + "..." : line;
+    throw new Error(
+      `findings NDJSON line ${lineNo} is not valid JSON: ${preview}`,
+      { cause },
+    );
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(
+      `findings NDJSON line ${lineNo} must be a JSON object, got: ${JSON.stringify(parsed)}`,
+    );
+  }
+  const rec = parsed as Record<string, unknown>;
+  if (rec.status === "incomplete") {
+    return {
+      kind: "incomplete",
+      reason: typeof rec.reason === "string" ? rec.reason : show(rec.reason),
+      scope: typeof rec.scope === "string" ? rec.scope : undefined,
+    };
+  }
+  return {
+    kind: "finding",
+    finding: {
+      file: requireString(rec, "file", lineNo),
+      line: requireNumber(rec, "line", lineNo),
+      severity: requireSeverity(rec, lineNo),
+      check: requireString(rec, "check", lineNo),
+      description: requireString(rec, "description", lineNo),
+    },
+  };
+}
+
 export function normalizeFindings(ndjson: string): Finding[] {
   const findings: Finding[] = [];
   const lines = ndjson.split("\n");
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (line === "") continue; // trailing-newline / blank-line tolerance
-    findings.push(parseFindingLine(line, i + 1));
+    const parsed = classifyFindingLine(line, i + 1);
+    if (parsed.kind === "incomplete") throw new IncompleteReportError(parsed.reason);
+    findings.push(parsed.finding);
   }
   return findings;
+}
+
+/** Result of parsing a possibly dual-dispatch analyzer report (SPEC-8 §1). */
+export interface AnalyzerReport {
+  findings: Finding[];
+  /** Per-scope degradation notes, e.g. `["evm: slither-error: …"]`. Each entry
+   *  means THAT scope did not complete — rendered as a visible comment note,
+   *  never silently dropped. Presentation-only: never enters the attestation
+   *  payload. */
+  degraded: string[];
+}
+
+/** SPEC-8 §1 monorepo entry: dual-dispatch reports carry scoped
+ *  `status:"incomplete"` lines (`"scope":"solana"|"evm"|"dual"`). A scoped
+ *  incomplete DEGRADES instead of throwing — a mixed-shape repo must not lose
+ *  the side that scanned clean just because the other half failed; the
+ *  degradation rides back as a visible note. UNSCOPED incomplete lines stay
+ *  hard throws (single-shape repos behave byte-identically to pre-dual).
+ *  Zero findings + only degradations = the report IS incomplete: throws with
+ *  every scope's reason joined. */
+export function parseAnalyzerReport(ndjson: string): AnalyzerReport {
+  const findings: Finding[] = [];
+  const degraded: string[] = [];
+  const lines = ndjson.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line === "") continue; // trailing-newline / blank-line tolerance
+    const parsed = classifyFindingLine(line, i + 1);
+    if (parsed.kind === "incomplete") {
+      if (parsed.scope === undefined) throw new IncompleteReportError(parsed.reason);
+      degraded.push(`${parsed.scope}: ${parsed.reason}`);
+      continue;
+    }
+    findings.push(parsed.finding);
+  }
+  if (findings.length === 0 && degraded.length > 0) {
+    throw new IncompleteReportError(degraded.join(" | "));
+  }
+  return { findings, degraded };
 }
 
 export function score(findings: Finding[]): number {
@@ -112,37 +193,6 @@ export function canonicalFindingsJson(findings: Finding[]): string {
 
 export function findingsHash(findings: Finding[]): string {
   return createHash("sha256").update(canonicalFindingsJson(findings), "utf8").digest("hex");
-}
-
-function parseFindingLine(line: string, lineNo: number): Finding {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(line);
-  } catch (cause) {
-    const preview = line.length > 120 ? line.slice(0, 117) + "..." : line;
-    throw new Error(
-      `findings NDJSON line ${lineNo} is not valid JSON: ${preview}`,
-      { cause },
-    );
-  }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error(
-      `findings NDJSON line ${lineNo} must be a JSON object, got: ${JSON.stringify(parsed)}`,
-    );
-  }
-  const rec = parsed as Record<string, unknown>;
-  if (rec.status === "incomplete") {
-    throw new IncompleteReportError(
-      typeof rec.reason === "string" ? rec.reason : show(rec.reason),
-    );
-  }
-  return {
-    file: requireString(rec, "file", lineNo),
-    line: requireNumber(rec, "line", lineNo),
-    severity: requireSeverity(rec, lineNo),
-    check: requireString(rec, "check", lineNo),
-    description: requireString(rec, "description", lineNo),
-  };
 }
 
 function requireString(

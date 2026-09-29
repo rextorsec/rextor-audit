@@ -69,7 +69,9 @@ describe.skipIf(!docker || process.env.REXTOR_SKIP_CONTRACT_TESTS === "1")("anal
     const tmp = execFileSync("mktemp", ["-d"]).toString().trim();
     const { status, stdout } = runAnalyzer(tmp);
     expect(status).toBe(3);
-    expect(stdout).toContain('"status":"incomplete"');
+    // Parse, don't needle: slices emit JSON with different whitespace.
+    const report = JSON.parse(stdout.trim().split("\n")[0]) as { status: string };
+    expect(report.status).toBe("incomplete");
   });
   it("exits 0 with empty stdout on a zero-findings repo (never incomplete)", { timeout: 180_000 }, () => {
     // Contract case (b): successfully analyzed, zero findings → clean pass,
@@ -84,17 +86,20 @@ describe.skipIf(!docker || process.env.REXTOR_SKIP_CONTRACT_TESTS === "1")("anal
 });
 
 // SPEC-8 §1 — Solana (Anchor) slice contract: same NDJSON/incomplete rules as
-// the EVM path (invariant 25). Synthetic trees are built under os.tmpdir():
-// on GitHub runners (2026-09-24), files created at job runtime under the
-// workspace do NOT propagate into docker bind mounts (checkout-time fixture
-// dirs do) — a workspace-mounted synthetic tree dispatches against an EMPTY
-// /repo and fails. os.tmpdir() is bind-mount-visible on the runner AND under
-// Docker Desktop (the colima /tmp caveat below is obsolete: this machine runs
-// Docker Desktop, which shares /tmp; sim.contract.test.ts already relied on
-// tmpdir mounts across both environments).
-import { mkdtempSync, mkdirSync, copyFileSync, writeFileSync, rmSync } from "node:fs";
+// the EVM path (invariant 25). Synthetic trees are built under
+// REXTOR_CONTRACT_TMPDIR (default os.tmpdir()): mount visibility of
+// runtime-created dirs differs by environment — on GitHub runners (2026-09-24)
+// files created at job runtime under the workspace do NOT propagate into
+// docker bind mounts (checkout-time fixture dirs + /tmp do), while on the
+// macOS deployment host (2026-09-29) /tmp bind mounts are SILENTLY EMPTY
+// (empty /repo → wrong chain dispatch → misleading reasons). The env var lets
+// each environment pick its mount-visible base without code churn; turbo.json
+// globalEnv carries it so strict env mode doesn't strip it.
+import { mkdtempSync, mkdirSync, copyFileSync, writeFileSync, rmSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+const contractTmp = process.env.REXTOR_CONTRACT_TMPDIR ?? tmpdir();
 
 const solanaFixturePath = `${repoRoot}fixtures/solana-vault`;
 const SOLANA_ENTRYPOINT = "/usr/local/bin/solana.sh";
@@ -113,7 +118,7 @@ describe.skipIf(!docker || process.env.REXTOR_SKIP_CONTRACT_TESTS === "1")("sola
   });
 
   it("run.sh dispatches Anchor-shaped repos to the slice (default entrypoint, same findings)", { timeout: 240_000 }, () => {
-    const dir = mkdtempSync(join(tmpdir(), "anchor-dispatch-"));
+    const dir = mkdtempSync(join(contractTmp, "anchor-dispatch-"));
     try {
       writeFileSync(join(dir, "Anchor.toml"), "");
       mkdirSync(join(dir, "programs/x/src"), { recursive: true });
@@ -131,13 +136,47 @@ describe.skipIf(!docker || process.env.REXTOR_SKIP_CONTRACT_TESTS === "1")("sola
   });
 
   it("Anchor-dispatched repo without rust sources → incomplete no-rust-analyzed (never clean)", { timeout: 120_000 }, () => {
-    const dir = mkdtempSync(join(tmpdir(), "anchor-empty-"));
+    const dir = mkdtempSync(join(contractTmp, "anchor-empty-"));
     try {
       writeFileSync(join(dir, "Anchor.toml"), "");
       const { status, stdout } = runAnalyzer(dir);
       expect(status).toBe(3);
-      expect(stdout).toContain('"status":"incomplete"');
-      expect(stdout).toContain("no-rust-analyzed");
+      const report = JSON.parse(stdout.trim().split("\n")[0]) as { status: string; reason: string };
+      expect(report.status).toBe("incomplete");
+      expect(report.reason).toContain("no-rust-analyzed");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// SPEC-8 §1 dual dispatch — a MIXED-shape repo (Anchor programs AND own .sol,
+// e.g. the SIP monorepo) must run BOTH slices and merge findings: routing the
+// whole tree to one slice silently blinds the other half. Assembled from the
+// two existing fixtures (provenance: fixtures/solana-vault + fixtures/vault).
+describe.skipIf(!docker || process.env.REXTOR_SKIP_CONTRACT_TESTS === "1")("monorepo dual dispatch (SPEC-8 §1)", () => {
+  it("mixed-shape repo emits BOTH the solana and the evm findings", { timeout: 300_000 }, () => {
+    const dir = mkdtempSync(join(contractTmp, "monorepo-dual-"));
+    try {
+      writeFileSync(join(dir, "Anchor.toml"), "");
+      mkdirSync(join(dir, "programs/x/src"), { recursive: true });
+      writeFileSync(join(dir, "programs/x/Cargo.toml"), '[dependencies]\nanchor-lang = "0.30.1"\n');
+      copyFileSync(join(solanaFixturePath, "src/lib.rs"), join(dir, "programs/x/src/lib.rs"));
+      // EVM half: the vault fixture's compileable unit (src + foundry.toml + lib).
+      cpSync(join(fixturePath, "src"), join(dir, "src"), { recursive: true });
+      cpSync(join(fixturePath, "lib"), join(dir, "lib"), { recursive: true });
+      copyFileSync(join(fixturePath, "foundry.toml"), join(dir, "foundry.toml"));
+      const { status, stdout } = runAnalyzer(dir);
+      expect(status).toBe(0);
+      const findings = stdout.trim().split("\n")
+        .map((l: string) => JSON.parse(l) as { check: string; status?: string });
+      const checks = findings.map((f) => f.check);
+      expect(checks).toContain("reentrancy-eth");
+      for (const c of ["REXTOR-SOL-001", "REXTOR-SOL-002", "REXTOR-SOL-003"]) {
+        expect(checks).toContain(c);
+      }
+      // A completed dual scan must not carry incomplete lines.
+      for (const f of findings) expect(f.status).toBeUndefined();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
