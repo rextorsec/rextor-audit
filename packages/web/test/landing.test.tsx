@@ -41,8 +41,8 @@ describe("LandingPage", () => {
     expect(screen.getByText(/Attestation v2 · deploy #3 · 0x51ac…495a/)).toBeInTheDocument();
     expect(screen.getByText(/HyperEVM mainnet · 999 · 0x8f63…850c/)).toBeInTheDocument();
     expect(screen.getByText(/rextor-audit\[bot\] · active/)).toBeInTheDocument();
-    // RPC outage → last-verified counts (5 on-chain as of 2026-09-22).
-    expect(screen.getByText(/Attested reviews · 5/)).toBeInTheDocument();
+    // RPC outage → last-verified counts (22 on-chain as of 2026-10-05).
+    expect(screen.getByText(/Attested reviews · 22/)).toBeInTheDocument();
     // Hero CTA — receipts for ALL THREE attestation chains, never Tempo-only.
     expect(screen.getByRole("link", { name: "Tempo ↗" })).toHaveAttribute(
       "href",

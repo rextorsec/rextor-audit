@@ -7,11 +7,12 @@ import { SOLANA_DEVNET, WEB_CHAINS, shortHex } from "@/lib/chains";
 import { receiptLink } from "@/lib/receipt-link";
 
 /**
- * Honest fallbacks — last on-chain verified counts (2026-09-22). Used only
- * when the public RPC read fails; the page revalidates every 5 minutes.
- * Exported for the page composition (Tracks binds the same total).
+ * Honest fallbacks — last on-chain verified counts (2026-10-05: tempo 19,
+ * hyperliquid 3 via /api/chain/* on prod). Used only when the public RPC read
+ * fails; the page revalidates every 5 minutes. Exported for the page
+ * composition (Tracks binds the same total).
  */
-export const FALLBACK_COUNTS = { tempo: 5, hyperliquid: 0 } as const;
+export const FALLBACK_COUNTS = { tempo: 19, hyperliquid: 3 } as const;
 
 export interface HeroProps {
   /** Live agent-identity reads per chain (null → honest fallback counts). */
