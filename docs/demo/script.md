@@ -104,7 +104,7 @@ Every artifact below re-verified against live chains today. **Two script facts a
 | **HyperEVM MAINNET** registry `0x8f63…850c` | chainId 999, code live; twin tx `0x64e2a131…1834b5` status `0x1`, block 46562201, gas 194,330 — exact E1 record |
 | Prod identity reads (verified 2026-10-05) | `/api/chain/tempo` → `active:true, reviewCount:19`; `/api/chain/hyperliquid` → `active:true, reviewCount:3` |
 | Solana devnet program `Aj6Nx…kMDs` | `getAccountInfo`: executable, BPFLoaderUpgradeable-owned — **B4 shipped, §6 Solana scene is recordable** |
-| Dashboard + landing | www.rextoraudit.com live, nonce-CSP deployed 09-25; ledger rows via `/dashboard/rextorsec/rextor-audit-test` (16 rows, newest pr 8) |
+| Dashboard + landing | www.rextoraudit.com live, nonce-CSP deployed 09-25; ledger rows via `/dashboard/rextorsec/rextor-audit-test` (16 rows, newest pr 8 — verified 2026-09-26; **re-verify before recording**) |
 | ERC-8004 identity | agentId 50891, identity card live on prod landing (C1 done) |
 | Chat + severity gate | chat proven (receipt 5742416145); severity-gate FAILURE check-run live in production smoke (rextor-audit-test#8) — the §5 gate scene no longer rides F5 |
 
