@@ -51,3 +51,10 @@ Coverage rule: **every** `T[<ident…>]` type position is literalized — a part
 ## PR mechanics
 
 Local `git push` to sip-protocol 403s (keychain) → commit via GitHub Git Data API: blob → tree → commit → ref `fix/funding-verifier-constant-array-lengths` → PR. Author: rz1989s (a **human** author is required — CodeRabbit seat-gates bot-author dispatch; known issue from #1264). One commit, `fix(contracts): …`, no AI attribution.
+
+## Status — live run 2026-10-05
+
+- **PR:** [sip-protocol/sip-protocol#1267](https://github.com/sip-protocol/sip-protocol/pull/1267) — base `e5117f3`, commit `bcdf28e`, 1 file, +55/−55.
+- **Branch verification:** slither completes standalone + at package root (125 findings, no crash); `forge test` 294/294; SIP CI green (`test` + `validate-circuits` check-runs on the head); **bytecode identity proven** via no-metadata A/B rebuild (`FOUNDRY_BYTECODE_HASH=none FOUNDRY_CBOR_METADATA=false`) — 112/112 artifacts byte-identical.
+- **CodeRabbit receipt (A/B, their side):** auto-review on open — summary comment 11:52:09Z with Change Stack link, check context `CodeRabbit: success`, **zero inline findings** on the mechanical diff. Captured: `~/local-dev/tmp/outreach/cr-pr1267-summary.json`.
+- **rextor-audit[bot] receipt: BLOCKED — webhook delivery never reached the service.** Evidence: `reviews` table last row 2026-09-29 (test repo), `skipped_deliveries` empty (nothing received-and-skipped), tunnel + service proven healthy externally (`https://webhook.rextoraudit.com/` returns the service's signature error JSON). Root cause: the App's webhook URL still points at the dead quick-tunnel host; the named tunnel (`webhook.rextoraudit.com` → `localhost:8080`) is live. **RECTOR manual:** App settings → Webhook URL → `https://webhook.rextoraudit.com`, then Recent deliveries → Redeliver the failed `pull_request` deliveries. Diagnostic dead end recorded: app-JWT introspection locally failed — `REXTOR_GITHUB_APP_PEM_PATH` signs a structurally valid JWT that GitHub rejects ("could not be decoded" = wrong key), and inline `REXTOR_AGENT_PRIVATE_KEY` is passphrase-encrypted PKCS#8 (service-only material).
