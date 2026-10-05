@@ -130,6 +130,7 @@ Live dispatch facts (#1264, dependabot PR): (1) incremental — *"does not re-re
 9. **Coding tasks + Environments + Skills + personal-scope integrations (17) + MCP connections** — agentic-platform breadth; outside current wedge, recorded for completeness.
 10. **Usage-based billing surfaces** ($/file, $/agent-minute, credits, estimated invoice) — relevant only if we ever price usage-based; our anchor is per-repo/audit.
 11. **Onboarding wizard** — referenced in prior session notes but not found in the live app this walkthrough ("Back to work" ribbon remnant suggests it is post-onboarding); verify against their docs before claiming.
+12. **Change Stack** (layered review-workspace artifact, snapshot-vs-live merge gating) and **CodeRabbit Plan** (issues/PRDs → codebase-grounded Coding Plans with agent handoff) — both invisible in the dashboard walkthrough; decoded docs-side in §H below.
 
 **Still absent everywhere in their UI (moat unchanged)**: on-chain attestation, `verify()` recomputation, execution-based PoC proof, per-chain native verdicts, attested-INCOMPLETE as public artifact. Their findings analytics live in a dashboard bound to their seats/billing; ours bind to commits and chains.
 
