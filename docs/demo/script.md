@@ -100,9 +100,9 @@ Every artifact below re-verified against live chains today. **Two script facts a
 | Receipt | Evidence |
 |---|---|
 | Tempo registry `0x51ac…495a` | `eth_chainId` = 42431, `eth_getCode` non-empty |
-| Tempo attestation txs: smoke 90/100 (`0x56311f293f…`), 93 (`0x4a2a834416…`), 93 (`0x1323a45515…`) | receipts: all status `0x1`, all `to` = registry |
+| Tempo attestation txs: smoke 90/100 (`0x56311f293f…`), 93 (`0x4a2a834416…`), 93 (`0x1323a45515…`) · monorepo A/B 100/100, 125 findings (`0x13be66d7…`, sip-protocol#1267, 2026-10-05) | receipts: all status `0x1`, all `to` = registry |
 | **HyperEVM MAINNET** registry `0x8f63…850c` | chainId 999, code live; twin tx `0x64e2a131…1834b5` status `0x1`, block 46562201, gas 194,330 — exact E1 record |
-| Prod identity reads | `/api/chain/tempo` → `active:true, reviewCount:8`; `/api/chain/hyperliquid` → `active:true, reviewCount:1` |
+| Prod identity reads (verified 2026-10-05) | `/api/chain/tempo` → `active:true, reviewCount:19`; `/api/chain/hyperliquid` → `active:true, reviewCount:3` |
 | Solana devnet program `Aj6Nx…kMDs` | `getAccountInfo`: executable, BPFLoaderUpgradeable-owned — **B4 shipped, §6 Solana scene is recordable** |
 | Dashboard + landing | www.rextoraudit.com live, nonce-CSP deployed 09-25; ledger rows via `/dashboard/rextorsec/rextor-audit-test` (16 rows, newest pr 8) |
 | ERC-8004 identity | agentId 50891, identity card live on prod landing (C1 done) |
