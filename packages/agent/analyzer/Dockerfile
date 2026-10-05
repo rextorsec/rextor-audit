@@ -46,6 +46,19 @@ RUN set -ex \
  && printf '// SPDX-License-Identifier: MIT\npragma solidity ^0.8.24;\ncontract Warm {}\n' > /tmp/warm/src/Warm.sol \
  && cd /tmp/warm && forge build \
  && rm -rf /tmp/warm
+
+# Pre-warm foundry's own solc 0.8.28 the same way: real-world monorepos pin
+# newer compilers (first live monorepo review, sip-protocol#1267, pinned
+# 0.8.28 — an offline `forge build` cannot auto-install, so any unpinned
+# compiler is an instant InvalidCompilation and a false INCOMPLETE receipt).
+# Keep the pragma permissive (`>=0.8.28`) so the pinned compiler is the one
+# that builds the warm project.
+RUN set -ex \
+ && mkdir -p /tmp/warm28/src \
+ && printf '[profile.default]\nsrc = "src"\nsolc_version = "0.8.28"\n' > /tmp/warm28/foundry.toml \
+ && printf '// SPDX-License-Identifier: MIT\npragma solidity >=0.8.28;\ncontract Warm {}\n' > /tmp/warm28/src/Warm.sol \
+ && cd /tmp/warm28 && forge build \
+ && rm -rf /tmp/warm28
 WORKDIR /repo
 USER root
 COPY run.sh /usr/local/bin/run.sh
