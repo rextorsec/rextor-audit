@@ -66,9 +66,33 @@ describe("github adapter clone hygiene", () => {
     expect(res.dir).toContain("rextor-review-");
     const revParse = gitCalls.find((a) => a.includes("rev-parse"));
     expect(revParse).toEqual(["-C", res.dir, "rev-parse", "HEAD"]);
-    // Full sequence: init → fetch → checkout → rev-parse.
+    // Full sequence: init → fetch → checkout → submodule init → rev-parse.
     expect(gitCalls.map((a) => (a[0] === "-C" ? a[2] : a[0]))).toEqual([
-      "init", "fetch", "checkout", "rev-parse",
+      "init", "fetch", "checkout", "submodule", "rev-parse",
+    ]);
+    // Foundry lib/ deps are submodules: the init must be recursive and shallow.
+    const sub = gitCalls.find((a) => a.includes("submodule"));
+    expect(sub).toEqual([
+      "-C", res.dir, "submodule", "update", "--init", "--recursive", "--depth", "1",
+    ]);
+  });
+
+  it("submodule init failure is best-effort: logged, clone still succeeds", async () => {
+    const gitCalls: string[][] = [];
+    const deps = githubDeps({
+      token: () => "t",
+      runGit: async (args) => {
+        gitCalls.push(args);
+        if (args.includes("submodule")) {
+          throw new Error("fatal: remote error: no access to secrets-repo");
+        }
+        return args.includes("rev-parse") ? HEAD_SHA : "";
+      },
+    });
+    const res = await deps.clone("https://github.com/rextor/demo/pull/42");
+    expect(res.headSha).toBe(HEAD_SHA);
+    expect(gitCalls.map((a) => (a[0] === "-C" ? a[2] : a[0]))).toEqual([
+      "init", "fetch", "checkout", "submodule", "rev-parse",
     ]);
   });
 });

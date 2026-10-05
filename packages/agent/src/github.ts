@@ -82,6 +82,26 @@ export function githubDeps(options: GithubDepsOptions = {}): ReviewDeps {
         await runGit(["init", dir]);
         await runGit(["-C", dir, "fetch", "--depth", "1", url, `refs/pull/${number}/head`]);
         await runGit(["-C", dir, "checkout", "--force", "FETCH_HEAD"]);
+        // Foundry repos carry lib/ deps as git submodules (mode 160000): a
+        // bare PR-head fetch leaves them EMPTY and every forge-based analyzer
+        // run fails compile before slither sees a single contract (first live
+        // monorepo review, sip-protocol#1267, 2026-10-05). Best-effort with a
+        // logged, redacted failure — a broken submodule must degrade to the
+        // analyzer's honest INCOMPLETE report, never mask the clone stage.
+        try {
+          await runGit([
+            "-C", dir, "submodule", "update", "--init", "--recursive", "--depth", "1",
+          ]);
+        } catch (subErr) {
+          const subDetail =
+            subErr instanceof Error
+              ? subErr.message.split(t).join("***")
+              : String(subErr).split(t).join("***");
+          console.error(
+            `[rextor] submodule init failed for ${owner}/${repo}#${number} (continuing):`,
+            subDetail,
+          );
+        }
         // SPEC-4 §3: the attestation record needs the PR head sha — the clone
         // has it locally, so resolve it here (inside the redacting try).
         const headSha = (await runGit(["-C", dir, "rev-parse", "HEAD"])).trim();
