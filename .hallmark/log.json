@@ -1,5 +1,12 @@
 [
   {
+    "date": "2026-10-06",
+    "macrostructure": "Workbench",
+    "theme": "studied-DNA (source: https://www.coderabbit.ai)",
+    "enrichment": "none — dashboard-v2 extension: metrics strip + percentiles, run-config transparency footer, config live-preview pane, dismissals panel, real INCOMPLETE row",
+    "brief": "Rextor Audit · dashboard v2 extension mock (N9 nav · Ft5 footer · same locked system, zero new tokens)"
+  },
+  {
     "date": "2026-09-22",
     "macrostructure": "Marquee Hero",
     "theme": "studied-DNA (source: https://linear.app)",

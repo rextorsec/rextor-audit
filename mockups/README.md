@@ -14,4 +14,5 @@ Planned mocks (Week 3 per PLAN.md):
 
 - `landing/` — rextoraudit.com product page
 - `dashboard/` — living audit report (attestation ledger, risk history)
+- `dashboard-v2/` — extension mock (2026-10-06): metrics strip + percentiles, run-config transparency footer, config live-preview pane, dismissals panel, real INCOMPLETE row — teardown steal-list absorbs; **awaiting RECTOR approval**
 - `install/` — GitHub App install + onboarding flow

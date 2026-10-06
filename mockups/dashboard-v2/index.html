@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>rextorsec/rextor-audit-test — living audit report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="tokens.css">
+<style>
+/* Page styles — tokens.css is the shared system. Dashboard-v2 layout only (extension of approved v1). */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.6;
+  color: var(--foreground);
+  background: var(--background);
+  padding-inline: max(1rem, env(safe-area-inset-left)) max(1rem, env(safe-area-inset-right));
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+.container { max-width: 64rem; margin-inline: auto; }
+a { color: inherit; }
+
+/* ---------- N9 edge-aligned nav ---------- */
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-block: var(--space-lg);
+  border-bottom: 1px solid var(--border);
+}
+.wordmark {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: var(--text-sm);
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  white-space: nowrap;
+}
+.wordmark::before {
+  content: "";
+  width: 0.55rem;
+  height: 0.55rem;
+  background: var(--primary);
+  border-radius: 1px;
+}
+.btn {
+  display: inline-block;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1;
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: 999px;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.btn--ghost { border: 1px solid var(--border); color: var(--foreground); background: transparent; }
+.btn--ghost:hover { border-color: var(--rule-strong); }
+.btn:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+/* ---------- repo header ---------- */
+.repohead { padding-block: var(--space-2xl) var(--space-xl); }
+.repohead__repo {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.repohead h1 {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-top: var(--space-2xs);
+  overflow-wrap: anywhere;
+}
+.repohead__meta {
+  margin-top: var(--space-md);
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px var(--space-sm);
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.chip--live { color: var(--primary); border-color: var(--primary); }
+.chip--warn { color: var(--warning); border-color: var(--warning); }
+
+/* ---------- section heading convention (v1) ---------- */
+.sec-h {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--subtle-foreground);
+  margin-bottom: var(--space-md);
+}
+
+/* ---------- metrics strip (v2 — populated tiles, zeros stay visible) ---------- */
+.metrics { padding-block: var(--space-lg) var(--space-xl); }
+.metrics__grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-md); }
+.metric {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  padding: var(--space-md) var(--space-lg);
+  min-width: 0;
+}
+.metric__value {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: 500;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.metric__value--good { color: var(--success); }
+.metric__label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  margin-top: var(--space-3xs);
+  white-space: nowrap;
+}
+.metric__note {
+  font-size: var(--text-xs);
+  color: var(--subtle-foreground);
+  margin-top: var(--space-2xs);
+}
+.metrics__dist {
+  margin-top: var(--space-md);
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 48rem) { .metrics__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 30rem) { .metrics__grid { grid-template-columns: 1fr; } }
+
+/* ---------- score history ---------- */
+.history { padding-block: var(--space-lg) var(--space-2xl); }
+.history__bars { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--space-sm); }
+.history__cell { min-width: 0; }
+.history__bar {
+  height: var(--space-lg);
+  background: var(--elevated);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.history__fill { height: 100%; background: var(--warning); }
+.history__fill--high { background: var(--danger); }
+.history__label {
+  margin-top: var(--space-2xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 48rem) { .history__bars { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 30rem) { .history__bars { grid-template-columns: 1fr; } }
+
+/* ---------- review ledger ---------- */
+.ledger { padding-block: var(--space-lg) var(--space-2xl); }
+table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: var(--text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--subtle-foreground);
+  padding: var(--space-sm) var(--space-md) var(--space-sm) 0;
+  border-bottom: 1px solid var(--rule-strong);
+}
+td {
+  padding: var(--space-md) var(--space-md) var(--space-md) 0;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+td.score { font-family: var(--font-mono); font-weight: 500; }
+td.score .of { color: var(--subtle-foreground); font-weight: 400; }
+td .severity { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 1px; margin-right: var(--space-2xs); }
+td .sev-high { background: var(--danger); }
+td .sev-mid { background: var(--warning); }
+td .sev-low { background: var(--success); }
+td .pr-head { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted-foreground); display: block; }
+td .pr-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--subtle-foreground); }
+tr.is-incomplete td { color: var(--muted-foreground); }
+tr.is-incomplete td.score { text-decoration: none; }
+.chip--incomplete {
+  display: inline-block;
+  border: 1px solid var(--warning);
+  color: var(--warning);
+  border-radius: 999px;
+  padding: 0 var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.att { font-family: var(--font-mono); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.link--receipt {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--primary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.link--receipt:hover { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.ledger__more {
+  margin-top: var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--subtle-foreground);
+}
+
+/* verify expander — native details, accessible */
+details.verify { margin-top: var(--space-sm); }
+details.verify summary {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  list-style: none;
+  white-space: nowrap;
+}
+details.verify summary::before { content: "▸ "; color: var(--subtle-foreground); }
+details.verify[open] summary::before { content: "▾ "; }
+details.verify .verify__body {
+  margin-top: var(--space-sm);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding-block: var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.kv { display: grid; grid-template-columns: minmax(0, 14ch) minmax(0, 1fr); gap: var(--space-md); padding-block: var(--space-2xs); }
+.kv dt { color: var(--subtle-foreground); }
+.kv dd { color: var(--foreground); overflow-wrap: anywhere; min-width: 0; }
+.kv--run { border-top: 1px dashed var(--border); margin-top: var(--space-2xs); padding-top: var(--space-xs); }
+.kv--run dt { color: var(--subtle-foreground); }
+@media (max-width: 60rem) {
+  table, tbody, tr, td { display: block; }
+  thead { display: none; }
+  tr { padding-block: var(--space-md); border-bottom: 1px solid var(--border); }
+  td { border-bottom: none; padding: var(--space-2xs) 0; }
+  td::before {
+    content: attr(data-label);
+    display: inline-block;
+    min-width: 11ch;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    color: var(--subtle-foreground);
+  }
+}
+@media (max-width: 40rem) {
+  .kv { grid-template-columns: 1fr; gap: 0; }
+  .kv dd { margin-bottom: var(--space-xs); }
+}
+
+/* ---------- agent identity card ---------- */
+.agent {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: var(--space-lg);
+  margin-block: var(--space-lg) var(--space-2xl);
+}
+.agent__row { display: flex; gap: var(--space-lg); flex-wrap: wrap; align-items: baseline; }
+.agent h2 {
+  font-size: var(--text-md);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.agent h2 .status {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  color: var(--success);
+  letter-spacing: 0.08em;
+  margin-left: var(--space-sm);
+}
+.agent dl {
+  margin-top: var(--space-md);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.agent dt { color: var(--subtle-foreground); letter-spacing: 0.1em; text-transform: uppercase; }
+.agent dd { color: var(--foreground); margin-top: var(--space-2xs); overflow-wrap: anywhere; }
+.agent__src {
+  margin-top: var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--subtle-foreground);
+}
+@media (max-width: 48rem) { .agent dl { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 30rem) { .agent dl { grid-template-columns: 1fr; } }
+
+/* ---------- config live-preview pane (v2 — two-pane, knobs left / rendered artifact right) ---------- */
+.configpane { padding-block: var(--space-lg) var(--space-2xl); }
+.configpane__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); align-items: start; }
+.configpane__pane {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  padding: var(--space-lg);
+  min-width: 0;
+}
+.configpane__pane h3 {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--subtle-foreground);
+  margin-bottom: var(--space-md);
+}
+.configpane__pane pre {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+  overflow-x: auto;
+  color: var(--foreground);
+}
+.configpane__pane .pane__src {
+  margin-top: var(--space-md);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--subtle-foreground);
+}
+.banner {
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  background: var(--elevated);
+  padding: var(--space-sm) var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  white-space: nowrap;
+}
+.banner .banner__score { color: var(--danger); font-weight: 500; }
+.banner .banner__ok { color: var(--success); }
+.findings-note {
+  margin-top: var(--space-sm);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+}
+.attest {
+  margin-top: var(--space-md);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.attest .kv dd { color: var(--muted-foreground); }
+@media (max-width: 48rem) { .configpane__grid { grid-template-columns: 1fr; } }
+
+/* ---------- dismissals panel (v2 — server-side memory, honest count) ---------- */
+.dismiss { padding-block: var(--space-lg) var(--space-2xl); }
+.dismiss__panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  padding: var(--space-lg);
+}
+.dismiss__count {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.dismiss__rule {
+  margin-top: var(--space-2xs);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  max-width: 62ch;
+}
+
+/* ---------- empty state (labelled variant, v1) ---------- */
+.empty {
+  border: 1px dashed var(--rule-strong);
+  border-radius: 8px;
+  padding: var(--space-2xl);
+  text-align: center;
+  margin-block: var(--space-lg) var(--space-2xl);
+}
+.empty__tag {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--label);
+  display: block;
+  margin-bottom: var(--space-sm);
+}
+.empty p { color: var(--muted-foreground); max-width: 46ch; margin-inline: auto; }
+
+/* ---------- Ft5 statement footer ---------- */
+.footer { border-top: 1px solid var(--border); padding-block: var(--space-2xl) var(--space-lg); }
+.footer__statement {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  max-width: 28ch;
+  overflow-wrap: anywhere;
+}
+.footer__statement span { color: var(--primary); }
+.footer__meta {
+  margin-top: var(--space-lg);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+.footer__meta a { color: var(--muted-foreground); text-decoration: none; white-space: nowrap; }
+.footer__meta a:hover { color: var(--foreground); }
+.footer__freeze {
+  margin-top: var(--space-2xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--subtle-foreground);
+}
+</style>
+</head>
+<body>
+
+<nav class="nav container" aria-label="Primary">
+  <a class="wordmark" href="#">REXTOR AUDIT</a>
+  <a class="btn btn--ghost" href="#">Install on a repo</a>
+</nav>
+
+<main class="container">
+
+  <header class="repohead">
+    <p class="repohead__repo">rextorsec / rextor-audit-test</p>
+    <h1>Living audit report</h1>
+    <div class="repohead__meta">
+      <span class="chip chip--live">Tempo testnet · 42431</span>
+      <span class="chip">Contract 0x51ac…495a</span>
+      <span class="chip">riskScore 0–100 · higher = riskier</span>
+      <span class="chip chip--warn">test fixture — deliberately vulnerable code</span>
+    </div>
+  </header>
+
+  <section class="metrics" aria-label="Review metrics">
+    <h2 class="sec-h">Review metrics</h2>
+    <div class="metrics__grid">
+      <div class="metric">
+        <p class="metric__value">16</p>
+        <p class="metric__label">Attested reviews</p>
+        <p class="metric__note">status&nbsp;0 runs, this repo</p>
+      </div>
+      <div class="metric">
+        <p class="metric__value">7</p>
+        <p class="metric__label">PRs audited</p>
+        <p class="metric__note">2026-09-19 → 10-05</p>
+      </div>
+      <div class="metric">
+        <p class="metric__value">6</p>
+        <p class="metric__label">INCOMPLETE runs</p>
+        <p class="metric__note">last on 2026-09-25</p>
+      </div>
+      <div class="metric">
+        <p class="metric__value metric__value--good">0</p>
+        <p class="metric__label">INCOMPLETE since 2026-09-25</p>
+        <p class="metric__note">3 consecutive complete runs since</p>
+      </div>
+    </div>
+    <div class="metrics__dist">
+      <span>complete-run distribution · n&nbsp;=&nbsp;16</span>
+      <span class="chip">median 90</span>
+      <span class="chip">P75 93</span>
+      <span class="chip">P90 100</span>
+      <span>fixture repo — scores run high by design</span>
+    </div>
+  </section>
+
+  <section class="history" aria-label="Score history">
+    <h2 class="sec-h">Score history · last 6 complete runs</h2>
+    <div class="history__bars">
+      <div class="history__cell">
+        <div class="history__bar"><div class="history__fill history__fill--high" style="width:93%"></div></div>
+        <p class="history__label">#7 · 93 · 09-22</p>
+      </div>
+      <div class="history__cell">
+        <div class="history__bar"><div class="history__fill history__fill--high" style="width:93%"></div></div>
+        <p class="history__label">#7 · 93 · 09-22</p>
+      </div>
+      <div class="history__cell">
+        <div class="history__bar"><div class="history__fill history__fill--high" style="width:90%"></div></div>
+        <p class="history__label">#8 · 90 · 09-24</p>
+      </div>
+      <div class="history__cell">
+        <div class="history__bar"><div class="history__fill history__fill--high" style="width:90%"></div></div>
+        <p class="history__label">#9 · 90 · 09-26</p>
+      </div>
+      <div class="history__cell">
+        <div class="history__bar"><div class="history__fill history__fill--high" style="width:93%"></div></div>
+        <p class="history__label">#9 · 93 · 09-28</p>
+      </div>
+      <div class="history__cell">
+        <div class="history__bar"><div class="history__fill" style="width:65%"></div></div>
+        <p class="history__label">#9 · 65 · 09-29</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="ledger" aria-label="Review ledger">
+    <h2 class="sec-h">Review ledger</h2>
+    <table>
+      <thead>
+        <tr><th scope="col">PR</th><th scope="col">Risk score</th><th scope="col">Status</th><th scope="col">Attestation</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td data-label="PR">#9 <span class="pr-head">head 2a8ded4</span><span class="pr-date">2026-09-29</span></td>
+          <td class="score" data-label="Risk score"><span class="severity sev-mid" aria-hidden="true"></span>65 <span class="of">/ 100</span></td>
+          <td data-label="Status">complete</td>
+          <td data-label="Attestation">
+            <span class="att">Tempo · 0x4e72…2fb4</span><br>
+            <a class="link--receipt" href="https://explore.testnet.tempo.xyz/tx/0x4e72">tx ↗</a>
+            <details class="verify">
+              <summary>Verify</summary>
+              <div class="verify__body">
+                <dl>
+                  <div class="kv"><dt>reviewId</dt><dd>keccak256("rextor/review/v1|rextorsec/rextor-audit-test|9|&lt;headSha&gt;")</dd></div>
+                  <div class="kv"><dt>findingsHash</dt><dd>sha256 of the canonical findings JSON — printed in the PR comment; recompute it there and compare on-chain via verify()</dd></div>
+                  <div class="kv"><dt>chain</dt><dd>Tempo testnet 42431 · contract 0x51ac…495a</dd></div>
+                  <div class="kv"><dt>agent</dt><dd>rextor-audit[bot] · 0xE690…a122</dd></div>
+                </dl>
+                <dl class="kv--run">
+                  <div class="kv"><dt>run config</dt><dd>analyzer Slither (offline container) · model glm-5.3-flash · rextor.yaml from the PR base branch — config digest printed in the comment footer</dd></div>
+                </dl>
+              </div>
+            </details>
+          </td>
+        </tr>
+        <tr>
+          <td data-label="PR">#9 <span class="pr-head">head 8986a14</span><span class="pr-date">2026-09-28</span></td>
+          <td class="score" data-label="Risk score"><span class="severity sev-high" aria-hidden="true"></span>93 <span class="of">/ 100</span></td>
+          <td data-label="Status">complete</td>
+          <td data-label="Attestation"><span class="att">Tempo · 0xa5e9…9bf1</span><br><a class="link--receipt" href="https://explore.testnet.tempo.xyz/tx/0xa5e9">tx ↗</a></td>
+        </tr>
+        <tr>
+          <td data-label="PR">#9 <span class="pr-head">head 6a0ae7a</span><span class="pr-date">2026-09-26</span></td>
+          <td class="score" data-label="Risk score"><span class="severity sev-high" aria-hidden="true"></span>90 <span class="of">/ 100</span></td>
+          <td data-label="Status">complete</td>
+          <td data-label="Attestation"><span class="att">Tempo · 0x9148…3f13</span><br><a class="link--receipt" href="https://explore.testnet.tempo.xyz/tx/0x9148">tx ↗</a></td>
+        </tr>
+        <tr>
+          <td data-label="PR">#9 <span class="pr-head">head 97d14b9</span><span class="pr-date">2026-09-25</span></td>
+          <td class="score" data-label="Risk score"><span class="severity sev-mid" aria-hidden="true"></span>65 <span class="of">/ 100</span></td>
+          <td data-label="Status">complete</td>
+          <td data-label="Attestation"><span class="att">Tempo · 0x2cf9…fafe</span><br><a class="link--receipt" href="https://explore.testnet.tempo.xyz/tx/0x2cf9">tx ↗</a></td>
+        </tr>
+        <tr>
+          <td data-label="PR">#9 <span class="pr-head">head a414a62</span><span class="pr-date">2026-09-25</span></td>
+          <td class="score" data-label="Risk score"><span class="severity sev-mid" aria-hidden="true"></span>68 <span class="of">/ 100</span></td>
+          <td data-label="Status">complete</td>
+          <td data-label="Attestation"><span class="att">Tempo · 0x8b72…2446</span><br><a class="link--receipt" href="https://explore.testnet.tempo.xyz/tx/0x8b72">tx ↗</a></td>
+        </tr>
+        <tr class="is-incomplete">
+          <td data-label="PR">#9 <span class="pr-head">head 08f6823</span><span class="pr-date">2026-09-25</span></td>
+          <td class="score" data-label="Risk score">0 <span class="of">/ 100</span></td>
+          <td data-label="Status"><span class="chip chip--incomplete">INCOMPLETE · status 1</span></td>
+          <td data-label="Attestation">
+            <span class="att">Tempo · 0xbdbb…814c</span><br>
+            <a class="link--receipt" href="https://explore.testnet.tempo.xyz/tx/0xbdbb">tx ↗</a>
+            <details class="verify">
+              <summary>Why incomplete</summary>
+              <div class="verify__body">
+                <dl>
+                  <div class="kv"><dt>reason</dt><dd>infrastructure-era failure — root cause lives in the service run log for this head, not in the comment body; not re-attributed here. INCOMPLETE is never silent: attested with status&nbsp;1 and score&nbsp;0.</dd></div>
+                  <div class="kv"><dt>re-run</dt><dd>head shas are deduped by (repo, pr, headSha) — a settled INCOMPLETE re-fires on a new head.</dd></div>
+                </dl>
+              </div>
+            </details>
+          </td>
+        </tr>
+        <tr>
+          <td data-label="PR">#8 <span class="pr-head">head a65e513</span><span class="pr-date">2026-09-24</span></td>
+          <td class="score" data-label="Risk score"><span class="severity sev-high" aria-hidden="true"></span>90 <span class="of">/ 100</span></td>
+          <td data-label="Status">complete</td>
+          <td data-label="Attestation"><span class="att">Tempo · 0x5631…0712</span><br><a class="link--receipt" href="https://explore.testnet.tempo.xyz/tx/0x5631">tx ↗</a></td>
+        </tr>
+        <tr>
+          <td data-label="PR">#7 <span class="pr-head">head e812e68</span><span class="pr-date">2026-09-22</span></td>
+          <td class="score" data-label="Risk score"><span class="severity sev-high" aria-hidden="true"></span>93 <span class="of">/ 100</span></td>
+          <td data-label="Status">complete</td>
+          <td data-label="Attestation"><span class="att">Tempo · 0x4a2a…3e72</span><br><a class="link--receipt" href="https://explore.testnet.tempo.xyz/tx/0x4a2a">tx ↗</a></td>
+        </tr>
+        <tr>
+          <td data-label="PR">#7 <span class="pr-head">head f704be6</span><span class="pr-date">2026-09-22</span></td>
+          <td class="score" data-label="Risk score"><span class="severity sev-high" aria-hidden="true"></span>93 <span class="of">/ 100</span></td>
+          <td data-label="Status">complete</td>
+          <td data-label="Attestation"><span class="att">Tempo · 0x1323…45f3</span><br><a class="link--receipt" href="https://explore.testnet.tempo.xyz/tx/0x1323">tx ↗</a></td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="ledger__more">13 more runs below — full index served at GET /reviews/:owner/:repo</p>
+  </section>
+
+  <section class="agent" aria-label="Agent identity">
+    <div class="agent__row">
+      <h2>rextor-audit[bot] <span class="status">ACTIVE</span></h2>
+    </div>
+    <dl>
+      <div><dt>Agent address</dt><dd>0xE690…a122</dd></div>
+      <div><dt>Tempo attested</dt><dd>19</dd></div>
+      <div><dt>HyperEVM attested</dt><dd>3</dd></div>
+      <div><dt>Attested incomplete</dt><dd>0</dd></div>
+    </dl>
+    <p class="agent__src">agents() + reviewCount read live from the attestation contracts via public RPC — browser holds no keys.</p>
+  </section>
+
+  <section class="configpane" aria-label="Review configuration preview">
+    <h2 class="sec-h">Review configuration · live preview</h2>
+    <div class="configpane__grid">
+      <div class="configpane__pane">
+        <h3>rextor.yaml — the repo's knobs</h3>
+        <pre>paths:
+  include: ["contracts/**", "src/**"]
+  ignore: ["**/test/**", "**/*.t.sol"]
+severity_gate:
+  minimum: high        # critical | high | medium | low
+dismiss:
+  - rule_id: ADERYN-L01
+    path: "src/peripheral.sol"</pre>
+        <p class="pane__src">read from the PR's base branch — trusted source, never from PR content. Dismissals match on (rule_id, path); the line is recorded, not matched.</p>
+      </div>
+      <div class="configpane__pane">
+        <h3>what the PR comment renders</h3>
+        <div class="banner" role="img" aria-label="Score banner sample: risk 100 of 100, 125 findings, 4 in diff, attested">
+          <span class="banner__score">riskScore 100 / 100</span>
+          <span>125 findings · 4 in&#8209;diff</span>
+          <span class="banner__ok">status 0 · attested</span>
+        </div>
+        <p class="findings-note">Below the banner: the findings table — 125 rows, each citing exact file:line ranges from the diff, ranked by severity. With <code>severity_gate.minimum: high</code> the check-run fails on any critical or high finding, blocking merge until resolved or dismissed.</p>
+        <div class="attest">
+          <dl>
+            <div class="kv"><dt>sample</dt><dd>real receipt — sip-protocol/sip-protocol#1267, head f88a483</dd></div>
+            <div class="kv"><dt>attestation</dt><dd>Tempo testnet · tx 0x13be…f8c9 · findingsHash pinned to IPFS</dd></div>
+            <div class="kv"><dt>comment</dt><dd><a class="link--receipt" href="https://github.com/sip-protocol/sip-protocol/pull/1267#issuecomment-5995895646">the real review ↗</a></dd></div>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="dismiss" aria-label="Dismissal memory">
+    <h2 class="sec-h">Dismissal memory</h2>
+    <div class="dismiss__panel">
+      <p class="dismiss__count">2 dismissals</p>
+      <p class="dismiss__rule">Stored server-side, keyed by repo — never in a repo file. PR content cannot silence a finding: dismissal requires service-side action from the repo owner, and every dismissal is recorded with its rule and path.</p>
+    </div>
+  </section>
+
+  <section class="empty" aria-label="Empty state example">
+    <span class="empty__tag">empty state · shown when a repo has no reviews</span>
+    <p>No attested reviews yet for this repo. Install the GitHub App and open a pull request that touches money&#8209;code — the first verdict lands here, with its on&#8209;chain receipt.</p>
+  </section>
+
+</main>
+
+<footer class="footer container">
+  <p class="footer__statement">The verdict lives <span>on&#8209;chain</span> — recomputable by anyone, from the findings alone.</p>
+  <div class="footer__meta">
+    <span>Rextor Security</span>
+    <span>Tempo testnet 42431</span>
+    <span>0x51ac…495a</span>
+    <span>© 2026</span>
+  </div>
+  <p class="footer__freeze">Mock data frozen 2026-10-06 — service review index (27 runs) + live /api/chain reads.</p>
+</footer>
+
+</body>
+</html>
