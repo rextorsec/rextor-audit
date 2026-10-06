@@ -102,11 +102,11 @@ Every artifact below re-verified against live chains today. **Two script facts a
 | Tempo registry `0x51ac…495a` | `eth_chainId` = 42431, `eth_getCode` non-empty |
 | Tempo attestation txs: smoke 90/100 (`0x56311f293f…`), 93 (`0x4a2a834416…`), 93 (`0x1323a45515…`) · monorepo A/B 100/100, 125 findings (`0x13be66d7…`, sip-protocol#1267, 2026-10-05) | receipts: all status `0x1`, all `to` = registry |
 | **HyperEVM MAINNET** registry `0x8f63…850c` | chainId 999, code live; twin tx `0x64e2a131…1834b5` status `0x1`, block 46562201, gas 194,330 — exact E1 record |
-| Prod identity reads (verified 2026-10-05) | `/api/chain/tempo` → `active:true, reviewCount:19`; `/api/chain/hyperliquid` → `active:true, reviewCount:3` |
+| Prod identity reads (verified 2026-10-06) | `/api/chain/tempo` → `active:true, reviewCount:20`; `/api/chain/hyperliquid` → `active:true, reviewCount:3` |
 | Solana devnet program `Aj6Nx…kMDs` | `getAccountInfo`: executable, BPFLoaderUpgradeable-owned — **B4 shipped, §6 Solana scene is recordable** |
-| Dashboard + landing | www.rextoraudit.com live, nonce-CSP deployed 09-25; ledger rows via `/dashboard/rextorsec/rextor-audit-test` (16 rows, newest pr 8 — verified 2026-09-26; **re-verify before recording**) |
+| Dashboard + landing | www.rextoraudit.com live, nonce-CSP deployed 09-25; ledger rows via `/dashboard/rextorsec/rextor-audit-test` (23 rows, newest pr 10 — service index verified 2026-10-06; **re-verify prod render before recording**) |
 | ERC-8004 identity | agentId 50891, identity card live on prod landing (C1 done) |
-| Chat + severity gate | chat proven (receipt 5742416145); severity-gate FAILURE check-run live in production smoke (rextor-audit-test#8) — the §5 gate scene no longer rides F5 |
+| Chat + severity gate | chat proven (receipt 5742416145); severity-gate FAILURE check-run live in production smoke (rextor-audit-test#8) and re-posted 2026-10-06 on #10 under the new durable PAT (conclusion failure, high-finding breach) — the §5 gate scene no longer rides F5 |
 
 ### Red-pen suggestions (decision, not rewrite)
 
