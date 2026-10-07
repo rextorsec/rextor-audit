@@ -1,14 +1,15 @@
-// SPEC-6 §3 — agent identity card (approved-mock anatomy). Live agents()
-// read; every failure degrades to honest "—" fields + a note, never guesses.
+// SPEC-6 §3 (dashboard v2, approved mock) — agent identity card. Live
+// agents() reads per attestation chain; every failure degrades to honest
+// "—" fields + a note, never guesses.
 import { shortHex } from "@/lib/chains";
 
 export interface AgentIdentityCardProps {
-  /** From the live agents() read; null → "—". */
+  /** From the live agents() read on the active chain; null → "—". */
   name: string | null;
   /** null → no status pill (read unavailable). */
   active: boolean | null;
-  /** On-chain agent reviewCount; null → "—". */
-  reviewCount: number | null;
+  /** Per-chain on-chain reviewCount — the v2 mock's attested tiles. */
+  attestedPerChain: Array<{ chain: string; count: number | null }>;
   /** Attested reviews with status=1 among this repo's ledger rows. */
   attestedIncomplete: number;
   agentAddress: string;
@@ -23,7 +24,9 @@ export interface AgentIdentityCardProps {
 }
 
 export function AgentIdentityCard(props: AgentIdentityCardProps) {
-  const { name, active, reviewCount, attestedIncomplete, agentAddress, erc8004, unavailableReason } = props;
+  const { name, active, attestedPerChain, attestedIncomplete, agentAddress, erc8004, unavailableReason } = props;
+  const cell = "mt-1 break-all";
+  const label = "text-subtle-foreground tracking-[0.1em] uppercase";
   return (
     <section
       aria-label="Agent identity"
@@ -43,25 +46,27 @@ export function AgentIdentityCard(props: AgentIdentityCardProps) {
           )}
         </h2>
       </div>
-      <dl className="mt-4 grid grid-cols-1 gap-4 min-[40rem]:grid-cols-3 font-mono text-xs tabular-nums">
+      <dl className="mt-4 grid grid-cols-1 gap-4 min-[30rem]:grid-cols-2 min-[48rem]:grid-cols-4 font-mono text-xs tabular-nums">
         <div>
-          <dt className="text-subtle-foreground tracking-[0.1em] uppercase">Agent address</dt>
-          <dd className="mt-1 break-all" title={agentAddress}>
+          <dt className={label}>Agent address</dt>
+          <dd className={cell} title={agentAddress}>
             {shortHex(agentAddress)}
           </dd>
         </div>
+        {attestedPerChain.map(({ chain, count }) => (
+          <div key={chain}>
+            <dt className={label}>{chain} attested</dt>
+            <dd className={cell}>{count === null ? "—" : count}</dd>
+          </div>
+        ))}
         <div>
-          <dt className="text-subtle-foreground tracking-[0.1em] uppercase">Attested reviews</dt>
-          <dd className="mt-1">{reviewCount === null ? "—" : reviewCount}</dd>
-        </div>
-        <div>
-          <dt className="text-subtle-foreground tracking-[0.1em] uppercase">Attested incomplete</dt>
-          <dd className="mt-1">{attestedIncomplete}</dd>
+          <dt className={label}>Attested incomplete</dt>
+          <dd className={cell}>{attestedIncomplete}</dd>
         </div>
         {erc8004 && (
           <div>
-            <dt className="text-subtle-foreground tracking-[0.1em] uppercase">ERC-8004 identity</dt>
-            <dd className="mt-1 break-all">
+            <dt className={label}>ERC-8004 identity</dt>
+            <dd className={cell}>
               <a
                 className="text-primary hover:underline hover:decoration-2 hover:underline-offset-[3px]"
                 title={erc8004.agentRegistry}
@@ -73,8 +78,12 @@ export function AgentIdentityCard(props: AgentIdentityCardProps) {
           </div>
         )}
       </dl>
+      <p className="mt-4 font-mono text-xs text-subtle-foreground">
+        agents() + reviewCount read live from the attestation contracts via public RPC — browser
+        holds no keys.
+      </p>
       {unavailableReason && (
-        <p className="mt-4 font-mono text-xs text-muted-foreground">
+        <p className="mt-2 font-mono text-xs text-muted-foreground">
           chain read unavailable — {unavailableReason}
         </p>
       )}

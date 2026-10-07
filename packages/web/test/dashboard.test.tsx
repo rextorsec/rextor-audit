@@ -1,7 +1,7 @@
 // SPEC-6 §3 — dashboard page tests. All seams faked: global fetch stands in
 // for the agent service, "@/lib/chain-read" is module-mocked (no viem client,
 // no RPC). No live network, ever.
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import DashboardPage from "@/app/dashboard/[owner]/[repo]/page";
@@ -36,8 +36,24 @@ function row(overrides: Partial<ReviewRow> = {}): ReviewRow {
   };
 }
 
-function stubReviews(reviews: ReviewRow[]) {
-  return vi.fn(async () => Response.json({ reviews })) as unknown as typeof fetch;
+interface StubRoutes {
+  reviews?: ReviewRow[];
+  dismissals?: Array<{ rule_id: string; path: string }>;
+  /** null → 404 (no rextor.yaml); string → raw yaml body. */
+  configYaml?: string | null;
+}
+
+function stubReviews(reviews: ReviewRow[], extra: Omit<StubRoutes, "reviews"> = {}) {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/reviews/")) return Response.json({ reviews });
+    if (url.includes("/dismissals/")) return Response.json({ dismissals: extra.dismissals ?? [] });
+    if (url.includes("api.github.com")) {
+      if (extra.configYaml === null) return new Response("not found", { status: 404 });
+      return new Response(extra.configYaml ?? "", { status: 200 });
+    }
+    return new Response(`unexpected fetch in test: ${url}`, { status: 404 });
+  }) as unknown as typeof fetch;
 }
 
 async function renderPage(params: { owner: string; repo: string }) {
@@ -52,6 +68,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.clearAllMocks();
 });
 
@@ -96,7 +113,8 @@ describe("dashboard page — ledger", () => {
     vi.stubGlobal("fetch", stubReviews([row()]));
     await renderPage({ owner: "rextorsec", repo: "demo" });
 
-    expect(screen.getByText("Verify")).toBeInTheDocument();
+    // Base UI panel is closed by default: open it like a reader would.
+    fireEvent.click(screen.getByText("Verify"));
     // reviewId recipe carries the row's true head_sha, not a placeholder.
     expect(
       screen.getByText(
@@ -215,5 +233,159 @@ describe("dashboard page — identity card wiring", () => {
     const card = screen.getByRole("region", { name: /agent identity/i });
     expect(within(card).getByText("rextor-audit[bot]")).toBeInTheDocument();
     expect(within(card).getByText("ACTIVE")).toBeInTheDocument();
+  });
+
+  it("carries BOTH chains' live reviewCounts on the card (dashboard v2)", async () => {
+    vi.stubGlobal("fetch", stubReviews([row()]));
+    await renderPage({ owner: "rextorsec", repo: "demo" });
+
+    expect(identityMock).toHaveBeenCalledWith("tempo");
+    expect(identityMock).toHaveBeenCalledWith("hyperliquid");
+    const card = screen.getByRole("region", { name: /agent identity/i });
+    expect(within(card).getByText("Tempo attested")).toBeInTheDocument();
+    expect(within(card).getByText("HyperEVM attested")).toBeInTheDocument();
+  });
+});
+
+describe("dashboard page — metrics strip (dashboard v2)", () => {
+  it("derives tiles from real rows: attested of complete, PRs, INCOMPLETE, consecutive run", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubReviews([
+        row({ pr: 3, created_at: "2026-09-26T10:00:00.000Z", risk_score: 90 }),
+        row({ pr: 2, created_at: "2026-09-20T10:00:00.000Z", risk_score: 65 }),
+        row({ pr: 2, created_at: "2026-09-19T10:00:00.000Z", status: 1, tx_hash: "0x" + "aa".repeat(32) }),
+      ]),
+    );
+    await renderPage({ owner: "rextorsec", repo: "demo" });
+
+    const strip = screen.getByRole("region", { name: /review metrics/i });
+    // Tiles render value + label as separate nodes (approved-mock anatomy).
+    expect(within(strip).getByText("Attested reviews")).toBeInTheDocument();
+    expect(within(strip).getByText("of 2 complete runs")).toBeInTheDocument();
+    expect(within(strip).getByText("PRs audited")).toBeInTheDocument();
+    expect(within(strip).getAllByText("2")).toHaveLength(2); // attested + PRs-audited values
+    expect(within(strip).getByText("INCOMPLETE runs")).toBeInTheDocument();
+    expect(within(strip).getByText(/last on 2026-09-19/)).toBeInTheDocument();
+    expect(within(strip).getByText("INCOMPLETE since 2026-09-19")).toBeInTheDocument();
+    expect(within(strip).getByText(/2 consecutive complete runs since/)).toBeInTheDocument();
+    // Distribution chips: n = 2 complete runs (90, 65) → median 90? No —
+    // ascending [65, 90]: median = ceil(0.5·2)=1st → 65; P75 = ceil(1.5)=2nd → 90; P90 → 90.
+    expect(within(strip).getByText("complete-run distribution · n = 2")).toBeInTheDocument();
+    expect(within(strip).getByText("median 65")).toBeInTheDocument();
+    expect(within(strip).getByText("P75 90")).toBeInTheDocument();
+  });
+});
+
+describe("dashboard page — score history window (dashboard v2)", () => {
+  it("draws only the last 6 complete runs, INCOMPLETE runs excluded", async () => {
+    // Service rows are NEWEST-first — fixture respects the input contract.
+    const many = Array.from({ length: 8 }, (_, i) =>
+      row({ pr: 17 - i, created_at: `2026-09-${String(17 - i).padStart(2, "0")}T10:00:00.000Z` }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      stubReviews([...many, row({ pr: 99, status: 1, created_at: "2026-09-09T10:00:00.000Z" })]),
+    );
+    await renderPage({ owner: "rextorsec", repo: "demo" });
+
+    const history = screen.getByRole("region", { name: /score history/i });
+    expect(within(history).getByText(/last 6 complete runs \(of 8\)/)).toBeInTheDocument();
+    // INCOMPLETE #99 never draws; the two oldest complete runs (#10, #11) fall out of the window.
+    expect(within(history).queryByText(/#99 ·/)).not.toBeInTheDocument();
+    expect(within(history).queryByText(/#10 ·/)).not.toBeInTheDocument();
+    expect(within(history).queryByText(/#11 ·/)).not.toBeInTheDocument();
+    expect(within(history).getByText(/#12 ·/)).toBeInTheDocument(); // oldest in window
+    expect(within(history).getByText(/#17 ·/)).toBeInTheDocument(); // newest in window
+  });
+});
+
+describe("dashboard page — INCOMPLETE row anatomy (dashboard v2)", () => {
+  it("renders the status chip and the why-incomplete expander; never a score of fake origin", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubReviews([row({ status: 1, risk_score: 0, tx_hash: "0x" + "bb".repeat(32) })]),
+    );
+    await renderPage({ owner: "rextorsec", repo: "demo" });
+
+    expect(screen.getByText(/INCOMPLETE · status 1/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Why incomplete"));
+    expect(screen.getByText(/never silent/)).toBeInTheDocument();
+    expect(screen.getByText(/deduped by \(repo, pr, headSha\)/)).toBeInTheDocument();
+  });
+});
+
+describe("dashboard page — run-config line (dashboard v2)", () => {
+  it("names the analyzer and reads the model label from env, — when unset", async () => {
+    vi.stubEnv("NEXT_PUBLIC_TRIAGE_MODEL", "");
+    vi.stubGlobal("fetch", stubReviews([row()]));
+    await renderPage({ owner: "rextorsec", repo: "demo" });
+
+    expect(screen.getByText("run config")).toBeInTheDocument();
+    expect(
+      screen.getByText(/analyzer Slither \(offline container\) · model — · rextor\.yaml from the PR base branch/),
+    ).toBeInTheDocument();
+  });
+
+  it("renders a configured model label verbatim", async () => {
+    vi.stubEnv("NEXT_PUBLIC_TRIAGE_MODEL", "glm-5.3-flash");
+    vi.stubGlobal("fetch", stubReviews([row()]));
+    await renderPage({ owner: "rextorsec", repo: "demo" });
+
+    expect(
+      screen.getByText(/analyzer Slither \(offline container\) · model glm-5\.3-flash · rextor\.yaml/),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("dashboard page — config live-preview pane (dashboard v2)", () => {
+  it("shows the repo's real rextor.yaml when the default branch has one", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubReviews([row()], { configYaml: "severity_gate:\n  minimum: high\n" }),
+    );
+    await renderPage({ owner: "rextorsec", repo: "demo" });
+
+    const pane = screen.getByRole("region", { name: /review configuration/i });
+    expect(within(pane).getByText(/severity_gate:\s*minimum: high/)).toBeInTheDocument();
+    expect(within(pane).queryByText(/sample knobs/)).not.toBeInTheDocument();
+    // The rendered-artifact pane cites the REAL merged receipt.
+    expect(within(pane).getByText(/sip-protocol\/sip-protocol#1267/)).toBeInTheDocument();
+    expect(
+      within(pane).getByRole("link", { name: /the real review ↗/i }),
+    ).toHaveAttribute("href", "https://github.com/sip-protocol/sip-protocol/pull/1267#issuecomment-5995895646");
+  });
+
+  it("falls back to the labelled sample when the repo has no rextor.yaml", async () => {
+    vi.stubGlobal("fetch", stubReviews([row()], { configYaml: null }));
+    await renderPage({ owner: "rextorsec", repo: "demo" });
+
+    const pane = screen.getByRole("region", { name: /review configuration/i });
+    expect(within(pane).getByText(/sample knobs — this repo has no rextor\.yaml/)).toBeInTheDocument();
+    expect(within(pane).getByText(/ADERYN-L01/)).toBeInTheDocument();
+  });
+});
+
+describe("dashboard page — dismissals panel (dashboard v2)", () => {
+  it("shows the real server-side count", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubReviews([row()], { dismissals: [{ rule_id: "ADERYN-L01", path: "src/a.sol" }] }),
+    );
+    await renderPage({ owner: "rextorsec", repo: "demo" });
+
+    const panel = screen.getByRole("region", { name: /dismissal memory/i });
+    expect(within(panel).getByText("1 dismissal")).toBeInTheDocument();
+    expect(within(panel).getByText(/never in a repo file/)).toBeInTheDocument();
+  });
+
+  it("renders the honest reason when the count read fails — never a fabricated 0", async () => {
+    delete process.env.REXTOR_AGENT_TOKEN;
+    vi.stubGlobal("fetch", stubReviews([]));
+    await renderPage({ owner: "rextorsec", repo: "demo" });
+
+    const panel = screen.getByRole("region", { name: /dismissal memory/i });
+    expect(within(panel).getByText("—")).toBeInTheDocument();
+    expect(within(panel).getByText(/count unavailable —/)).toBeInTheDocument();
   });
 });

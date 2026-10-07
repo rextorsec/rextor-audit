@@ -99,3 +99,19 @@ body { overflow-x: clip; }
     transition-duration: 0.01ms !important;
   }
 }
+
+/* dashboard-v2 surface band (approved mockups/dashboard-v2/tokens.css — CR
+ * mauve neutrals, verbatim values; landing keeps its green band). Scoped by
+ * .surface-dashboard on the dashboard route wrapper — same token NAMES, no
+ * re-invention (SPEC-6 invariant 20). Accent/status/label tokens are shared
+ * verbatim with both approved mocks and stay unscoped. */
+.surface-dashboard {
+  --background: oklch(14% 0.008 300);
+  --card: oklch(17% 0.009 300);
+  --elevated: oklch(21% 0.010 300);
+  --foreground: oklch(93% 0.006 300);
+  --muted-foreground: oklch(64% 0.009 300);
+  --subtle-foreground: oklch(46% 0.010 300);
+  --border: oklch(24% 0.010 300);
+  --rule-strong: oklch(34% 0.012 300);
+}

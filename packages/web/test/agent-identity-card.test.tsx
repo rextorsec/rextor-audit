@@ -1,6 +1,6 @@
 // SPEC-6 §3 — agent identity card: live read values, and the honest degraded
 // form when the chain read fails ("—" fields + note, card still renders).
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { AgentIdentityCard } from "@/components/agent-identity-card";
@@ -13,7 +13,10 @@ describe("AgentIdentityCard", () => {
       <AgentIdentityCard
         name="rextor-audit[bot]"
         active={true}
-        reviewCount={2}
+        attestedPerChain={[
+          { chain: "Tempo", count: 2 },
+          { chain: "HyperEVM", count: 3 },
+        ]}
         attestedIncomplete={0}
         agentAddress={AGENT_ADDRESS}
       />,
@@ -22,8 +25,10 @@ describe("AgentIdentityCard", () => {
     const card = screen.getByRole("region", { name: /agent identity/i });
     expect(screen.getByText("rextor-audit[bot]")).toBeInTheDocument();
     expect(screen.getByText("ACTIVE")).toBeInTheDocument();
-    expect(screen.getByText("2")).toBeInTheDocument();
-    expect(screen.getByText("0")).toBeInTheDocument();
+    expect(within(card).getByText("Tempo attested")).toBeInTheDocument();
+    expect(within(card).getByText("HyperEVM attested")).toBeInTheDocument();
+    expect(within(card).getByText("3")).toBeInTheDocument();
+    expect(within(card).getByText("0")).toBeInTheDocument();
     // Short form in the dd, full address carried in the title attribute.
     const address = screen.getByText(/0xE690…a122/);
     expect(address).toHaveAttribute("title", AGENT_ADDRESS);
@@ -35,7 +40,7 @@ describe("AgentIdentityCard", () => {
       <AgentIdentityCard
         name="rextor-audit[bot]"
         active={false}
-        reviewCount={0}
+        attestedPerChain={[{ chain: "Tempo", count: 0 }]}
         attestedIncomplete={0}
         agentAddress={AGENT_ADDRESS}
       />,
@@ -50,7 +55,7 @@ describe("AgentIdentityCard", () => {
       <AgentIdentityCard
         name={null}
         active={null}
-        reviewCount={null}
+        attestedPerChain={[{ chain: "Tempo", count: null }]}
         attestedIncomplete={0}
         agentAddress={AGENT_ADDRESS}
         unavailableReason="rpc unreachable"
@@ -78,7 +83,7 @@ describe("AgentIdentityCard × erc8004 citation", () => {
       <AgentIdentityCard
         name="rextor-audit[bot]"
         active={true}
-        reviewCount={1}
+        attestedPerChain={[{ chain: "Tempo", count: 1 }]}
         attestedIncomplete={0}
         agentAddress={AGENT_ADDRESS}
         erc8004={ERC8004}
@@ -99,7 +104,7 @@ describe("AgentIdentityCard × erc8004 citation", () => {
       <AgentIdentityCard
         name="rextor-audit[bot]"
         active={true}
-        reviewCount={1}
+        attestedPerChain={[{ chain: "Tempo", count: 1 }]}
         attestedIncomplete={0}
         agentAddress={AGENT_ADDRESS}
       />,

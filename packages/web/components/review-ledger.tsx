@@ -7,6 +7,7 @@
 // wrong-chain assertion (T10 review carry).
 import { shortHex, webChainByName } from "@/lib/chains";
 import type { ReviewRow } from "@/lib/reviews";
+import { VerifyExpander } from "@/components/verify-expander";
 
 const DANGER_THRESHOLD = 60;
 
@@ -54,7 +55,15 @@ export function ReviewLedgerRow({ row, repoFullName, agentName }: ReviewLedgerRo
         />
         {row.risk_score} <span className="font-normal text-subtle-foreground">/ 100</span>
       </td>
-      <td data-label="Status">{row.status === 0 ? "complete" : "incomplete"}</td>
+      <td data-label="Status">
+        {row.status === 0 ? (
+          "complete"
+        ) : (
+          <span className="inline-block whitespace-nowrap rounded-full border border-warning px-3 font-mono text-xs text-warning">
+            INCOMPLETE · status {row.status}
+          </span>
+        )}
+      </td>
       <td data-label="Attestation">
         {attested ? (
           <>
@@ -66,11 +75,8 @@ export function ReviewLedgerRow({ row, repoFullName, agentName }: ReviewLedgerRo
                 tx ↗
               </a>
             )}
-            <details className="mt-2">
-              <summary className="cursor-pointer font-mono text-xs tracking-[0.08em] uppercase text-muted-foreground">
-                Verify
-              </summary>
-              <dl className="mt-2 border-t border-b border-border py-4 font-mono text-xs tabular-nums">
+            <VerifyExpander label="Verify">
+              <dl className="border-t border-b border-border py-4 font-mono text-xs tabular-nums">
                 <div className="grid grid-cols-1 gap-x-4 gap-y-0 py-0.5 min-[40rem]:grid-cols-[minmax(0,14ch)_minmax(0,1fr)]">
                   <dt className="text-subtle-foreground">reviewId</dt>
                   <dd className="min-w-0 break-all">
@@ -114,8 +120,16 @@ export function ReviewLedgerRow({ row, repoFullName, agentName }: ReviewLedgerRo
                     </div>
                   </>
                 )}
+                <div className="mt-0.5 grid grid-cols-1 gap-x-4 gap-y-0 border-t border-dashed border-border pt-2 min-[40rem]:grid-cols-[minmax(0,14ch)_minmax(0,1fr)]">
+                  <dt className="text-subtle-foreground">run config</dt>
+                  <dd className="min-w-0 break-all">
+                    analyzer Slither (offline container) · model{" "}
+                    {process.env.NEXT_PUBLIC_TRIAGE_MODEL || "—"} · rextor.yaml from the PR base
+                    branch — config digest printed in the comment footer
+                  </dd>
+                </div>
               </dl>
-            </details>
+            </VerifyExpander>
           </>
         ) : (
           <>
@@ -131,6 +145,27 @@ export function ReviewLedgerRow({ row, repoFullName, agentName }: ReviewLedgerRo
               </a>
             )}
           </>
+        )}
+        {row.status !== 0 && (
+          <VerifyExpander label="Why incomplete">
+            <dl className="border-t border-b border-border py-4 font-mono text-xs tabular-nums">
+              <div className="grid grid-cols-1 gap-x-4 gap-y-0 py-0.5 min-[40rem]:grid-cols-[minmax(0,14ch)_minmax(0,1fr)]">
+                <dt className="text-subtle-foreground">reason</dt>
+                <dd className="min-w-0 break-all">
+                  infrastructure-era failure — the root cause lives in the service run log for this
+                  head, not in the comment body, and is not re-attributed here. INCOMPLETE is never
+                  silent: it attests with status {row.status} and score 0.
+                </dd>
+              </div>
+              <div className="grid grid-cols-1 gap-x-4 gap-y-0 py-0.5 min-[40rem]:grid-cols-[minmax(0,14ch)_minmax(0,1fr)]">
+                <dt className="text-subtle-foreground">re-run</dt>
+                <dd className="min-w-0 break-all">
+                  head shas are deduped by (repo, pr, headSha) — a settled INCOMPLETE re-fires on a
+                  new head.
+                </dd>
+              </div>
+            </dl>
+          </VerifyExpander>
         )}
       </td>
     </tr>

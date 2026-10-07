@@ -1,14 +1,20 @@
-// SPEC-6 §3 — living audit report. Server component ONLY: the agent-service
-// token (REXTOR_AGENT_TOKEN) and all RPC reads stay server-side (invariants
-// 18/19); nothing key-bearing is serialized to the client. Every failure is
-// rendered honestly — error panels and "—" fields, never fabricated data.
+// SPEC-6 §3 — living audit report (dashboard-v2 approved mock). Server
+// component ONLY: the agent-service token (REXTOR_AGENT_TOKEN) and all RPC
+// reads stay server-side (invariants 18/19); nothing key-bearing is
+// serialized to the client. Every failure is rendered honestly — error panels
+// and "—" fields, never fabricated data.
 import { AgentIdentityCard } from "@/components/agent-identity-card";
+import { ConfigPane } from "@/components/config-pane";
+import { DismissalsPanel } from "@/components/dismissals-panel";
+import { MetricsStrip } from "@/components/metrics-strip";
 import { ReviewLedger } from "@/components/review-ledger";
 import { ScoreHistory } from "@/components/score-history";
 import { Wordmark } from "@/components/nav";
 import { readAgentIdentity } from "@/lib/chain-read";
 import { DEFAULT_CHAIN_KEY, shortHex, webChainByName, WEB_CHAINS } from "@/lib/chains";
+import { fetchDismissals } from "@/lib/dismissals";
 import { fetchReviews } from "@/lib/reviews";
+import { fetchRepoConfig, SAMPLE_REXTOR_YAML } from "@/lib/repo-config";
 import identityData from "@/content/identity.json";
 
 export const dynamic = "force-dynamic";
@@ -32,108 +38,136 @@ export default async function DashboardPage({
 
   // Active attestation chain: the latest attested row's chain, else the
   // registry default. Identity is an independent live read — the page renders
-  // even when the index is down.
+  // even when the index is down. v2: BOTH chains' counts on the card.
+  const [tempoIdentity, hyperIdentity] = await Promise.all([
+    readAgentIdentity(WEB_CHAINS.tempo.key),
+    readAgentIdentity(WEB_CHAINS.hyperliquid.key),
+  ]);
   const latestAttested = rows.find((row) => row.tx_hash.length > 0);
   const activeChain = latestAttested?.chain ? webChainByName(latestAttested.chain) : undefined;
   const chain = activeChain ?? WEB_CHAINS[DEFAULT_CHAIN_KEY];
-  const identity = await readAgentIdentity(chain.key);
+  const identity =
+    (chain.key === "tempo" ? tempoIdentity : hyperIdentity) ?? null;
   const attestedIncomplete = rows.filter((row) => row.tx_hash.length > 0 && row.status === 1).length;
 
+  // v2 panels: dismissal memory + config preview are repo-level reads that
+  // degrade independently of the ledger.
+  const [dismissals, repoConfig] = await Promise.all([
+    fetchDismissals(owner, repo),
+    fetchRepoConfig(owner, repo),
+  ]);
+
   return (
-    <>
-      <nav
-        aria-label="Primary"
-        className="flex items-center justify-between border-b border-border py-6"
-      >
-        <Wordmark />
-        <a
-          className="rounded-full border border-border px-6 py-3 font-sans text-sm font-normal leading-none whitespace-nowrap no-underline hover:border-rule-strong"
-          href="/install"
+    <div className="surface-dashboard min-h-dvh bg-background text-foreground">
+      <div className="mx-auto max-w-[64rem] px-4 sm:px-6">
+        <nav
+          aria-label="Primary"
+          className="flex items-center justify-between border-b border-border py-6"
         >
-          Install on a repo
-        </a>
-      </nav>
+          <Wordmark />
+          <a
+            className="rounded-full border border-border px-6 py-3 font-sans text-sm font-normal leading-none whitespace-nowrap no-underline hover:border-rule-strong"
+            href="/install"
+          >
+            Install on a repo
+          </a>
+        </nav>
 
-      <main>
-        <header className="pt-10 pb-10">
-          <p className="font-mono text-sm text-muted-foreground tabular-nums">
-            {owner} / {repo}
+        <main>
+          <header className="pt-10 pb-10">
+            <p className="font-mono text-sm text-muted-foreground tabular-nums">
+              {owner} / {repo}
+            </p>
+            <h1 className="mt-1 text-xl font-bold tracking-[-0.02em] break-all">
+              Living audit report
+            </h1>
+            <div className="mt-4 flex flex-wrap gap-3 font-mono text-xs tabular-nums">
+              <span className="rounded-full border border-primary px-3 py-0.5 whitespace-nowrap text-primary">
+                {chain.name} · {chain.chainId}
+              </span>
+              <span className="rounded-full border border-border px-3 py-0.5 whitespace-nowrap text-muted-foreground">
+                Contract {shortHex(chain.attestation)}
+              </span>
+              <span className="rounded-full border border-border px-3 py-0.5 whitespace-nowrap text-muted-foreground">
+                riskScore 0–100 · higher = riskier
+              </span>
+            </div>
+          </header>
+
+          {!reviews.ok ? (
+            <section
+              aria-label="Index unavailable"
+              className="my-10 rounded-lg border border-dashed border-rule-strong p-10 text-center"
+            >
+              <span className="mb-2 block font-mono text-xs tracking-[0.12em] uppercase text-label">
+                index unavailable
+              </span>
+              <p className="mx-auto max-w-[46ch] text-muted-foreground">
+                The review index could not be read ({reviews.reason}) — no data is shown rather than
+                guessed.
+              </p>
+            </section>
+          ) : rows.length === 0 ? (
+            <section
+              aria-label="No reviews yet"
+              className="my-10 rounded-lg border border-dashed border-rule-strong p-10 text-center"
+            >
+              <span className="mb-2 block font-mono text-xs tracking-[0.12em] uppercase text-label">
+                empty state · shown when a repo has no reviews
+              </span>
+              <p className="mx-auto max-w-[46ch] text-muted-foreground">
+                No attested reviews yet for this repo. Install the GitHub App and open a pull request
+                that touches money-code — the first verdict lands here, with its on-chain receipt.
+              </p>
+            </section>
+          ) : (
+            <>
+              <MetricsStrip rows={rows} />
+              <ScoreHistory rows={rows} />
+              <ReviewLedger
+                rows={rows}
+                repoFullName={repoFullName}
+                agentName={identity?.name ?? null}
+              />
+            </>
+          )}
+
+          <AgentIdentityCard
+            name={identity?.name ?? null}
+            active={identity?.active ?? null}
+            attestedPerChain={[
+              { chain: "Tempo", count: tempoIdentity?.reviewCount ?? null },
+              { chain: "HyperEVM", count: hyperIdentity?.reviewCount ?? null },
+            ]}
+            attestedIncomplete={attestedIncomplete}
+            agentAddress={chain.agent}
+            erc8004={identityData.erc8004}
+            unavailableReason={identity ? undefined : "rpc read failed"}
+          />
+
+          <ConfigPane
+            yaml={repoConfig.ok ? repoConfig.yaml : SAMPLE_REXTOR_YAML}
+            source={repoConfig.ok ? "repo" : "sample"}
+          />
+
+          <DismissalsPanel result={dismissals} />
+        </main>
+
+        <footer className="border-t border-border pt-10 pb-6">
+          <p className="max-w-[28ch] text-xl font-bold tracking-[-0.02em] break-all">
+            The verdict lives <span className="text-primary">on&#8209;chain</span> — recomputable by
+            anyone, from the findings alone.
           </p>
-          <h1 className="mt-1 text-xl font-bold tracking-[-0.02em] break-all">
-            Living audit report
-          </h1>
-          <div className="mt-4 flex flex-wrap gap-3 font-mono text-xs tabular-nums">
-            <span className="rounded-full border border-primary px-3 py-0.5 whitespace-nowrap text-primary">
-              {chain.name} · {chain.chainId}
+          <div className="mt-6 flex flex-wrap gap-3 border-t border-border pt-4 font-mono text-xs text-muted-foreground">
+            <span>Rextor Security</span>
+            <span>
+              {chain.name} {chain.chainId}
             </span>
-            <span className="rounded-full border border-border px-3 py-0.5 whitespace-nowrap text-muted-foreground">
-              Contract {shortHex(chain.attestation)}
-            </span>
-            <span className="rounded-full border border-border px-3 py-0.5 whitespace-nowrap text-muted-foreground">
-              riskScore 0–100 · higher = riskier
-            </span>
+            <span>{shortHex(chain.attestation)}</span>
+            <span>© 2026</span>
           </div>
-        </header>
-
-        {!reviews.ok ? (
-          <section
-            aria-label="Index unavailable"
-            className="my-10 rounded-lg border border-dashed border-rule-strong p-10 text-center"
-          >
-            <span className="mb-2 block font-mono text-xs tracking-[0.12em] uppercase text-label">
-              index unavailable
-            </span>
-            <p className="mx-auto max-w-[46ch] text-muted-foreground">
-              The review index could not be read ({reviews.reason}) — no data is shown rather than
-              guessed.
-            </p>
-          </section>
-        ) : rows.length === 0 ? (
-          <section
-            aria-label="No reviews yet"
-            className="my-10 rounded-lg border border-dashed border-rule-strong p-10 text-center"
-          >
-            <p className="mx-auto max-w-[46ch] text-muted-foreground">
-              No attested reviews yet for this repo. Install the GitHub App and open a pull request
-              that touches money-code — the first verdict lands here, with its on-chain receipt.
-            </p>
-          </section>
-        ) : (
-          <>
-            <ScoreHistory rows={rows} />
-            <ReviewLedger
-              rows={rows}
-              repoFullName={repoFullName}
-              agentName={identity?.name ?? null}
-            />
-          </>
-        )}
-
-        <AgentIdentityCard
-          name={identity?.name ?? null}
-          active={identity?.active ?? null}
-          reviewCount={identity?.reviewCount ?? null}
-          attestedIncomplete={attestedIncomplete}
-          agentAddress={chain.agent}
-          erc8004={identityData.erc8004}
-          unavailableReason={identity ? undefined : "rpc read failed"}
-        />
-      </main>
-
-      <footer className="border-t border-border pt-10 pb-6">
-        <p className="max-w-[28ch] text-xl font-bold tracking-[-0.02em] break-all">
-          The verdict lives <span className="text-primary">on-chain</span> — recomputable by anyone,
-          from the findings alone.
-        </p>
-        <div className="mt-6 flex flex-wrap gap-3 border-t border-border pt-4 font-mono text-xs text-muted-foreground">
-          <span>Rextor Security</span>
-          <span>
-            {chain.name} {chain.chainId}
-          </span>
-          <span>{shortHex(chain.attestation)}</span>
-          <span>© 2026</span>
-        </div>
-      </footer>
-    </>
+        </footer>
+      </div>
+    </div>
   );
 }
