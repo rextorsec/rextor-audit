@@ -128,17 +128,29 @@ export function tagFromRepo(repo: string): string {
 
 // The broadcast is a mainnet spend behind a fire-and-forget settle point: an
 // unbounded RPC wait would stretch shutdown to the drain cap (and abandon a
-// signed tx with no operator-visible reason). Consistent with attest.ts's
-// 30s guard — the underlying call is abandoned, NOT cancelled: it may still
-// land, and the skip reason says so.
-const FEEDBACK_BUDGET_MS = 30_000;
+// signed tx with no operator-visible reason). Unlike attest.ts's SPEC-4 §3
+// 30s abort, feedback has NO comment-latency constraint — it fires after the
+// review settles — and Ethereum-mainnet receipt latency intermittently
+// exceeds 30s, recording a skip for a tx that actually landed (R2, seen live).
+// Default 120s ≈ 10 mainnet blocks. The underlying call is still abandoned,
+// NOT cancelled: it may still land, and the skip reason says so.
+const FEEDBACK_BUDGET_MS = 120_000;
+
+// Budget is read at call time (SPEC-1 env idiom, mirrors
+// githubStageBudgetMs): the env override is an ops affordance for slow RPC
+// endpoints; production default is the constant above.
+export function feedbackBudgetMs(): number {
+  const parsed = Number(process.env.REXTOR_FEEDBACK_BUDGET_MS);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : FEEDBACK_BUDGET_MS;
+}
 
 function withBudget<T>(label: string, attempt: Promise<T>): Promise<T> {
+  const budgetMs = feedbackBudgetMs();
   let timer: NodeJS.Timeout | undefined;
   const deadline = new Promise<never>((_, reject) => {
     timer = setTimeout(
-      () => reject(new Error(`${label} did not settle within ${FEEDBACK_BUDGET_MS}ms (may still have landed)`)),
-      FEEDBACK_BUDGET_MS,
+      () => reject(new Error(`${label} did not settle within ${budgetMs}ms (may still have landed)`)),
+      budgetMs,
     );
   });
   return Promise.race([attempt, deadline]).finally(() => clearTimeout(timer));

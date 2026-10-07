@@ -9,6 +9,7 @@ import {
   createFeedbackDep,
   ERC8004_FEEDBACK_ABI,
   ERC8004_IDENTITY_VIEW_ABI,
+  feedbackBudgetMs,
   feedbackConfig,
   feedbackDisabledReason,
   submitFeedback,
@@ -117,6 +118,53 @@ describe("feedbackConfig (documented defaults)", () => {
   it("throws on a non-integer agentId (caller degrades to a skip, never a guess)", () => {
     expect(() => feedbackConfig({ ERC8004_AGENT_ID: "abc" })).toThrow();
     expect(() => feedbackConfig({ ERC8004_AGENT_ID: "50891.5" })).toThrow();
+  });
+});
+
+describe("feedbackBudgetMs (R2 — receipt-wait budget)", () => {
+  const original = process.env.REXTOR_FEEDBACK_BUDGET_MS;
+  afterEach(() => {
+    if (original === undefined) delete process.env.REXTOR_FEEDBACK_BUDGET_MS;
+    else process.env.REXTOR_FEEDBACK_BUDGET_MS = original;
+  });
+
+  it("defaults to 120s — the old 30s recorded skips for txs that landed", () => {
+    delete process.env.REXTOR_FEEDBACK_BUDGET_MS;
+    expect(feedbackBudgetMs()).toBe(120_000);
+  });
+
+  it("honors a positive integer override (slow-RPC ops affordance)", () => {
+    process.env.REXTOR_FEEDBACK_BUDGET_MS = "45000";
+    expect(feedbackBudgetMs()).toBe(45_000);
+  });
+
+  it("falls back to the default on junk, zero, negative, fractional", () => {
+    for (const junk of ["abc", "0", "-5", "1.5", ""]) {
+      process.env.REXTOR_FEEDBACK_BUDGET_MS = junk;
+      expect(feedbackBudgetMs()).toBe(120_000);
+    }
+  });
+});
+
+describe("submitFeedback receipt wait under the R2 budget", () => {
+  it("still waits past the old 30s mark; abandons only at the 120s budget", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.useFakeTimers();
+    try {
+      // waitFor never settles: the receipt read is the abandoned side of the
+      // race. Broadcast itself resolves (the tx IS out), so the only failure
+      // path is the budget deadline.
+      const { io: hanging } = io({ waitFor: () => new Promise<void>(() => {}) });
+      const outcome = submitFeedback(record(), "test/repo", hanging, cfg);
+      const settled = expect(outcome).resolves.toEqual({
+        skipped: expect.stringContaining("feedback receipt wait did not settle within 120000ms"),
+      });
+      await vi.advanceTimersByTimeAsync(30_000); // old budget — must NOT fire
+      await vi.advanceTimersByTimeAsync(90_000); // 120s total — deadline fires
+      await settled;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
