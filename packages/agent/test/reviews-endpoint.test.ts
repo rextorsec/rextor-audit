@@ -256,3 +256,55 @@ describe("runReview write-through (review index rows)", () => {
     expect(res.score).toBe(25);
   });
 });
+
+describe("GET /dismissals/:owner/:repo (dashboard v2)", () => {
+  const entry = (over: Partial<{ ruleId: string; path: string }> = {}) => ({
+    ruleId: "ADERYN-L01",
+    path: "src/peripheral.sol",
+    reason: "owner-confirmed safe — access-controlled",
+    ...over,
+  });
+
+  it("serves the repo's synced dismissal memory as plain rows", async () => {
+    const store = await tempStore();
+    store.syncDismissals("rextorsec/demo", [entry(), entry({ ruleId: "SLITHER-X", path: "src/core.sol" })], "b".repeat(40));
+    await withServer({ store, apiToken: TOKEN }, async (port) => {
+      const res = await get(port, "/dismissals/rextorsec/demo", { "x-api-token": TOKEN });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        dismissals: [
+          { rule_id: "ADERYN-L01", path: "src/peripheral.sol" },
+          { rule_id: "SLITHER-X", path: "src/core.sol" },
+        ],
+      });
+    });
+    store.close();
+  });
+
+  it("answers 401 without or with a wrong token", async () => {
+    const store = await tempStore();
+    await withServer({ store, apiToken: TOKEN }, async (port) => {
+      expect((await get(port, "/dismissals/rextorsec/demo")).status).toBe(401);
+      expect((await get(port, "/dismissals/rextorsec/demo", { "x-api-token": "wrong" })).status).toBe(401);
+    });
+    store.close();
+  });
+
+  it("unknown repo → 200 { dismissals: [] } (zero state, not an error)", async () => {
+    const store = await tempStore();
+    await withServer({ store, apiToken: TOKEN }, async (port) => {
+      const res = await get(port, "/dismissals/nobody/nothing", { "x-api-token": TOKEN });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ dismissals: [] });
+    });
+    store.close();
+  });
+
+  it("reflects yaml-sync removals — the synced store IS the truth", async () => {
+    const store = await tempStore();
+    store.syncDismissals("rextorsec/demo", [entry()], "b".repeat(40));
+    store.syncDismissals("rextorsec/demo", [], "c".repeat(40));
+    expect(store.listDismissals("rextorsec/demo")).toEqual([]);
+    store.close();
+  });
+});

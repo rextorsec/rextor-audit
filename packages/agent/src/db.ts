@@ -50,6 +50,9 @@ export interface ReviewStore {
   syncDismissals(repo: string, entries: DismissalEntry[], source: string): void;
   /** Gate input: the repo's silenced (ruleId, path) keys. */
   dismissedKeys(repo: string): Set<string>;
+  /** SPEC-6 §3 (dashboard v2) — the repo's dismissal memory as plain rows
+   *  for the token-gated GET /dismissals dashboard read. */
+  listDismissals(repo: string): Array<{ rule_id: string; path: string }>;
   /** Learnings ledger: recurrence counter for one (ruleId, path) in a repo.
    *  Annotations only — a learning NEVER silences or re-scores a finding. */
   recordOccurrence(repo: string, ruleId: string, path: string, sample: string): { occurrences: number; lastSeenAt: string };
@@ -239,6 +242,9 @@ export function createReviewStore(dbPath: string): ReviewStore {
     dismissedKeys(repo: string): Set<string> {
       const rows = listDismissalsStmt.all(repo) as Array<{ rule_id: string; path: string }>;
       return new Set(rows.map((r) => dismissalKey(r.rule_id, r.path)));
+    },
+    listDismissals(repo: string): Array<{ rule_id: string; path: string }> {
+      return listDismissalsStmt.all(repo) as Array<{ rule_id: string; path: string }>;
     },
     recordOccurrence(repo: string, ruleId: string, path: string, sample: string): { occurrences: number; lastSeenAt: string } {
       const row = upsertOccurrenceStmt.get({

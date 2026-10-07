@@ -37,6 +37,10 @@ import {
 // handler (capture groups feed the owner/repo decode).
 const REVIEWS_PATH_RE = /^\/reviews\/([^/]+)\/([^/]+)\/?$/;
 
+// SPEC-6 §3 (dashboard v2) — same shape for the repo's dismissal memory. The
+// web lib (packages/web/lib/dismissals.ts) mirrors this path.
+const DISMISSALS_PATH_RE = /^\/dismissals\/([^/]+)\/([^/]+)\/?$/;
+
 export function verifySignature(rawBody: string, sig: string, secret: string): boolean {
   if (!sig.startsWith("sha256=")) return false;
   const expected = createHmac("sha256", secret).update(rawBody, "utf8").digest("hex");
@@ -107,7 +111,10 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
   const queue = new ReviewQueue({ stallWarnMs: options.stallWarnMs });
   const server = createServer((req, res) => {
     const pathname = (req.url ?? "/").split("?")[0];
-    const isDashboardRead = req.method === "GET" && REVIEWS_PATH_RE.test(pathname);
+    // Read-only GETs (reviews index + dismissals memory) answer during a
+    // drain: the dashboard must stay readable while the supervisor restarts.
+    const isDashboardRead =
+      req.method === "GET" && (REVIEWS_PATH_RE.test(pathname) || DISMISSALS_PATH_RE.test(pathname));
     // Drain gate (R3): a delivery accepted mid-drain would be ACKed and then
     // dropped by the coming exit. 503 + Retry-After MARKS the delivery failed
     // on GitHub's side — which is safe only because boot-time reconciliation
@@ -120,7 +127,8 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
       return;
     }
     if (isDashboardRead) {
-      void handleReviews(req, res, store, options.apiToken).catch((err) => {
+      const handler = REVIEWS_PATH_RE.test(pathname) ? handleReviews : handleDismissals;
+      void handler(req, res, store, options.apiToken).catch((err) => {
         console.error("[rextor] reviews handler crashed:", err);
         if (!res.headersSent) {
           res.statusCode = 500;
@@ -275,6 +283,39 @@ async function handleReviews(
   }
   const repo = `${decodeURIComponent(match[1])}/${decodeURIComponent(match[2])}`;
   json(res, { reviews: store.listForRepo(repo) });
+}
+
+// SPEC-6 §3 (dashboard v2) — the repo's server-side dismissal memory
+// (invariant 21: never a repo file, so PR content cannot silence findings).
+// Same trust posture as handleReviews: token-gated, unknown repo → 200
+// { dismissals: [] } (the panel's zero state, not an error).
+async function handleDismissals(
+  req: IncomingMessage,
+  res: ServerResponse,
+  store: ReviewStore | undefined,
+  apiTokenOpt: string | undefined,
+): Promise<void> {
+  const expected = apiTokenOpt ?? process.env.REXTOR_AGENT_TOKEN;
+  const provided = header(req, "x-api-token");
+  if (!expected || !provided || !tokensEqual(provided, expected)) {
+    res.statusCode = 401;
+    json(res, { error: "unauthorized" });
+    return;
+  }
+  if (!store) {
+    console.error("[rextor] REXTOR_DB_PATH is not configured");
+    res.statusCode = 500;
+    json(res, { error: "server misconfigured: no review index" });
+    return;
+  }
+  const match = DISMISSALS_PATH_RE.exec((req.url ?? "/").split("?")[0]);
+  if (!match) {
+    res.statusCode = 404;
+    json(res, { error: "not found" });
+    return;
+  }
+  const repo = `${decodeURIComponent(match[1])}/${decodeURIComponent(match[2])}`;
+  json(res, { dismissals: store.listDismissals(repo) });
 }
 
 async function handleWebhook(
