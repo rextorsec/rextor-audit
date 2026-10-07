@@ -217,6 +217,9 @@ describe("dashboard page — honest error panel", () => {
   });
 
   it("renders the unavailable panel when the token is not configured", async () => {
+    // v2 page still fetches repo config (GitHub) independent of the token —
+    // stub fetch so the no-live-network contract holds on every path.
+    vi.stubGlobal("fetch", stubReviews([]));
     delete process.env.REXTOR_AGENT_TOKEN;
     await renderPage({ owner: "rextorsec", repo: "demo" });
 

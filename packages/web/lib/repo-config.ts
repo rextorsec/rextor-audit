@@ -36,7 +36,12 @@ export async function fetchRepoConfig(
       `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/rextor.yaml`,
       {
         // raw+json accept → body IS the file text (no base64 dance).
-        headers: { Accept: "application/vnd.github.raw+json" },
+        // GitHub's API requires a User-Agent — undici's default is
+        // version-dependent, so pin an identifying one.
+        headers: {
+          Accept: "application/vnd.github.raw+json",
+          "User-Agent": "rextor-audit-dashboard",
+        },
         signal: AbortSignal.timeout(10_000),
         // Server-component fetch cache: a demo dashboard must not burn the
         // 60 req/hr unauthenticated quota per visitor render.
