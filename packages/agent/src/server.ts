@@ -129,7 +129,7 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
     if (isDashboardRead) {
       const handler = REVIEWS_PATH_RE.test(pathname) ? handleReviews : handleDismissals;
       void handler(req, res, store, options.apiToken).catch((err) => {
-        console.error("[rextor] reviews handler crashed:", err);
+        console.error("[rextor] dashboard read handler crashed:", err);
         if (!res.headersSent) {
           res.statusCode = 500;
           json(res, { error: "internal error" });
