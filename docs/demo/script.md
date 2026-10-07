@@ -19,7 +19,7 @@
 | Attestation footer: reviewId, findingsHash, tx link | bot comment | `[LIVE]` |
 | `verify(...)` calls: true-payload vs tampered | cast against Tempo v2 `0x7fe6…0bcd` | proven 2026-09-18/19 |
 | IPFS CID footer → gateway fetch → sha256 == on-chain hash | review #6 pattern (`ipfs://QmUqtDrt…`, tx `0xffa10497…`) | proven 2026-09-19 |
-| Dashboard: ledger row, score history, identity card | Vercel deployment | `[LIVE]` |
+| Dashboard v2: metrics strip, ledger + INCOMPLETE honesty, verify expander + run config, dual-chain identity card, config live-preview, dismissal memory | Vercel deployment | `[LIVE]` |
 | `@rextor-audit` chat reply (deterministic verdict) | issue comment | proven (receipt 5742416145) |
 | rextor.yaml severity gate → check-run | fresh PR | rides F5 installation-token swap — if F5 hasn't landed, CUT this scene, don't fake it |
 | ERC-8004 agentId | identity card | post-C1-broadcast — same rule: no receipt, no scene |
@@ -104,7 +104,7 @@ Every artifact below re-verified against live chains today. **Two script facts a
 | **HyperEVM MAINNET** registry `0x8f63…850c` | chainId 999, code live; twin tx `0x64e2a131…1834b5` status `0x1`, block 46562201, gas 194,330 — exact E1 record |
 | Prod identity reads (verified 2026-10-06) | `/api/chain/tempo` → `active:true, reviewCount:20`; `/api/chain/hyperliquid` → `active:true, reviewCount:3` |
 | Solana devnet program `Aj6Nx…kMDs` | `getAccountInfo`: executable, BPFLoaderUpgradeable-owned — **B4 shipped, §6 Solana scene is recordable** |
-| Dashboard + landing | www.rextoraudit.com live, nonce-CSP deployed 09-25; ledger rows via `/dashboard/rextorsec/rextor-audit-test` (23 rows, newest pr 10, head `f1b3991` — **prod render verified 2026-10-06** after rotating stale Vercel env REXTOR_AGENT_URL/TOKEN to the named tunnel + current token, deploy `ifxjyg7h4`) |
+| Dashboard v2 + landing | www.rextoraudit.com live, nonce-CSP deployed 09-25; ledger rows via `/dashboard/rextorsec/rextor-audit-test` (23 rows, 6 INCOMPLETE, newest pr 10 — **dashboard-v2 prod render verified 2026-10-07**: metrics strip (16/8 tiles + median/P75/P90), verify expanders incl. run-config line with `model glm-5.3-flash`, why-incomplete honesty expanders, dual-chain identity card, config live-preview pane, dismissal memory (real count 2); deploy `a3kvpxazx`; no h-scroll at 1280/768/414/375/320) |
 | ERC-8004 identity | agentId 50891, identity card live on prod landing (C1 done) |
 | Chat + severity gate | chat proven (receipt 5742416145); severity-gate FAILURE check-run live in production smoke (rextor-audit-test#8) and re-posted 2026-10-06 on #10 under the new durable PAT (conclusion failure, high-finding breach) — the §5 gate scene no longer rides F5 |
 
