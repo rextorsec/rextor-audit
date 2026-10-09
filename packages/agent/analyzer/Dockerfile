@@ -35,7 +35,7 @@ RUN solc-select install 0.8.24 && solc-select use 0.8.24
 # build`, so the image must ship the forge toolchain. Pinned release
 # (v1.8.3, latest at time of writing) — never floating `stable`.
 RUN curl -L https://foundry.paradigm.xyz | bash \
- && /home/analyzer/.foundry/bin/foundryup -i v1.8.3
+ && /home/analyzer/.foundry/bin/foundryup -i v1.8.5
 
 # Pre-warm foundry's own solc 0.8.24 (fixtures pin solc_version = "0.8.24"):
 # runtime runs with --network none, so the svm cache must already hold the
@@ -59,6 +59,18 @@ RUN set -ex \
  && printf '// SPDX-License-Identifier: MIT\npragma solidity >=0.8.28;\ncontract Warm {}\n' > /tmp/warm28/src/Warm.sol \
  && cd /tmp/warm28 && forge build \
  && rm -rf /tmp/warm28
+# Pre-warm foundry's own solc 0.8.37 (same class as 0.8.28 above): first
+# target found live 2026-10-09 (trindadeRodrigo/colosseum contracts/ pins
+# 0.8.37 + cancun + via_ir). Note the image's foundry must be new enough to
+# KNOW 0.8.37 — v1.8.3's bundled svm release list predates it and answers
+# "does not exist" (verified against binaries.soliditylang.org list.json,
+# latestRelease 0.8.37) — hence the v1.8.5 pin above.
+RUN set -ex \
+ && mkdir -p /tmp/warm37/src \
+ && printf '[profile.default]\nsrc = "src"\nsolc_version = "0.8.37"\n' > /tmp/warm37/foundry.toml \
+ && printf '// SPDX-License-Identifier: MIT\npragma solidity >=0.8.37;\ncontract Warm {}\n' > /tmp/warm37/src/Warm.sol \
+ && cd /tmp/warm37 && forge build \
+ && rm -rf /tmp/warm37
 WORKDIR /repo
 USER root
 COPY run.sh /usr/local/bin/run.sh
