@@ -112,7 +112,7 @@ Every artifact below re-verified against live chains today. **Two script facts a
 
 ### Red-pen suggestions (decision, not rewrite)
 
-1. **§6 VO is understated now**: "Attested on Tempo today" → consider "Attested on **Tempo and Hyperliquid mainnet** today" — a mainnet attestation is the strongest sentence in the video and it's currently missing.
+1. ~~**§6 VO is understated now**: "Attested on Tempo today" → consider "Attested on **Tempo and Hyperliquid mainnet** today"~~ — **APPLIED 2026-10-10 in refined form:** "Attested on Tempo today — and on Hyperliquid mainnet." (The literal merged phrasing misreads as both chains on mainnet; Tempo is testnet.)
 2. §4 dashboard shot: record `www.rextoraudit.com` (F4 landed — open item #4 resolved).
 3. §2/§3 trigger PR: fresh branch on `rextor-audit-test` as planned; the deterministic catch to rehearse is the SmokeVault reentrancy pattern (high → trips the gate on camera).
 4. Check-run scene: keep it — gateView shipped in PR #36 and fired in the 09-24 production smoke.
