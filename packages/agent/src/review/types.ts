@@ -1,7 +1,7 @@
 // Review contract types, moved verbatim from review.ts so the stage modules
 // (comment.ts) can reference ReviewResult without importing the orchestration
 // façade — stage modules must never import review.ts.
-import type { Finding } from "../findings";
+import type { Finding, IncompleteCause } from "../findings";
 import type { DiffScopeResult } from "../diff-scope";
 import type { TriageResult } from "../triage";
 import type { PocRequest, SimOutcomeMap } from "../sim";
@@ -78,6 +78,12 @@ export interface ReviewResult {
   findings?: Finding[];
   /** Set iff the analyzer could not produce a complete report — the PR comment says so. */
   incomplete?: string;
+  /** WHY the review went incomplete — stamped on EVERY result that sets
+   *  `incomplete`, classified at the report boundary (incompleteCauseFor).
+   *  "infra": infrastructure failure (analyzer crash/timeout, clone/GitHub
+   *  failure, unparseable report) — NOT a verdict on the code. "content":
+   *  the repo had nothing in scope for the analyzer to analyze. */
+  incompleteCause?: IncompleteCause;
   /** SPEC-4 §3 — on-chain anchoring outcome; set on every commented path
    *  EXCEPT a pre-clone github-setup failure (no headSha → no reviewId —
    *  nothing to attest; the INCOMPLETE reason carries the failure).

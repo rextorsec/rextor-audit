@@ -47,13 +47,52 @@ const RUBRIC: Record<Severity, number> = {
 
 const SCORE_CAP = 100;
 
+/**
+ * WHY a review went incomplete. "infra" = infrastructure failure (analyzer
+ * crash/timeout/exit≠0, clone or GitHub failure, unparseable report) — NOT a
+ * verdict on the code. "content" = nothing in scope to analyze. The cause is
+ * classified here at the report boundary (incompleteCauseFor) and carried on
+ * IncompleteReportError / ReviewResult.incompleteCause; downstream consumers
+ * never re-derive it.
+ */
+export type IncompleteCause = "infra" | "content";
+
+// The ONLY reasons that count as "content": the analyzer scripts' enumerated
+// nothing-in-scope emissions (run.sh/evm.sh/solana.sh) — a repo carrying
+// nothing of its own for the dispatched engine to analyze. A closed
+// exact-match table is the point: an unknown reason can NEVER classify as
+// content, so every reader-facing "nothing in scope" claim is grounded.
+// (`=== true`, never truthiness: prototype keynames like "constructor" must
+// not sneak through.)
+const CONTENT_REASONS: Record<string, true> = {
+  "no-contract-analyzed": true, // evm.sh — slither ran but analyzed no contracts
+  "no-sol-sources": true, // evm.sh — no own .sol sources (structural fallback)
+  "no-rust-analyzed": true, // solana.sh — Anchor-dispatched repo with no Rust
+};
+
+/**
+ * Deterministic cause for an analyzer INCOMPLETE reason string. Everything
+ * outside the closed content table above — analyzer exit≠0, timeout, crash,
+ * slice-failed-rc-N, evm-copy-failed, unparseable reports, github setup
+ * failures, and any future/unknown reason — is "infra".
+ */
+export function incompleteCauseFor(reason: string): IncompleteCause {
+  // Scoped degradation prefixes the scope ("evm: slither-error: …", SPEC-8 §1);
+  // strip it so a degraded note classifies identically to its raw reason.
+  const raw = reason.replace(/^(?:solana|evm|dual): /, "");
+  return CONTENT_REASONS[raw] === true ? "content" : "infra";
+}
+
 export class IncompleteReportError extends Error {
   readonly reason: string;
+  /** Infra-vs-content stamp (incompleteCauseFor) — callers never re-derive. */
+  readonly incompleteCause: IncompleteCause;
 
-  constructor(reason: string) {
+  constructor(reason: string, incompleteCause: IncompleteCause) {
     super(`analyzer report incomplete: ${reason}`);
     this.name = "IncompleteReportError";
     this.reason = reason;
+    this.incompleteCause = incompleteCause;
   }
 }
 
@@ -104,7 +143,9 @@ export function normalizeFindings(ndjson: string): Finding[] {
     const line = lines[i].trim();
     if (line === "") continue; // trailing-newline / blank-line tolerance
     const parsed = classifyFindingLine(line, i + 1);
-    if (parsed.kind === "incomplete") throw new IncompleteReportError(parsed.reason);
+    if (parsed.kind === "incomplete") {
+      throw new IncompleteReportError(parsed.reason, incompleteCauseFor(parsed.reason));
+    }
     findings.push(parsed.finding);
   }
   return findings;
@@ -131,22 +172,59 @@ export interface AnalyzerReport {
 export function parseAnalyzerReport(ndjson: string): AnalyzerReport {
   const findings: Finding[] = [];
   const degraded: string[] = [];
+  // Raw causes parallel to `degraded` (whose entries carry the "scope: "
+  // prefix): the combined throw classifies from the RAW reasons, so the
+  // joined message never has to be re-parsed downstream.
+  const degradedCauses: IncompleteCause[] = [];
   const lines = ndjson.split("\n");
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (line === "") continue; // trailing-newline / blank-line tolerance
     const parsed = classifyFindingLine(line, i + 1);
     if (parsed.kind === "incomplete") {
-      if (parsed.scope === undefined) throw new IncompleteReportError(parsed.reason);
+      if (parsed.scope === undefined) {
+        throw new IncompleteReportError(parsed.reason, incompleteCauseFor(parsed.reason));
+      }
       degraded.push(`${parsed.scope}: ${parsed.reason}`);
+      degradedCauses.push(incompleteCauseFor(parsed.reason));
       continue;
     }
     findings.push(parsed.finding);
   }
   if (findings.length === 0 && degraded.length > 0) {
-    throw new IncompleteReportError(degraded.join(" | "));
+    // Mixed causes read as infra: a reader must never be told "nothing in
+    // scope" while any scope ALSO failed on infrastructure.
+    const cause: IncompleteCause = degradedCauses.every((c) => c === "content")
+      ? "content"
+      : "infra";
+    throw new IncompleteReportError(degraded.join(" | "), cause);
   }
   return { findings, degraded };
+}
+
+/**
+ * Timeout salvage: parse analyzer stdout that a SIGKILL cut mid-stream (the
+ * exec kills the container on its wall-clock budget; run.sh streams each
+ * slice's NDJSON the moment that slice exits, so the stdout captured before
+ * the kill holds every completed slice). The kill can truncate the final
+ * NDJSON write, so a trailing line without its newline terminator is DROPPED
+ * — parsing it would throw unparseable and discard the finished slices with
+ * it. Everything before it parses under the EXACT normal rules
+ * (parseAnalyzerReport: scoped degradation included), so a mid-stream corrupt
+ * line still throws → null — only end-of-stream truncation is recoverable.
+ * Returns null when nothing usable survived.
+ */
+export function salvageAnalyzerReport(partial: string): AnalyzerReport | null {
+  if (partial.trim() === "") return null;
+  const terminated = partial.endsWith("\n")
+    ? partial
+    : partial.slice(0, partial.lastIndexOf("\n") + 1);
+  if (terminated.trim() === "") return null;
+  try {
+    return parseAnalyzerReport(terminated);
+  } catch {
+    return null;
+  }
 }
 
 export function score(findings: Finding[]): number {

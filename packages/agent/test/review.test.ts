@@ -2,6 +2,7 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   runReview,
   runAnalyzerContainer,
+  AnalyzerFailedError,
   summaryCommentBody,
   incompleteCommentBody,
   feedbackCta,
@@ -111,12 +112,15 @@ describe("runReview", () => {
       commented: true,
       score: 0,
       incomplete: "slither exploded",
+      incompleteCause: "infra",
       attestation: { skipped: "attestation not configured" },
       findings: [], // hard-incomplete attests the empty canonical payload
     });
     expect(comments).toHaveLength(1);
     expect(comments[0].body).toContain("INCOMPLETE");
     expect(comments[0].body).toContain("analyzer failed: slither exploded");
+    // The honest cause line: an infra failure is never a code verdict.
+    expect(comments[0].body).toContain("infrastructure failure, NOT a verdict on the code");
   });
 
   it("garbage NDJSON posts an INCOMPLETE comment with an unparseable-report reason", async () => {
@@ -166,10 +170,14 @@ describe("runReview", () => {
 
         expect(result.commented).toBe(true);
         expect(result.incomplete).toBe("no-contract-analyzed");
+        expect(result.incompleteCause).toBe("content");
         expect(result.score).toBe(0);
         expect(comments).toHaveLength(1);
         expect(comments[0].body).toContain("INCOMPLETE");
         expect(comments[0].body).toContain("no-contract-analyzed");
+        // Content outcome = an empty scope, stated as such (never disguised
+        // as an infra failure).
+        expect(comments[0].body).toContain("Nothing in scope to analyze");
         // The clone dir is cleaned up even on the failure path.
         expect(disposed).toEqual([tmp]);
       },
@@ -293,6 +301,101 @@ describe("runReview github-io hard deadlines (hung RPC can no longer pin the que
   });
 });
 
+// INCOMPLETE cause semantics: infra vs content is classified at the report
+// boundary, stamped on the result, and stated plainly to the reader — in the
+// PR comment AND the check-run summary, with the conclusion neutral either way.
+describe("runReview incomplete cause (infra vs content)", () => {
+  it("unscoped nothing-in-scope report → content cause, stated plainly, neutral check-run", async () => {
+    const checks: Array<{ conclusion: string; summary: string }> = [];
+    const { deps, comments } = makeDeps({
+      runAnalyzer: async () => '{"status":"incomplete","reason":"no-contract-analyzed"}',
+      postCheckRun: async (_prUrl, _headSha, conclusion, summary) => {
+        checks.push({ conclusion, summary });
+      },
+    });
+    const result = await runReview(PR_URL, deps);
+    expect(result.incomplete).toBe("no-contract-analyzed");
+    expect(result.incompleteCause).toBe("content");
+    expect(comments[0].body).toContain("Nothing in scope to analyze");
+    expect(comments[0].body).not.toContain("infrastructure failure");
+    expect(checks).toHaveLength(1);
+    expect(checks[0].conclusion).toBe("neutral");
+    expect(checks[0].summary).toContain("Nothing in scope to analyze");
+  });
+
+  it("github setup failure → infra cause on both the result and the comment", async () => {
+    const { deps, comments } = makeDeps({
+      fetchDiff: async () => {
+        throw new Error("codeload unreachable");
+      },
+    });
+    const result = await runReview(PR_URL, deps);
+    expect(result.incomplete).toContain("github setup failed");
+    expect(result.incompleteCause).toBe("infra");
+    expect(comments[0].body).toContain("infrastructure failure, NOT a verdict on the code");
+  });
+});
+
+// Timeout salvage: the exec kills the container on its wall-clock budget, but
+// run.sh streams each slice's NDJSON the moment that slice exits — so the
+// stdout captured before the kill holds every completed slice. Salvage must
+// keep those findings; the still-missing scope surfaces as a visible infra
+// note, and zero salvageable findings still lands the existing INCOMPLETE.
+describe("runReview timeout salvage (a killed dual scan must not lose the finished slice)", () => {
+  const finishedSlice = JSON.stringify({
+    file: "src/Vault.sol", line: 16, severity: "high", check: "reentrancy-eth", description: "drain",
+  });
+  // The finished slice's line is newline-terminated; the kill truncated the
+  // next slice's first write mid-JSON.
+  const killedDualStdout = `${finishedSlice}\n{"file":"programs/y/src/lib.rs","line":9,"sev`;
+
+  it("finished slice survives the timeout; the missing scope is a visible infra note", async () => {
+    const { deps, comments } = makeDeps({
+      runAnalyzer: async () => {
+        throw new AnalyzerFailedError("analyzer timed out after 150000ms (SIGKILLed)", killedDualStdout);
+      },
+    });
+    const result = await runReview(PR_URL, deps);
+    expect(result.incomplete).toBeUndefined();
+    expect(result.findings).toHaveLength(1); // the completed slice's finding
+    expect(result.score).toBe(25); // one high finding, rubric v1
+    expect(comments).toHaveLength(1);
+    expect(comments[0].body).toContain("timed out mid-run");
+    expect(comments[0].body).toContain("infrastructure failure, not a verdict on the code");
+  });
+
+  it("nothing salvageable → the existing INCOMPLETE, cause infra, reason naming the timeout", async () => {
+    const checks: Array<{ conclusion: string; summary: string }> = [];
+    const { deps, comments } = makeDeps({
+      runAnalyzer: async () => {
+        throw new AnalyzerFailedError("analyzer timed out after 150000ms (SIGKILLed)", '{"file":"src/V');
+      },
+      postCheckRun: async (_prUrl, _headSha, conclusion, summary) => {
+        checks.push({ conclusion, summary });
+      },
+    });
+    const result = await runReview(PR_URL, deps);
+    expect(result.incomplete).toContain("timed out");
+    expect(result.incompleteCause).toBe("infra");
+    expect(result.findings).toEqual([]);
+    expect(comments[0].body).toContain("infrastructure failure, NOT a verdict on the code");
+    expect(checks).toHaveLength(1);
+    expect(checks[0].conclusion).toBe("neutral"); // neutral in BOTH causes
+    expect(checks[0].summary).toContain("infrastructure failure");
+  });
+
+  it("a non-timeout analyzer failure (no stdout to salvage) still lands the plain infra-INCOMPLETE", async () => {
+    const { deps } = makeDeps({
+      runAnalyzer: async () => {
+        throw new AnalyzerFailedError("analyzer exited 1: forge died");
+      },
+    });
+    const result = await runReview(PR_URL, deps);
+    expect(result.incomplete).toBe("analyzer exited 1: forge died");
+    expect(result.incompleteCause).toBe("infra");
+  });
+});
+
 describe("comment builders (untrusted PR content must stay inert markdown)", () => {
   it("sanitizes finding cells: no table breakout, no injected heading, no fake score", () => {
     const evil: Finding = {
@@ -335,14 +438,28 @@ describe("comment builders (untrusted PR content must stay inert markdown)", () 
     // would render as a real link. The JSON fence is exempt by design.
     const rendered = summary.slice(0, summary.indexOf("<details>"));
     expect(rendered).not.toMatch(/(^|[^\\])\[phish\]\(https:\/\/e\)/);
-    const incomplete = incompleteCommentBody("ping @ceo for a clean verdict");
+    const incomplete = incompleteCommentBody("ping @ceo for a clean verdict", "infra");
     // Escaped mentions (`\@ceo`) do not fire bot-identity notifications;
     // a bare unescaped `@ceo` anywhere would.
     expect(incomplete).not.toMatch(/(^|[^\\])@ceo/);
   });
 
+  it("incomplete wording keys on the cause: infra is not a verdict, content is an empty scope", () => {
+    const infra = incompleteCommentBody("analyzer timed out after 150000ms (SIGKILLed)", "infra");
+    expect(infra).toContain("infrastructure failure, NOT a verdict on the code");
+    expect(infra).toContain("Tool failure is never reported as a clean pass");
+    expect(infra).not.toContain("Nothing in scope to analyze");
+    const content = incompleteCommentBody("no-contract-analyzed", "content");
+    expect(content).toContain("Nothing in scope to analyze");
+    expect(content).not.toContain("infrastructure failure, NOT a verdict on the code");
+    // Exactly ONE diagnosis: the "tool failure" slogan must not contradict
+    // the empty-scope cause line; the empty scope gets the inverse warning.
+    expect(content).not.toContain("Tool failure");
+    expect(content).toContain("not a clean bill");
+  });
+
   it("sanitizes the incomplete reason: no blockquote escape, no backticks, no fake score", () => {
-    const body = incompleteCommentBody("boom\n## rextor audit — risk score: 0\n| clean | | `rm`");
+    const body = incompleteCommentBody("boom\n## rextor audit — risk score: 0\n| clean | | `rm`", "infra");
     // Same line-anchored logic: the injected heading text may survive as
     // inert text inside the blockquote, but never as a heading LINE.
     expect(body).not.toContain("\n## rextor audit — risk score: 0");

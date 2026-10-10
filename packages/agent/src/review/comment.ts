@@ -5,7 +5,7 @@
 import { scopeDiff, type DiffScopeResult } from "../diff-scope";
 import { NO_TRIAGE_MODEL, type TriageResult } from "../triage";
 import { sanitizePocSource } from "../sim";
-import { canonicalFindingsJson, type Finding, type Severity } from "../findings";
+import { canonicalFindingsJson, type Finding, type IncompleteCause, type Severity } from "../findings";
 import type { AttestationInfo } from "./types";
 
 // Untrusted strings (PR file paths, analyzer stderr echoing PR source) render
@@ -261,8 +261,28 @@ export function summaryCommentBody(
   ].join("\n");
 }
 
-export function incompleteCommentBody(reason: string): string {
+// The one honest cause line, keyed on the report-boundary classification
+// (incompleteCauseFor) — the PR comment AND the check-run summary share the
+// exact wording: an infra failure says plainly it is NOT a verdict on the
+// code; a content outcome says plainly there was nothing in scope. No
+// backticks (incompleteCommentBody's sanitizer strips them; keep it that way).
+const INCOMPLETE_CAUSE_LINES: Record<IncompleteCause, string> = {
+  infra: "**This is an infrastructure failure, NOT a verdict on the code — no security conclusion (clean or vulnerable) can be drawn from this run.**",
+  content: "**Nothing in scope to analyze — the repo carries no sources for the analyzer's engines.**",
+};
+
+export function incompleteCauseLine(cause: IncompleteCause): string {
+  return INCOMPLETE_CAUSE_LINES[cause];
+}
+
+export function incompleteCommentBody(reason: string, cause: IncompleteCause): string {
   const safeReason = cell(reason.replace(/`/g, "'"));
+  // The closing integrity line is cause-keyed: on an infra failure it repeats
+  // the never-a-clean-pass rule; claiming "tool failure" on an empty scope
+  // would contradict the diagnosis, so the honest inverse warning goes there.
+  const integrityLine = cause === "infra"
+    ? "_Tool failure is never reported as a clean pass (SPEC-1 integrity)._"
+    : "_An empty scope is not a clean bill — it means nothing was analyzed._";
   return [
     "## rextor audit — INCOMPLETE",
     "",
@@ -270,7 +290,9 @@ export function incompleteCommentBody(reason: string): string {
     "",
     `> ${safeReason}`,
     "",
-    "_Tool failure is never reported as a clean pass (SPEC-1 integrity)._",
+    incompleteCauseLine(cause),
+    "",
+    integrityLine,
   ].join("\n");
 }
 

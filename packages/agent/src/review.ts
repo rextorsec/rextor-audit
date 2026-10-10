@@ -22,10 +22,12 @@ import { gateView, rawFindingsResult, type TriageResult } from "./triage";
 import { isAnchorRepo, runSimStage } from "./sim";
 import {
   parseAnalyzerReport,
+  salvageAnalyzerReport,
   scoreV1,
   withIds,
   IncompleteReportError,
   type Finding,
+  type IncompleteCause,
 } from "./findings";
 import {
   DEFAULT_CONFIG,
@@ -35,7 +37,8 @@ import {
   parseRepoConfig,
   type RepoConfig,
 } from "./config";
-import { cell, incompleteCommentBody, prIdentity, summaryCommentBody, withFooter } from "./review/comment";
+import { AnalyzerFailedError } from "./review/analyze";
+import { cell, incompleteCauseLine, incompleteCommentBody, prIdentity, summaryCommentBody, withFooter } from "./review/comment";
 import {
   type AttestationInfo,
   type ReviewDeps,
@@ -43,7 +46,8 @@ import {
   type SolanaVerdictInfo,
 } from "./review/types";
 
-export type { Finding } from "./findings";
+export type { Finding, IncompleteCause } from "./findings";
+export { incompleteCauseFor } from "./findings";
 export type { ReviewDeps } from "./review/types";
 export type { ReviewResult } from "./review/types";
 export type { SolanaVerdictInfo } from "./review/types";
@@ -135,12 +139,12 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     const reason = `github setup failed: ${err instanceof Error ? err.message : String(err)}`;
     console.error("[rextor]", reason);
     try {
-      await githubStage("postComment", deps.postComment(prUrl, incompleteCommentBody(reason)));
-      return { commented: true, score: 0, incomplete: reason, findings: [] };
+      await githubStage("postComment", deps.postComment(prUrl, incompleteCommentBody(reason, "infra")));
+      return { commented: true, score: 0, incomplete: reason, incompleteCause: "infra", findings: [] };
     } catch (postErr) {
       console.error("[rextor] failure comment could not be posted:",
         postErr instanceof Error ? postErr.message : postErr);
-      return { commented: false, score: 0, incomplete: reason, findings: [] };
+      return { commented: false, score: 0, incomplete: reason, incompleteCause: "infra", findings: [] };
     }
   }
   const identity = prIdentity(prUrl);
@@ -327,41 +331,67 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
   };
 
   try {
-    let ndjson: string;
+    let ndjson: string | undefined;
+    // Initialized because TS control-flow analysis does not carry definite
+    // assignment out of the catch below into the post-try merge; both
+    // reaching paths overwrite before use and every non-assigning path
+    // returns.
+    let findings: Finding[] = [];
+    let analyzerNote = "";
     try {
       ndjson = await deps.runAnalyzer(repoDir);
     } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      const { att, findingsHash } = await attestStage([], 0, true);
-      const commentUrl = await githubStage("postComment", deps.postComment(prUrl,
-        withConfigNote(withFooter(incompleteCommentBody(`analyzer failed: ${reason}`), att, findingsHash, prUrl))));
-      await checkRunStage("neutral", `review incomplete: ${cell(reason)}`);
-      recordIndexRow(0, 0, true, att, commentUrl);
-      return { commented: true, score: 0, incomplete: reason, attestation: att, findings: [] };
-    }
-
-    let findings: Finding[];
-    let analyzerNote = "";
-    try {
-      // SPEC-8 §1 — dual dispatch: scoped incompletes degrade to a visible
-      // note instead of discarding the side that scanned clean; unscoped
-      // incompletes (single-shape repos) still hard-throw INCOMPLETE.
-      const report = parseAnalyzerReport(ndjson);
-      findings = report.findings;
-      if (report.degraded.length > 0) {
-        analyzerNote = `_(analyzer: ${cell(report.degraded.join(" · "))} — that side was not scanned)_`;
+      // Timeout salvage: a killed container's captured stdout holds every
+      // slice that finished (run.sh streams each slice's NDJSON as it exits)
+      // — parse what survived instead of discarding a completed half. Zero
+      // salvageable findings → the existing INCOMPLETE path below, cause
+      // infra, the reason naming the timeout.
+      const partial = err instanceof AnalyzerFailedError ? err.partialStdout : undefined;
+      const salvaged = partial !== undefined ? salvageAnalyzerReport(partial) : null;
+      if (salvaged === null || salvaged.findings.length === 0) {
+        const reason = err instanceof Error ? err.message : String(err);
+        const { att, findingsHash } = await attestStage([], 0, true);
+        const commentUrl = await githubStage("postComment", deps.postComment(prUrl,
+          withConfigNote(withFooter(incompleteCommentBody(`analyzer failed: ${reason}`, "infra"), att, findingsHash, prUrl))));
+        await checkRunStage("neutral", `review incomplete: ${cell(reason)} — ${incompleteCauseLine("infra")}`);
+        recordIndexRow(0, 0, true, att, commentUrl);
+        return { commented: true, score: 0, incomplete: reason, incompleteCause: "infra", attestation: att, findings: [] };
       }
-    } catch (err) {
-      const reason =
-        err instanceof IncompleteReportError
-          ? err.reason
-          : `unparseable analyzer report: ${err instanceof Error ? err.message : String(err)}`;
-      const { att, findingsHash } = await attestStage([], 0, true);
-      const commentUrl = await githubStage("postComment", deps.postComment(prUrl,
-        withConfigNote(withFooter(incompleteCommentBody(reason), att, findingsHash, prUrl))));
-      await checkRunStage("neutral", `review incomplete: ${cell(reason)}`);
-      recordIndexRow(0, 0, true, att, commentUrl);
-      return { commented: true, score: 0, incomplete: reason, attestation: att, findings: [] };
+      // Salvaged: the review completes over the surviving slice(s); the
+      // timeout rides as a visible note naming the scope that never finished
+      // — an infra statement, never a clean bill for the missing side.
+      findings = salvaged.findings;
+      const missing = salvaged.degraded.length > 0
+        ? salvaged.degraded.join(" · ")
+        : "the remaining scope";
+      analyzerNote = `_(analyzer: timed out mid-run — findings above are the salvaged slice(s) that finished; ${cell(missing)} never completed: infrastructure failure, not a verdict on the code)_`;
+    }
+    if (ndjson !== undefined) {
+      try {
+        // SPEC-8 §1 — dual dispatch: scoped incompletes degrade to a visible
+        // note instead of discarding the side that scanned clean; unscoped
+        // incompletes (single-shape repos) still hard-throw INCOMPLETE.
+        const report = parseAnalyzerReport(ndjson);
+        findings = report.findings;
+        if (report.degraded.length > 0) {
+          analyzerNote = `_(analyzer: ${cell(report.degraded.join(" · "))} — that side was not scanned)_`;
+        }
+      } catch (err) {
+        // The parse boundary classifies infra-vs-content once
+        // (IncompleteReportError.incompleteCause); anything that is not that
+        // error type is a broken report — infrastructure by definition.
+        const cause: IncompleteCause = err instanceof IncompleteReportError ? err.incompleteCause : "infra";
+        const reason =
+          err instanceof IncompleteReportError
+            ? err.reason
+            : `unparseable analyzer report: ${err instanceof Error ? err.message : String(err)}`;
+        const { att, findingsHash } = await attestStage([], 0, true);
+        const commentUrl = await githubStage("postComment", deps.postComment(prUrl,
+          withConfigNote(withFooter(incompleteCommentBody(reason, cause), att, findingsHash, prUrl))));
+        await checkRunStage("neutral", `review incomplete: ${cell(reason)} — ${incompleteCauseLine(cause)}`);
+        recordIndexRow(0, 0, true, att, commentUrl);
+        return { commented: true, score: 0, incomplete: reason, incompleteCause: cause, attestation: att, findings: [] };
+      }
     }
 
     // SPEC-7 §1 paths — one in-scope definition feeds comment, score,

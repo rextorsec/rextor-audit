@@ -5,9 +5,17 @@ import { promisify } from "node:util";
 import { resolve } from "node:path";
 
 export class AnalyzerFailedError extends Error {
-  constructor(message: string) {
+  /** stdout captured before the container died — set ONLY on the timeout kill
+   *  (run.sh streams each slice's NDJSON as it exits, so the killed run's
+   *  captured stdout holds every completed slice; discarding it would lose a
+   *  finished half). Undefined for every other failure shape. Consumers
+   *  salvage it via salvageAnalyzerReport (findings.ts). */
+  readonly partialStdout: string | undefined;
+
+  constructor(message: string, partialStdout?: string) {
     super(message);
     this.name = "AnalyzerFailedError";
+    this.partialStdout = partialStdout;
   }
 }
 
@@ -53,8 +61,15 @@ export async function runAnalyzerContainer(repoDir: string): Promise<string> {
       };
       if (e?.killed) {
         // Timeout kill: fatal immediately — retrying a hung container just
-        // burns 3× the budget before the same INCOMPLETE.
-        throw new AnalyzerFailedError(`analyzer timed out after ${ANALYZER_TIMEOUT_MS}ms (SIGKILLed)`);
+        // burns 3× the budget before the same INCOMPLETE. The stdout already
+        // streamed before the kill is NOT discarded: in a dual-shape scan a
+        // finished slice's findings exist only here — attach them so the
+        // parse stage can salvage instead of losing a completed half.
+        const partial = String(e.stdout ?? "");
+        throw new AnalyzerFailedError(
+          `analyzer timed out after ${ANALYZER_TIMEOUT_MS}ms (SIGKILLed)`,
+          partial.trim() === "" ? undefined : partial,
+        );
       }
       // promisified execFile reports the child's exit code as `code` (execSync
       // callsites would see `status`); accept both.
