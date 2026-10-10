@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createReviewStore, type FeedbackReceiptRow, type ReviewStore } from "../src/db";
+import { createReviewStore, type DeepScanRow, type FeedbackReceiptRow, type ReviewStore } from "../src/db";
 import { dismissalKey } from "../src/config";
 import { canonicalFindingsJson, withIds, type Finding } from "../src/findings";
 import { runReview, type ReviewDeps } from "../src/review";
@@ -231,6 +231,76 @@ describe("feedback receipts store (R2)", () => {
       store.recordFeedbackReceipt(receipt({ tx_hash: "0x" + "01".repeat(32), created_at: "2026-10-10T10:00:00.000Z" }));
       store.recordFeedbackReceipt(receipt({ repo: "other/repo", tx_hash: "0x" + "02".repeat(32), created_at: "2026-10-10T11:00:00.000Z" }));
       expect(store.listFeedbackReceipts().map((r) => r.repo)).toEqual(["other/repo", "rextorsec/demo"]);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("deep scans store (Deep Scan ledger)", () => {
+  const scanRow = (over: Partial<DeepScanRow> = {}): DeepScanRow => ({
+    repo: "rextorsec/demo",
+    ref: "main",
+    head_sha: "d".repeat(40),
+    status: 0,
+    risk_score: 42,
+    finding_count: 3,
+    created_at: "2026-10-11T00:00:00.000Z",
+    ...over,
+  });
+
+  it("roundtrips recorded scans verbatim, newest first, scoped to the repo", async () => {
+    const store = await tempStore();
+    try {
+      store.recordScan(scanRow({ ref: "main", created_at: "2026-10-11T10:00:00.000Z" }));
+      store.recordScan(scanRow({ ref: "dev", created_at: "2026-10-11T12:00:00.000Z" }));
+      store.recordScan(scanRow({ repo: "other/repo", created_at: "2026-10-11T13:00:00.000Z" }));
+
+      const rows = store.listScans("rextorsec/demo");
+      expect(rows.map((r) => r.ref)).toEqual(["dev", "main"]);
+      expect(rows[0]).toEqual(scanRow({ ref: "dev", created_at: "2026-10-11T12:00:00.000Z" }));
+      expect(store.listScans("other/repo").map((r) => r.repo)).toEqual(["other/repo"]);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("rescans the same head are legitimate — append-only, rowid breaks timestamp ties", async () => {
+    const store = await tempStore();
+    try {
+      store.recordScan(scanRow({ ref: "main" }));
+      store.recordScan(scanRow({ ref: "main" }));
+      const rows = store.listScans("rextorsec/demo");
+      expect(rows).toHaveLength(2);
+      // Same created_at → the later insert lists first (deterministic order).
+      expect(rows.every((r) => r.ref === "main")).toBe(true);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("an INCOMPLETE scan's null risk_score survives the roundtrip (absent, never faked 0)", async () => {
+    const store = await tempStore();
+    try {
+      store.recordScan(scanRow({ status: 1, risk_score: null, finding_count: 0, head_sha: "" }));
+      const rows = store.listScans("rextorsec/demo");
+      expect(rows).toHaveLength(1);
+      expect(rows[0].status).toBe(1);
+      expect(rows[0].risk_score).toBeNull();
+      expect(rows[0].finding_count).toBe(0);
+      expect(rows[0].head_sha).toBe("");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("unknown repo → [] and no repo → every scan, still newest first", async () => {
+    const store = await tempStore();
+    try {
+      expect(store.listScans("nobody/nothing")).toEqual([]);
+      store.recordScan(scanRow({ created_at: "2026-10-11T10:00:00.000Z" }));
+      store.recordScan(scanRow({ repo: "other/repo", created_at: "2026-10-11T11:00:00.000Z" }));
+      expect(store.listScans().map((r) => r.repo)).toEqual(["other/repo", "rextorsec/demo"]);
     } finally {
       store.close();
     }

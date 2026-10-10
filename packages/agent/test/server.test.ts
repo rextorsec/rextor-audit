@@ -12,7 +12,8 @@ import {
 } from "../src/server";
 import { MAX_BODY_BYTES } from "../src/queue";
 import type { ReviewDeps } from "../src/review";
-import { createReviewStore, type ReviewRow, type ReviewStore } from "../src/db";
+import { createReviewStore, type DeepScanRow, type ReviewRow, type ReviewStore } from "../src/db";
+import type { ScanDeps } from "../src/scan";
 
 // Fixed HMAC-SHA256 vector (SPEC-1 §4) — body + secret signed with
 // `node -e "console.log('sha256=' + require('node:crypto').createHmac('sha256','rextor-test-secret').update(BODY,'utf8').digest('hex'))"`.
@@ -569,6 +570,268 @@ describe("oversize delivery skip list (reconcile loop break)", () => {
     } finally {
       store.close();
       await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("deep scan endpoints", () => {
+  const SCAN_TOKEN = "scan-route-token";
+  const SCAN_SHA = "d".repeat(40);
+  const SCAN_NDJSON =
+    '{"file":"src/Vault.sol","line":18,"severity":"high","check":"reentrancy-eth","description":"extcall before state zeroing"}';
+
+  const dirs: string[] = [];
+  afterAll(async () => {
+    await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })));
+  });
+  async function tempStore(): Promise<ReviewStore> {
+    const dir = await mkdtemp(join(tmpdir(), "rextor-scan-db-"));
+    dirs.push(dir);
+    return createReviewStore(join(dir, "scans.db"));
+  }
+
+  const get = (port: number, path: string, headers: Record<string, string> = {}): Promise<Response> =>
+    fetch(`http://127.0.0.1:${port}${path}`, { headers });
+
+  const postScan = (port: number, body: string, token?: string): Promise<Response> =>
+    fetch(`http://127.0.0.1:${port}/scan`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(token ? { "x-api-token": token } : {}) },
+      body,
+    });
+
+  // Fully-faked scan seams — route tests pin routing/auth/ledger, never git
+  // or the analyzer container.
+  const makeScanDeps = (over: Partial<ScanDeps> = {}) => {
+    const state = { analyzerRuns: 0 };
+    const deps: ScanDeps = {
+      runGit: async (args) => (args.includes("rev-parse") ? SCAN_SHA : ""),
+      token: () => "scan-clone-token",
+      rmDir: async () => {},
+      runAnalyzer: async () => {
+        state.analyzerRuns += 1;
+        return SCAN_NDJSON;
+      },
+      ...over,
+    };
+    return { deps, state };
+  };
+
+  it("auth: missing or wrong token answers 401 and runs no scan", async () => {
+    const { deps: reviewDeps } = makeFakeDeps();
+    const { deps, state } = makeScanDeps();
+    const store = await tempStore();
+    try {
+      await withServer({ deps: reviewDeps, secret: SECRET, store, apiToken: SCAN_TOKEN, scanDeps: deps }, async (port) => {
+        expect((await postScan(port, '{"repo":"rextorsec/demo"}')).status).toBe(401);
+        expect((await postScan(port, '{"repo":"rextorsec/demo"}', "wrong")).status).toBe(401);
+      });
+    } finally {
+      store.close();
+    }
+    expect(state.analyzerRuns).toBe(0);
+  });
+
+  it("validation: malformed repo or ref answers 400 and runs no scan", async () => {
+    const { deps: reviewDeps } = makeFakeDeps();
+    const { deps, state } = makeScanDeps();
+    const store = await tempStore();
+    try {
+      await withServer({ deps: reviewDeps, secret: SECRET, store, apiToken: SCAN_TOKEN, scanDeps: deps }, async (port) => {
+        const bodies = [
+          "",
+          "not-json",
+          "null",
+          "{}",
+          '{"repo":42}',
+          '{"repo":"noslash"}',
+          '{"repo":"a/b/c"}',
+          '{"repo":"a/.."}',
+          '{"repo":"rextorsec/demo","ref":"-oProxyCommand=x"}',
+          '{"repo":"rextorsec/demo","ref":"../escape"}',
+          '{"repo":"rextorsec/demo","ref":""}',
+          '{"repo":"rextorsec/demo","ref":7}',
+        ];
+        for (const body of bodies) {
+          expect((await postScan(port, body, SCAN_TOKEN)).status).toBe(400);
+        }
+      });
+    } finally {
+      store.close();
+    }
+    expect(state.analyzerRuns).toBe(0);
+  });
+
+  it("method discipline: GET /scan answers 405", async () => {
+    const { deps: reviewDeps } = makeFakeDeps();
+    const { deps } = makeScanDeps();
+    const store = await tempStore();
+    try {
+      await withServer({ deps: reviewDeps, secret: SECRET, store, apiToken: SCAN_TOKEN, scanDeps: deps }, async (port) => {
+        const res = await get(port, "/scan", { "x-api-token": SCAN_TOKEN });
+        expect(res.status).toBe(405);
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  it("a complete scan returns the report, records the ledger row, and never touches the PR pipeline", async () => {
+    const { deps: reviewDeps, comments } = makeFakeDeps();
+    const { deps } = makeScanDeps();
+    const store = await tempStore();
+    try {
+      await withServer({ deps: reviewDeps, secret: SECRET, store, apiToken: SCAN_TOKEN, scanDeps: deps }, async (port) => {
+        const res = await postScan(port, '{"repo":"rextorsec/demo","ref":"main"}', SCAN_TOKEN);
+        expect(res.status).toBe(200);
+        const report = (await res.json()) as Record<string, unknown>;
+        expect(report).toMatchObject({
+          repo: "rextorsec/demo",
+          ref: "main",
+          head_sha: SCAN_SHA,
+          status: 0,
+          risk_score: 25, // rubric v1 on the raw findings — triage-absent path
+          finding_count: 1,
+        });
+        expect((report.findings as Array<{ check: string }>)[0].check).toBe("reentrancy-eth");
+
+        const ledger = await get(port, "/scans?repo=rextorsec/demo", { "x-api-token": SCAN_TOKEN });
+        expect(ledger.status).toBe(200);
+        const { scans } = (await ledger.json()) as { scans: DeepScanRow[] };
+        expect(scans).toHaveLength(1);
+        expect(scans[0]).toMatchObject({
+          repo: "rextorsec/demo",
+          ref: "main",
+          head_sha: SCAN_SHA,
+          status: 0,
+          risk_score: 25,
+          finding_count: 1,
+        });
+        expect(scans[0].created_at).toBeTruthy();
+
+        // No webhook review ran: the PR pipeline stays untouched, the review
+        // index holds nothing, the scan ledger holds the row.
+        expect(comments).toEqual([]);
+        const reviews = await get(port, "/reviews/rextorsec/demo", { "x-api-token": SCAN_TOKEN });
+        expect(await reviews.json()).toEqual({ reviews: [], feedback_receipts: [] });
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  it("an INCOMPLETE scan answers honestly and records the status-1 row with null risk_score", async () => {
+    const { deps: reviewDeps } = makeFakeDeps();
+    const { deps } = makeScanDeps({
+      runAnalyzer: async () => '{"status":"incomplete","reason":"slither crashed on the tree"}',
+    });
+    const store = await tempStore();
+    try {
+      await withServer({ deps: reviewDeps, secret: SECRET, store, apiToken: SCAN_TOKEN, scanDeps: deps }, async (port) => {
+        const res = await postScan(port, '{"repo":"rextorsec/demo"}', SCAN_TOKEN);
+        expect(res.status).toBe(200);
+        expect(await res.json()).toMatchObject({
+          repo: "rextorsec/demo",
+          ref: "HEAD",
+          head_sha: SCAN_SHA,
+          status: 1,
+          risk_score: null,
+          finding_count: 0,
+          incomplete: "slither crashed on the tree",
+          incompleteCause: "infra",
+        });
+        const { scans } = (await (await get(port, "/scans?repo=rextorsec/demo", { "x-api-token": SCAN_TOKEN })).json()) as { scans: DeepScanRow[] };
+        expect(scans).toHaveLength(1);
+        expect(scans[0]).toMatchObject({
+          status: 1,
+          risk_score: null,
+          finding_count: 0,
+          head_sha: SCAN_SHA,
+        });
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  it("a clone failure records an INCOMPLETE row with an empty head sha (receipts-not-claims)", async () => {
+    const { deps: reviewDeps } = makeFakeDeps();
+    const { deps } = makeScanDeps({
+      runGit: async (args) => {
+        if (args.includes("fetch")) throw new Error("fatal: unable to access");
+        return args.includes("rev-parse") ? SCAN_SHA : "";
+      },
+    });
+    const store = await tempStore();
+    try {
+      await withServer({ deps: reviewDeps, secret: SECRET, store, apiToken: SCAN_TOKEN, scanDeps: deps }, async (port) => {
+        const res = await postScan(port, '{"repo":"rextorsec/demo","ref":"main"}', SCAN_TOKEN);
+        expect(res.status).toBe(200);
+        expect(await res.json()).toMatchObject({ status: 1, head_sha: "", risk_score: null });
+        const { scans } = (await (await get(port, "/scans?repo=rextorsec/demo", { "x-api-token": SCAN_TOKEN })).json()) as { scans: DeepScanRow[] };
+        expect(scans).toHaveLength(1);
+        expect(scans[0]).toMatchObject({ status: 1, head_sha: "", risk_score: null, finding_count: 0 });
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  it("409s a concurrent scan (single-flight) and lets the first finish", async () => {
+    const { deps: reviewDeps, comments } = makeFakeDeps();
+    const { deps, state } = makeScanDeps();
+    let releaseAnalyzer!: () => void;
+    const gate = new Promise<void>((r) => { releaseAnalyzer = r; });
+    let started = false;
+    deps.runAnalyzer = async () => {
+      state.analyzerRuns += 1; // the override replaces makeScanDeps's counting closure — keep counting
+      started = true;
+      await gate;
+      return SCAN_NDJSON;
+    };
+    const store = await tempStore();
+    try {
+      await withServer({ deps: reviewDeps, secret: SECRET, store, apiToken: SCAN_TOKEN, scanDeps: deps }, async (port) => {
+        const first = postScan(port, '{"repo":"rextorsec/demo","ref":"main"}', SCAN_TOKEN);
+        await vi.waitFor(() => expect(started).toBe(true));
+        const second = await postScan(port, '{"repo":"rextorsec/demo","ref":"dev"}', SCAN_TOKEN);
+        expect(second.status).toBe(409);
+        expect(await second.json()).toEqual({ error: "scan already in progress" });
+        releaseAnalyzer();
+        expect((await first).status).toBe(200);
+        expect(state.analyzerRuns).toBe(1); // exactly one container run
+      });
+    } finally {
+      store.close();
+    }
+    expect(comments).toEqual([]);
+  });
+
+  it("GET /scans is token-gated, filters by repo, and serves every repo when unfiltered", async () => {
+    const { deps: reviewDeps } = makeFakeDeps();
+    const { deps } = makeScanDeps();
+    const store = await tempStore();
+    try {
+      await withServer({ deps: reviewDeps, secret: SECRET, store, apiToken: SCAN_TOKEN, scanDeps: deps }, async (port) => {
+        expect((await get(port, "/scans?repo=rextorsec/demo")).status).toBe(401);
+        expect((await get(port, "/scans?repo=rextorsec/demo", { "x-api-token": "wrong" })).status).toBe(401);
+
+        await postScan(port, '{"repo":"rextorsec/demo"}', SCAN_TOKEN);
+        await postScan(port, '{"repo":"other/repo"}', SCAN_TOKEN);
+
+        const one = (await (await get(port, "/scans?repo=rextorsec/demo", { "x-api-token": SCAN_TOKEN })).json()) as { scans: DeepScanRow[] };
+        expect(one.scans).toHaveLength(1);
+        expect(one.scans[0].repo).toBe("rextorsec/demo");
+
+        const all = (await (await get(port, "/scans", { "x-api-token": SCAN_TOKEN })).json()) as { scans: DeepScanRow[] };
+        expect(all.scans).toHaveLength(2);
+
+        const none = await get(port, "/scans?repo=nobody/nothing", { "x-api-token": SCAN_TOKEN });
+        expect(none.status).toBe(200);
+        expect(await none.json()).toEqual({ scans: [] });
+      });
+    } finally {
+      store.close();
     }
   });
 });

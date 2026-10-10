@@ -22,6 +22,7 @@ import { githubDeps } from "./github";
 import { MAX_BODY_BYTES, ReviewQueue } from "./queue";
 import { createReviewStore, type ReviewStore } from "./db";
 import { reconcileFailedDeliveries } from "./reconcile";
+import { runScan, isValidScanRepo, isValidScanRef, type ScanDeps, type ScanReport } from "./scan";
 import {
   buildChatReply,
   createChatRateLimiter,
@@ -40,6 +41,11 @@ const REVIEWS_PATH_RE = /^\/reviews\/([^/]+)\/([^/]+)\/?$/;
 // SPEC-6 §3 (dashboard v2) — same shape for the repo's dismissal memory. The
 // web lib (packages/web/lib/dismissals.ts) mirrors this path.
 const DISMISSALS_PATH_RE = /^\/dismissals\/([^/]+)\/([^/]+)\/?$/;
+
+// Deep Scan — synchronous whole-repo scan trigger + its ledger read. Both are
+// token-gated like the other service endpoints.
+const SCAN_PATH_RE = /^\/scan\/?$/;
+const SCANS_PATH_RE = /^\/scans\/?$/;
 
 export function verifySignature(rawBody: string, sig: string, secret: string): boolean {
   if (!sig.startsWith("sha256=")) return false;
@@ -61,6 +67,9 @@ export interface ReviewServerOptions {
   apiToken?: string;
   /** SPEC-7 §5 — @rextor-audit replies per PR per hour; default 5. */
   chatRateLimitPerHour?: number;
+  /** Deep Scan runner seams (test injection); default: real git clone +
+   *  analyzer container. Scans are single-flight service-wide. */
+  scanDeps?: ScanDeps;
   /** Queue stall-warn interval for a single run; default 10 min (queue.ts). */
   stallWarnMs?: number;
   /** Pending-review cap: beyond it, webhook reviews answer 503 + Retry-After
@@ -109,12 +118,19 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
     limiter: createChatRateLimiter(options.chatRateLimitPerHour),
   };
   const queue = new ReviewQueue({ stallWarnMs: options.stallWarnMs });
+  // Deep Scan: single-flight service-wide. One whole-repo scan at a time; a
+  // concurrent POST /scan answers 409 instead of queueing behind an
+  // unbounded container wait.
+  const scanDeps = options.scanDeps ?? {};
+  const scanFlight = { busy: false };
   const server = createServer((req, res) => {
     const pathname = (req.url ?? "/").split("?")[0];
-    // Read-only GETs (reviews index + dismissals memory) answer during a
-    // drain: the dashboard must stay readable while the supervisor restarts.
+    // Read-only GETs (reviews index + dismissals memory + scan ledger) answer
+    // during a drain: the dashboard must stay readable while the supervisor
+    // restarts.
     const isDashboardRead =
-      req.method === "GET" && (REVIEWS_PATH_RE.test(pathname) || DISMISSALS_PATH_RE.test(pathname));
+      req.method === "GET" &&
+      (REVIEWS_PATH_RE.test(pathname) || DISMISSALS_PATH_RE.test(pathname) || SCANS_PATH_RE.test(pathname));
     // Drain gate (R3): a delivery accepted mid-drain would be ACKed and then
     // dropped by the coming exit. 503 + Retry-After MARKS the delivery failed
     // on GitHub's side — which is safe only because boot-time reconciliation
@@ -127,9 +143,30 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
       return;
     }
     if (isDashboardRead) {
-      const handler = REVIEWS_PATH_RE.test(pathname) ? handleReviews : handleDismissals;
+      const handler = REVIEWS_PATH_RE.test(pathname)
+        ? handleReviews
+        : SCANS_PATH_RE.test(pathname)
+          ? handleScans
+          : handleDismissals;
       void handler(req, res, store, options.apiToken).catch((err) => {
         console.error("[rextor] dashboard read handler crashed:", err);
+        if (!res.headersSent) {
+          res.statusCode = 500;
+          json(res, { error: "internal error" });
+        } else {
+          res.end();
+        }
+      });
+      return;
+    }
+    if (SCAN_PATH_RE.test(pathname)) {
+      if (req.method !== "POST") {
+        res.statusCode = 405;
+        json(res, { error: "method not allowed" });
+        return;
+      }
+      void handleScan(req, res, store, options.apiToken, scanDeps, scanFlight).catch((err) => {
+        console.error("[rextor] scan handler crashed:", err);
         if (!res.headersSent) {
           res.statusCode = 500;
           json(res, { error: "internal error" });
@@ -318,6 +355,134 @@ async function handleDismissals(
   }
   const repo = `${decodeURIComponent(match[1])}/${decodeURIComponent(match[2])}`;
   json(res, { dismissals: store.listDismissals(repo) });
+}
+
+// Deep Scan ledger read — GET /scans?repo=. Same trust posture as
+// handleReviews: token-gated, unknown repo → 200 { scans: [] } (the ledger's
+// zero state, not an error); repo omitted → every repo, newest first.
+async function handleScans(
+  req: IncomingMessage,
+  res: ServerResponse,
+  store: ReviewStore | undefined,
+  apiTokenOpt: string | undefined,
+): Promise<void> {
+  const expected = apiTokenOpt ?? process.env.REXTOR_AGENT_TOKEN;
+  const provided = header(req, "x-api-token");
+  if (!expected || !provided || !tokensEqual(provided, expected)) {
+    res.statusCode = 401;
+    json(res, { error: "unauthorized" });
+    return;
+  }
+  if (!store) {
+    console.error("[rextor] REXTOR_DB_PATH is not configured");
+    res.statusCode = 500;
+    json(res, { error: "server misconfigured: no review index" });
+    return;
+  }
+  const repo = new URL(req.url ?? "/", "http://localhost").searchParams.get("repo") ?? undefined;
+  json(res, { scans: store.listScans(repo) });
+}
+
+// Deep Scan trigger — POST /scan {repo, ref?}, synchronous: the response is
+// the scan report after the run completes (container time is accepted for
+// v1). Token-gated exactly like the dashboard reads; single-flight
+// service-wide (concurrent → 409). Every COMPLETED run records a deep_scans
+// row — complete or INCOMPLETE: the row records what happened, receipts-not-
+// claims. Repo/ref are validated before the runner sees them (the ref is a
+// git argv slot; the repo lands in an HTTPS URL path), and both reach git as
+// execFile array args — never a shell string.
+async function handleScan(
+  req: IncomingMessage,
+  res: ServerResponse,
+  store: ReviewStore | undefined,
+  apiTokenOpt: string | undefined,
+  scanDeps: ScanDeps,
+  flight: { busy: boolean },
+): Promise<void> {
+  const expected = apiTokenOpt ?? process.env.REXTOR_AGENT_TOKEN;
+  const provided = header(req, "x-api-token");
+  if (!expected || !provided || !tokensEqual(provided, expected)) {
+    res.statusCode = 401;
+    json(res, { error: "unauthorized" });
+    return;
+  }
+  if (!store) {
+    console.error("[rextor] REXTOR_DB_PATH is not configured");
+    res.statusCode = 500;
+    json(res, { error: "server misconfigured: no review index" });
+    return;
+  }
+  // Same bounded pre-parse discipline as the webhook: {repo, ref} is tiny,
+  // so hitting the cap means garbage — refuse before JSON.parse sees it.
+  const chunks: Buffer[] = [];
+  let total = 0;
+  let oversized = false;
+  for await (const chunk of req) {
+    const buf = chunk as Buffer;
+    total += buf.length;
+    if (total > MAX_BODY_BYTES) {
+      oversized = true;
+      break;
+    }
+    chunks.push(buf);
+  }
+  if (oversized) {
+    res.writeHead(413, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "payload too large" }), () => req.destroy());
+    return;
+  }
+  let body: { repo?: unknown; ref?: unknown };
+  try {
+    body = (JSON.parse(Buffer.concat(chunks).toString("utf8")) ?? {}) as typeof body;
+  } catch {
+    res.statusCode = 400;
+    json(res, { error: "malformed JSON body" });
+    return;
+  }
+  if (typeof body.repo !== "string" || !isValidScanRepo(body.repo)) {
+    res.statusCode = 400;
+    json(res, { error: "repo must match owner/name over [A-Za-z0-9_.-]" });
+    return;
+  }
+  let scanRef: string | undefined;
+  if (body.ref !== undefined) {
+    if (typeof body.ref !== "string" || !isValidScanRef(body.ref)) {
+      res.statusCode = 400;
+      json(res, { error: "ref is not a safe git ref" });
+      return;
+    }
+    scanRef = body.ref;
+  }
+  if (flight.busy) {
+    res.statusCode = 409;
+    json(res, { error: "scan already in progress" });
+    return;
+  }
+  flight.busy = true;
+  try {
+    const report: ScanReport = await runScan(body.repo, scanRef, scanDeps);
+    // Receipts-not-claims: the row is written for every completed run. The
+    // scan settled and the response carries the verdict — a failed row write
+    // degrades to a log line, never a failed response (settleFeedback's
+    // receipt-write discipline).
+    try {
+      store.recordScan({
+        repo: report.repo,
+        ref: report.ref,
+        head_sha: report.head_sha,
+        status: report.status,
+        risk_score: report.risk_score,
+        finding_count: report.finding_count,
+        created_at: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error("[rextor] deep-scan ledger write failed:",
+        err instanceof Error ? err.message : err);
+    }
+    json(res, report);
+  } finally {
+    flight.busy = false;
+  }
 }
 
 async function handleWebhook(

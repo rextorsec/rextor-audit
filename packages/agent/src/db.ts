@@ -41,6 +41,22 @@ export interface FeedbackReceiptRow {
   created_at: string;
 }
 
+// Deep Scan — one row per COMPLETED whole-repo scan run. Unlike reviews there
+// is no unique constraint: rescanning the same head is a legitimate new run,
+// so the table is an append-only ledger. `status` mirrors the on-chain
+// encoding (0 = complete, 1 = incomplete); `risk_score` is NULL on an
+// INCOMPLETE scan (no score was produced — absent, never faked 0), and
+// `head_sha` is "" when the clone never resolved a commit.
+export interface DeepScanRow {
+  repo: string;
+  ref: string;
+  head_sha: string;
+  status: number;
+  risk_score: number | null;
+  finding_count: number;
+  created_at: string;
+}
+
 export interface ReviewStore {
   insert(row: ReviewRow): void;
   /** Rows for `repo` ("owner/name"), newest first, capped at
@@ -74,6 +90,12 @@ export interface ReviewStore {
   /** The repo's feedback receipts, newest first (same cap rationale as
    *  listForRepo); `repo` omitted → every repo, still newest first. */
   listFeedbackReceipts(repo?: string): FeedbackReceiptRow[];
+  /** Deep Scan — appends one row per COMPLETED whole-repo scan (complete or
+   *  INCOMPLETE: the row records what happened, receipts-not-claims). */
+  recordScan(row: DeepScanRow): void;
+  /** The repo's deep-scan ledger, newest first (same cap rationale as
+   *  listForRepo); `repo` omitted → every repo, still newest first. */
+  listScans(repo?: string): DeepScanRow[];
 }
 
 /** SPEC-7 §4 — what the review pipeline needs from the server-side memory.
@@ -119,6 +141,20 @@ function toReceiptRow(raw: Record<string, unknown>): FeedbackReceiptRow {
 
 const RECEIPT_COLUMNS = "repo, pr, chain, tx_hash, explorer_url, created_at";
 
+function toScanRow(raw: Record<string, unknown>): DeepScanRow {
+  return {
+    repo: String(raw.repo),
+    ref: String(raw.ref),
+    head_sha: String(raw.head_sha),
+    status: Number(raw.status),
+    risk_score: raw.risk_score === null || raw.risk_score === undefined ? null : Number(raw.risk_score),
+    finding_count: Number(raw.finding_count),
+    created_at: String(raw.created_at),
+  };
+}
+
+const SCAN_COLUMNS = "repo, ref, head_sha, status, risk_score, finding_count, created_at";
+
 /** Newest-rows-won listing cap for one repo (matches the web render cap).
  *  Interpolated into the prepared statement as a literal — a constant, never
  *  user input. */
@@ -160,6 +196,17 @@ export function createReviewStore(dbPath: string): ReviewStore {
     );
     CREATE INDEX IF NOT EXISTS feedback_receipts_repo_created
       ON feedback_receipts(repo, created_at);
+    CREATE TABLE IF NOT EXISTS deep_scans (
+      repo TEXT NOT NULL,
+      ref TEXT NOT NULL,
+      head_sha TEXT NOT NULL,
+      status INTEGER NOT NULL,
+      risk_score INTEGER,
+      finding_count INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS deep_scans_repo_created
+      ON deep_scans(repo, created_at);
   `);
   // Duplicate-review race net (server re-checks hasReview at run start; this
   // index makes the STORE itself refuse a second row for one verdict).
@@ -211,6 +258,19 @@ export function createReviewStore(dbPath: string): ReviewStore {
   );
   const listAllReceiptsStmt = db.prepare(
     `SELECT ${RECEIPT_COLUMNS} FROM feedback_receipts ORDER BY created_at DESC, rowid DESC LIMIT ${MAX_LISTED_REVIEWS}`,
+  );
+
+  // Deep Scan ledger: append-only; the listing mirrors the receipts' newest-
+  // first + cap contract (ISO-8601 created_at, rowid breaks ties).
+  const insertScanStmt = db.prepare(
+    `INSERT INTO deep_scans (${SCAN_COLUMNS})
+     VALUES (@repo, @ref, @head_sha, @status, @risk_score, @finding_count, @created_at)`,
+  );
+  const listScansForRepoStmt = db.prepare(
+    `SELECT ${SCAN_COLUMNS} FROM deep_scans WHERE repo = ? ORDER BY created_at DESC, rowid DESC LIMIT ${MAX_LISTED_REVIEWS}`,
+  );
+  const listAllScansStmt = db.prepare(
+    `SELECT ${SCAN_COLUMNS} FROM deep_scans ORDER BY created_at DESC, rowid DESC LIMIT ${MAX_LISTED_REVIEWS}`,
   );
 
   // SPEC-7 §4 — server-side silencing memory (repo-file stores are an
@@ -318,6 +378,15 @@ export function createReviewStore(dbPath: string): ReviewStore {
         ? (listReceiptsForRepoStmt.all(repo) as Record<string, unknown>[])
         : (listAllReceiptsStmt.all() as Record<string, unknown>[]);
       return rows.map(toReceiptRow);
+    },
+    recordScan(row: DeepScanRow): void {
+      insertScanStmt.run(row);
+    },
+    listScans(repo?: string): DeepScanRow[] {
+      const rows = repo
+        ? (listScansForRepoStmt.all(repo) as Record<string, unknown>[])
+        : (listAllScansStmt.all() as Record<string, unknown>[]);
+      return rows.map(toScanRow);
     },
   };
 }
