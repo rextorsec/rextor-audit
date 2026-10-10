@@ -2,7 +2,7 @@
 
 **Status:** DRAFT for approval (E3, week-4 plan Task 12). **Recording rules (binding):**
 
-> **2026-10-10 production addendum (RECTOR-approved):** (1) Colosseum's X post caps the CWF **pitch video at 2:00** (official rules PDF is silent on length/hosting — link field, Vimeo/YouTube fine). **Submission cut = ≤2:00: §5 CUT, §1–§4 + §6 with tightened VO** (production plan: `production-plan.md`). A 3:00 director's cut may ride the same edit if trivial. (2) §4 IPFS beat = **local-node DHT retrieval** (`ipfs get` → sha256 == on-chain hash) — every public gateway now serves a deprecation notice (verified 2026-10-10); stronger claim, no gateway trust. (3) §6 VO = "Attested on **Tempo and Hyperliquid mainnet** today". (4) §4 camera values = the 2026-10-10 tested set in `cast-verify-sheet.md` (registry `0x51ac…495a`, reviewId `0x3e9e…06f6`, risk 100 / 125 findings, tx `0x13be66d7…`).
+> **2026-10-10 production addendum (RECTOR-approved: §4 local-node beat, §6 mainnet VO, voice sampling, pipeline nod; the ≤2:00 submission cut incl. §5 CUT is CIPHER's safe default pending RECTOR veto):** (1) Colosseum's X post caps the CWF **pitch video at 2:00** (official rules PDF is silent on length/hosting — link field, Vimeo/YouTube fine). **Submission cut = ≤2:00: §5 CUT, §1–§4 + §6 with tightened VO** (production plan: `production-plan.md`). A 3:00 director's cut may ride the same edit if trivial. (2) §4 IPFS beat = **local-node DHT retrieval** (`ipfs get` → sha256 == on-chain hash) — every public gateway now serves a deprecation notice (verified 2026-10-10); stronger claim, no gateway trust. (3) §6 VO = "Attested on Tempo today — and on Hyperliquid mainnet." (Tempo is testnet; the claim must not read as both-mainnet. Judge-precision fix 2026-10-10.) (4) §4 camera values = the 2026-10-10 tested set in `cast-verify-sheet.md` (registry `0x51ac…495a`, reviewId `0x3e9e…06f6`, risk 100 / 125 findings, tx `0x13be66d7…`).
 - Real artifacts ONLY (invariant 17). Every number/link below marked `[LIVE]` is re-verified at record time from the actual surfaces — the script never hardcodes a value the screen can't show.
 - Every capability row referenced must be flipped `shipped` with a receipt before we shoot the scene that mentions it.
 - Format: 1920×1080, dark theme matching the landing mock; terminal + browser only, no stock footage; VO recorded clean (Conatus polish bar).
@@ -71,7 +71,7 @@
 
 **Screen:** landing page — Tempo flagship (contract receipt), Solana + ERC-8004 rows (only if receipts are live), capabilities table with receipts-not-claims badges.
 
-**VO:** "Attested on **Tempo and Hyperliquid mainnet** today, Solana and ERC-8004 identity in the registry — chain-native verdicts, chain-neutral identity. Rextor Audit. Audits are point-in-time. Code is continuous."
+**VO:** "Attested on Tempo today — and on Hyperliquid mainnet. Solana and ERC-8004 identity in the registry — chain-native verdicts, chain-neutral identity. Rextor Audit. Audits are point-in-time. Code is continuous."
 
 **Card:** rextoraudit.com (or the Vercel URL if F4 hasn't landed) + Rextor Security.
 

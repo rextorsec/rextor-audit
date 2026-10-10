@@ -81,8 +81,9 @@ VO total ≈ 270 words ≈ 1:55 at natural pace; each scene = max(VO + 1 s, mini
 
 ## 9. Decisions for RECTOR (blocking production)
 
-1. Nod on the pipeline + capture approach (this doc).
-2. VO voice (samples generated first, then pick).
-3. Music bed (both generated, then pick).
-4. §4 beat change to local-node retrieval (§8.1).
-5. Video hosting for the submission link: YouTube unlisted vs Google Drive vs IPFS pin + link. (YouTube removed RECTOR's channel twice historically — RECTOR's call.)
+1. Nod on the pipeline + capture approach (this doc) — ✅ given 2026-10-10.
+2. VO voice (samples generated first, then pick) — **PENDING (samples ready, `/tmp/vo-samples/`).**
+3. Music bed (both generated, then pick) — **moot by default: the ElevenLabs key is TTS-scoped (music + SFX return 401 `missing_permissions`); mix ships VO-only unless RECTOR flips the permissions in the ElevenLabs dashboard.**
+4. §4 beat change to local-node retrieval (§8.1) — ✅ given 2026-10-10.
+5. Video hosting for the submission link — RECTOR directs Vimeo per prior Colosseum experience; final pick at upload.
+6. **`rextorsec/rextor-audit-test` is PRIVATE** (RECTOR confirmed 2026-10-10; captures ran through his logged-in session per his instruction). Consequence beyond capture: **CWF judges cannot click through to the PR shown in §2/§3** — a 404 behind the demo. Flipping it public is RECTOR's repo setting (0 stars, reversible; the repo is the labeled demo fixture and its ledger is already public on the prod dashboard). Decide before submission so the form/repo links tell one story.
