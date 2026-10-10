@@ -1,6 +1,8 @@
 # Demo video script — 3:00 (draft v1, RECTOR red-pen target)
 
 **Status:** DRAFT for approval (E3, week-4 plan Task 12). **Recording rules (binding):**
+
+> **2026-10-10 production addendum (RECTOR-approved):** (1) Colosseum's X post caps the CWF **pitch video at 2:00** (official rules PDF is silent on length/hosting — link field, Vimeo/YouTube fine). **Submission cut = ≤2:00: §5 CUT, §1–§4 + §6 with tightened VO** (production plan: `production-plan.md`). A 3:00 director's cut may ride the same edit if trivial. (2) §4 IPFS beat = **local-node DHT retrieval** (`ipfs get` → sha256 == on-chain hash) — every public gateway now serves a deprecation notice (verified 2026-10-10); stronger claim, no gateway trust. (3) §6 VO = "Attested on **Tempo and Hyperliquid mainnet** today". (4) §4 camera values = the 2026-10-10 tested set in `cast-verify-sheet.md` (registry `0x51ac…495a`, reviewId `0x3e9e…06f6`, risk 100 / 125 findings, tx `0x13be66d7…`).
 - Real artifacts ONLY (invariant 17). Every number/link below marked `[LIVE]` is re-verified at record time from the actual surfaces — the script never hardcodes a value the screen can't show.
 - Every capability row referenced must be flipped `shipped` with a receipt before we shoot the scene that mentions it.
 - Format: 1920×1080, dark theme matching the landing mock; terminal + browser only, no stock footage; VO recorded clean (Conatus polish bar).
@@ -17,8 +19,8 @@
 | Fresh trigger PR (new branch, trivial vuln diff) | rextor-audit-test | shoot-time |
 | Review comment: riskScore, findings table, cited lines, fix diff | bot comment | `[LIVE]` |
 | Attestation footer: reviewId, findingsHash, tx link | bot comment | `[LIVE]` |
-| `verify(...)` calls: true-payload vs tampered | cast against Tempo v2 `0x7fe6…0bcd` | proven 2026-09-18/19 |
-| IPFS CID footer → gateway fetch → sha256 == on-chain hash | review #6 pattern (`ipfs://QmUqtDrt…`, tx `0xffa10497…`) | proven 2026-09-19 |
+| `verify(...)` calls: true-payload vs tampered | cast against Tempo registry `0x51ac…495a` (chainId 42431) | **tested live 2026-10-10** (`cast-verify-sheet.md`) |
+| IPFS CID footer → **local-node `ipfs get`** → sha256 == on-chain hash (public gateways deprecated 2026-10-10) | tested set: `ipfs://QmfPgW2Ss…`, fetch 4.5 s, sha256 == `0x763958f8…` | **tested live 2026-10-10** (`cast-verify-sheet.md`) |
 | Dashboard v2: metrics strip, ledger + INCOMPLETE honesty, verify expander + run config, dual-chain identity card, config live-preview, dismissal memory | Vercel deployment | `[LIVE]` |
 | `@rextor-audit` chat reply (deterministic verdict) | issue comment | proven (receipt 5742416145) |
 | rextor.yaml severity gate → check-run | fresh PR | rides F5 installation-token swap — if F5 hasn't landed, CUT this scene, don't fake it |
@@ -51,9 +53,9 @@
 
 ## §4 — Anyone can verify (1:30–2:10)
 
-**Screen:** the comment footer: reviewId + findingsHash + tx link. Split: left, `cast call` `verify()` with the exact payload → `true`; retamper one byte → `false`. Right: the findingsURI `ipfs://…` → gateway fetch → `sha256` → equals the on-chain hash. Then the dashboard: ledger row for the review, score history, identity card.
+**Screen:** the comment footer: reviewId + findingsHash + tx link. Split: left, `cast call` `verify()` with the exact payload → `true`; retamper one byte → `false`. Right: the findingsURI `ipfs://…` → local-node `ipfs get` (DHT, no gateway) → `sha256` → equals the on-chain hash. Then the dashboard: ledger row for the review, score history, identity card.
 
-**VO:** "Every verdict is attested on-chain. The findings hash is recomputable from the public report — flip one byte and the contract says no. The full report is pinned to IPFS, and its hash matches the chain. The dashboard is the living audit report: every repo, every review, every receipt."
+**VO:** "Every verdict is attested on-chain. The findings hash is recomputable from the public report — flip one byte and the contract says no. The full report is pinned to IPFS — pull it from the network yourself, and its hash matches the chain. The dashboard is the living audit report: every repo, every review, every receipt."
 
 **Purpose:** this is the moat scene — reproducible + accountable, the line nobody else crosses.
 
@@ -69,7 +71,7 @@
 
 **Screen:** landing page — Tempo flagship (contract receipt), Solana + ERC-8004 rows (only if receipts are live), capabilities table with receipts-not-claims badges.
 
-**VO:** "Attested on Tempo today, Solana and ERC-8004 identity in the registry — chain-native verdicts, chain-neutral identity. Rextor Audit. Audits are point-in-time. Code is continuous."
+**VO:** "Attested on **Tempo and Hyperliquid mainnet** today, Solana and ERC-8004 identity in the registry — chain-native verdicts, chain-neutral identity. Rextor Audit. Audits are point-in-time. Code is continuous."
 
 **Card:** rextoraudit.com (or the Vercel URL if F4 hasn't landed) + Rextor Security.
 
