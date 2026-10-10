@@ -1,6 +1,6 @@
 # CWF demo video — production plan (2026-10-10, autonomous pipeline)
 
-**Status:** PLAN for RECTOR nod. No synthesis minutes burned yet. Deadline: hard Oct 12.
+**Status:** PRODUCTION UNDERWAY (RECTOR nod 2026-10-10). **v1 picture cut DONE** — `~/local-dev/tmp/rextor-demo-video/edit/segments/v1-picture-cut.mp4` (87.9 s, 1920×1080@30, scene-labeled, silent). Voice samples (George/Daniel/Brian) at `/tmp/vo-samples/`. Pending: voice pick → VO → final mix (subs, loudnorm) → fresh trigger PR final take → receipts re-verify → upload. **Music/SFX: the ElevenLabs key is TTS-scoped (`music_generation` + SFX perms missing → HTTP 401) — mix defaults VO-only unless RECTOR flips the permissions.** Deadline: hard Oct 12.
 **Content source of truth:** `docs/demo/script.md` (3:00 draft + 2026-09-25 receipt re-verification table).
 **Delivery:** 1920×1080@30, H.264 mp4, dark theme matching the landing mock. Terminal + browser surfaces only, no stock footage. Burned-in subtitles (judges watch muted — veto in chat if unwanted).
 
