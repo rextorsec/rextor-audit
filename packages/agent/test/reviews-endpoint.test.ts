@@ -3,14 +3,14 @@
 // (token-gated like the other service endpoints). The web NEVER opens this DB.
 // All I/O faked or isolated to per-test temp DB files; no live network, no
 // real analyzer containers (controller ruling 9).
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHmac } from "node:crypto";
 import type { AddressInfo } from "node:net";
-import { createReviewServer, type ReviewServer, type ReviewServerOptions } from "../src/server";
-import { createReviewStore, type ReviewRow, type ReviewStore } from "../src/db";
+import { createReviewServer, feedbackIdle, type ReviewServer, type ReviewServerOptions } from "../src/server";
+import { createReviewStore, type FeedbackReceiptRow, type ReviewRow, type ReviewStore } from "../src/db";
 import { runReview, type ReviewDeps } from "../src/review";
 
 const TOKEN = "dashboard-test-token";
@@ -45,6 +45,21 @@ const row = (over: Partial<ReviewRow>): ReviewRow => ({
 
 const get = (port: number, path: string, headers: Record<string, string> = {}): Promise<Response> =>
   fetch(`http://127.0.0.1:${port}${path}`, { headers });
+
+const WEBHOOK_BODY =
+  '{"action":"opened","pull_request":{"html_url":"https://github.com/rextor/demo/pull/42"}}';
+
+async function postReview(port: number, body = WEBHOOK_BODY, secret = "s"): Promise<Response> {
+  return fetch(`http://127.0.0.1:${port}/webhook`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-github-event": "pull_request",
+      "x-hub-signature-256": `sha256=${createHmac("sha256", secret).update(body, "utf8").digest("hex")}`,
+    },
+    body,
+  });
+}
 
 async function withServer<T>(
   opts: ReviewServerOptions,
@@ -135,7 +150,7 @@ describe("GET /reviews/:owner/:repo", () => {
     await withServer({ store, apiToken: TOKEN }, async (port) => {
       const res = await get(port, "/reviews/nobody/nothing", { "x-api-token": TOKEN });
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ reviews: [] });
+      expect(await res.json()).toEqual({ reviews: [], feedback_receipts: [] });
     });
     store.close();
   });
@@ -143,15 +158,8 @@ describe("GET /reviews/:owner/:repo", () => {
   it("writes through the webhook review into the index (server wiring)", async () => {
     const store = await tempStore();
     const { deps } = makeFakeDeps();
-    const body = '{"action":"opened","pull_request":{"html_url":"https://github.com/rextor/demo/pull/42"}}';
-    const sig = `sha256=${createHmac("sha256", "s").update(body, "utf8").digest("hex")}`;
     await withServer({ deps, secret: "s", store, apiToken: TOKEN }, async (port, server) => {
-      const post = await fetch(`http://127.0.0.1:${port}/webhook`, {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-github-event": "pull_request", "x-hub-signature-256": sig },
-        body,
-      });
-      expect(post.status).toBe(200);
+      expect((await postReview(port)).status).toBe(200);
       await server.idle();
 
       const res = await get(port, "/reviews/rextor/demo", { "x-api-token": TOKEN });
@@ -174,6 +182,130 @@ describe("GET /reviews/:owner/:repo", () => {
       });
     });
     store.close();
+  });
+
+  it("carries the repo's feedback receipts in the payload (newest first, repo-scoped)", async () => {
+    const store = await tempStore();
+    store.insert(row({ pr: 1 }));
+    store.recordFeedbackReceipt({
+      repo: "rextorsec/demo", pr: 1, chain: "HyperEVM mainnet",
+      tx_hash: "0x" + "cd".repeat(32), explorer_url: "", created_at: "2026-10-10T12:00:00.000Z",
+    });
+    store.recordFeedbackReceipt({
+      repo: "rextorsec/demo", pr: 1, chain: "HyperEVM mainnet",
+      tx_hash: "0x" + "ab".repeat(32), explorer_url: "", created_at: "2026-10-10T10:00:00.000Z",
+    });
+    store.recordFeedbackReceipt({
+      repo: "other/repo", pr: 9, chain: "Ethereum",
+      tx_hash: "0x" + "ee".repeat(32), explorer_url: "", created_at: "2026-10-10T13:00:00.000Z",
+    });
+
+    await withServer({ store, apiToken: TOKEN }, async (port) => {
+      const res = await get(port, "/reviews/rextorsec/demo", { "x-api-token": TOKEN });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { reviews: ReviewRow[]; feedback_receipts: FeedbackReceiptRow[] };
+      expect(body.reviews).toHaveLength(1);
+      expect(body.feedback_receipts.map((r) => r.tx_hash)).toEqual([
+        "0x" + "cd".repeat(32),
+        "0x" + "ab".repeat(32),
+      ]);
+      expect(body.feedback_receipts[0]).toEqual({
+        repo: "rextorsec/demo",
+        pr: 1,
+        chain: "HyperEVM mainnet",
+        tx_hash: "0x" + "cd".repeat(32),
+        explorer_url: "",
+        created_at: "2026-10-10T12:00:00.000Z",
+      });
+    });
+    store.close();
+  });
+});
+
+// R2 — the settle point writes a feedback_receipts row ONLY for a CONFIRMED
+// broadcast outcome; skips, failures, and store-less servers record nothing
+// and never break the settled review.
+describe("feedback settle receipts (R2)", () => {
+  const attestedDeps = (feedback: NonNullable<ReviewDeps["feedback"]>): ReviewDeps => {
+    const { deps } = makeFakeDeps();
+    deps.attest = async () => ({ txHash: "0xabc", explorerUrl: "" });
+    deps.feedback = feedback;
+    return deps;
+  };
+
+  async function settleAndReadReceipts(
+    deps: ReviewDeps,
+    store?: ReviewStore,
+  ): Promise<{ reviews: number; receipts: FeedbackReceiptRow[] }> {
+    return withServer({ deps, secret: "s", store, apiToken: TOKEN }, async (port, server) => {
+      expect((await postReview(port)).status).toBe(200);
+      await server.idle();
+      await feedbackIdle(); // the receipt write rides the tracked broadcast
+      const res = await get(port, "/reviews/rextor/demo", { "x-api-token": TOKEN });
+      const body = (await res.json()) as { reviews: ReviewRow[]; feedback_receipts: FeedbackReceiptRow[] };
+      return { reviews: body.reviews.length, receipts: body.feedback_receipts };
+    });
+  }
+
+  it("a confirmed outcome records exactly one receipt with the review's repo/pr", async () => {
+    const store = await tempStore();
+    try {
+      const txHash = "0x" + "cd".repeat(32);
+      const deps = attestedDeps(async () => ({ txHash, explorerUrl: "" }));
+      const { reviews, receipts } = await settleAndReadReceipts(deps, store);
+      expect(reviews).toBe(1);
+      expect(receipts).toEqual([
+        {
+          repo: "rextor/demo",
+          pr: 42,
+          chain: "Ethereum", // feedbackConfig default — test env sets no REXTOR_FEEDBACK_CHAIN
+          tx_hash: txHash,
+          explorer_url: "",
+          created_at: expect.any(String),
+        },
+      ]);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("a skipped outcome records nothing — the review row is unaffected", async () => {
+    const store = await tempStore();
+    try {
+      const deps = attestedDeps(async () => ({ skipped: "submitter is the agent NFT owner (self-feedback rule)" }));
+      const { reviews, receipts } = await settleAndReadReceipts(deps, store);
+      expect(reviews).toBe(1);
+      expect(receipts).toEqual([]);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("a failing feedback dep records no receipt and never breaks the settled review", async () => {
+    const store = await tempStore();
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const deps = attestedDeps(async () => {
+        throw new Error("rpc unreachable");
+      });
+      const { reviews, receipts } = await settleAndReadReceipts(deps, store);
+      expect(reviews).toBe(1);
+      expect(receipts).toEqual([]);
+      expect(errorLog).toHaveBeenCalledWith("[rextor] feedback failed:", "rpc unreachable");
+    } finally {
+      errorLog.mockRestore();
+      store.close();
+    }
+  });
+
+  it("a confirmed outcome without an index store settles cleanly (receipt is best-effort)", async () => {
+    const deps = attestedDeps(async () => ({ txHash: "0x" + "cd".repeat(32), explorerUrl: "" }));
+    // No store: the receipt write is skipped, the settle path never crashes.
+    await withServer({ deps, secret: "s", apiToken: TOKEN }, async (port, server) => {
+      expect((await postReview(port)).status).toBe(200);
+      await server.idle();
+      await feedbackIdle();
+    });
   });
 });
 

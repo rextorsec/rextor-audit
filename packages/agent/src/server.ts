@@ -17,7 +17,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { githubStage, runReview, prIdentity, type ReviewDeps, type ReviewResult } from "./review";
-import { createFeedbackDep, feedbackDisabledReason, type FeedbackDep } from "./feedback";
+import { createFeedbackDep, feedbackConfig, feedbackDisabledReason, type FeedbackDep } from "./feedback";
 import { githubDeps } from "./github";
 import { MAX_BODY_BYTES, ReviewQueue } from "./queue";
 import { createReviewStore, type ReviewStore } from "./db";
@@ -282,7 +282,9 @@ async function handleReviews(
     return;
   }
   const repo = `${decodeURIComponent(match[1])}/${decodeURIComponent(match[2])}`;
-  json(res, { reviews: store.listForRepo(repo) });
+  // R2 — feedback-path receipts ride the same payload: the ledger renders
+  // them as rows next to the review attestations.
+  json(res, { reviews: store.listForRepo(repo), feedback_receipts: store.listFeedbackReceipts(repo) });
 }
 
 // SPEC-6 §3 (dashboard v2) — the repo's server-side dismissal memory
@@ -527,7 +529,7 @@ async function handleWebhook(
       if (result.commented) chat.cache.record(prUrl as string, result);
       // R2 settle point — feedback fires after the review lands, once, and
       // never in the review's critical path (see settleFeedback).
-      settleFeedback(deps.feedback, prUrl as string, result);
+      settleFeedback(deps.feedback, prUrl as string, result, store);
     },
     prUrl as string,
   );
@@ -556,10 +558,17 @@ export function feedbackIdle(): Promise<void> {
 // drain: installDrain holds the exit until tracked broadcasts settle (I1).
 // Hard-incomplete reviews are withheld entirely (I2): their attestation is
 // status=1 with the empty-findings payload, and a public 95/100 rating over
-// that hash would be indistinguishable from a complete audit. Log line only —
-// no PR-comment rendering, no DB schema change; receipts are on-chain
-// indexable by client address.
-function settleFeedback(feedback: FeedbackDep | undefined, prUrl: string, result: ReviewResult): void {
+// that hash would be indistinguishable from a complete audit. A CONFIRMED
+// broadcast also appends a feedback_receipts row (repo, pr, chain, tx) so the
+// dashboard's ledger can show the feedback path next to the review rows —
+// best-effort (a write failure degrades to a log line); skipped outcomes
+// record nothing, on-chain receipts stay indexable by client address.
+function settleFeedback(
+  feedback: FeedbackDep | undefined,
+  prUrl: string,
+  result: ReviewResult,
+  store: ReviewStore | undefined,
+): void {
   if (!feedback) {
     console.log(`[rextor] feedback skipped: ${feedbackDisabledReason(process.env)}`);
     return;
@@ -578,12 +587,39 @@ function settleFeedback(feedback: FeedbackDep | undefined, prUrl: string, result
   }
   // A successful attestation implies prIdentity already parsed this URL inside
   // runReview, so this cannot throw on the settle path.
-  const { repoFullName } = prIdentity(prUrl);
+  const { repoFullName, prNumber } = prIdentity(prUrl);
+  // The receipt's chain label comes from the feedback config (the same config
+  // the dep validates before broadcasting) — a parse failure is impossible for
+  // a real broadcast, so the fallback is the index's absence idiom (""), never
+  // a guessed chain name.
+  let feedbackChain = "";
+  try {
+    feedbackChain = feedbackConfig(process.env).chain;
+  } catch { /* unlabeled receipt beats a wrong chain name */ }
   // I1 — the tracked promise settles only after the outcome is logged.
   const tracked = feedback({ findingsURI: att.findingsURI, findingsHash: att.findingsHash }, repoFullName)
     .then((outcome) => {
-      if ("skipped" in outcome) console.log(`[rextor] feedback skipped: ${outcome.skipped}`);
-      else console.log(`[rextor] feedback recorded: tx ${outcome.txHash}`);
+      if ("skipped" in outcome) {
+        console.log(`[rextor] feedback skipped: ${outcome.skipped}`);
+        return;
+      }
+      console.log(`[rextor] feedback recorded: tx ${outcome.txHash}`);
+      if (!store) return;
+      try {
+        store.recordFeedbackReceipt({
+          repo: repoFullName,
+          pr: prNumber,
+          chain: feedbackChain,
+          tx_hash: outcome.txHash,
+          explorer_url: outcome.explorerUrl,
+          created_at: new Date().toISOString(),
+        });
+      } catch (err) {
+        // The review is settled and the tx is on-chain — a failed receipt
+        // write degrades to a log line; it never re-drives the broadcast.
+        console.error("[rextor] feedback receipt write failed:",
+          err instanceof Error ? err.message : err);
+      }
     })
     .catch((err: unknown) => {
       console.error("[rextor] feedback failed:", err instanceof Error ? err.message : err);

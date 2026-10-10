@@ -6,12 +6,12 @@
 // the contract/agent constants are OMITTED — honest omission, never a
 // wrong-chain assertion (T10 review carry).
 import { shortHex, webChainByName } from "@/lib/chains";
-import type { ReviewRow } from "@/lib/reviews";
+import type { FeedbackReceiptRow, ReviewRow } from "@/lib/reviews";
 import { VerifyExpander } from "@/components/verify-expander";
 
 const DANGER_THRESHOLD = 60;
 
-function txLinkTarget(row: ReviewRow): string | null {
+function txLinkTarget(row: Pick<ReviewRow, "chain" | "tx_hash" | "explorer_url">): string | null {
   if (row.explorer_url) return row.explorer_url;
   if (!row.tx_hash) return null;
   const chain = webChainByName(row.chain);
@@ -27,6 +27,45 @@ export interface ReviewLedgerRowProps {
   repoFullName: string;
   /** Live on-chain agent name (identity read); falls back to the registry. */
   agentName: string | null;
+}
+
+/** R2 — a confirmed ERC-8004 feedback broadcast, rendered in the same ledger
+ *  list with the same row anatomy. Review-only cells render honest absence
+ *  (no head sha, "—" risk score); the badge names the path so a feedback tx is
+ *  never mistaken for a review attestation. The tx link derives from the web
+ *  chain registry when the row carries no explorer URL (receipts are recorded
+ *  with whatever the broadcast outcome carried — often empty). */
+function FeedbackLedgerRow({ row }: { row: FeedbackReceiptRow }) {
+  const txHref = txLinkTarget(row);
+  const date = row.created_at.slice(0, 10);
+  return (
+    <tr>
+      <td data-label="PR">
+        <span className="font-mono">#{row.pr}</span>{" "}
+        <time className="block font-mono text-xs text-subtle-foreground" dateTime={row.created_at}>
+          {date}
+        </time>
+      </td>
+      <td data-label="Risk score" className="font-mono font-medium tabular-nums">
+        <span className="font-normal text-subtle-foreground">—</span>
+      </td>
+      <td data-label="Status">
+        <span className="inline-block whitespace-nowrap rounded-full border border-primary px-3 font-mono text-xs text-primary">
+          feedback
+        </span>
+      </td>
+      <td data-label="Attestation">
+        <p className="font-mono text-xs break-all">
+          {row.chain} · {shortHex(row.tx_hash)}
+        </p>
+        {txHref && (
+          <a className={receiptLink} href={txHref} rel="noreferrer noopener" target="_blank">
+            tx ↗
+          </a>
+        )}
+      </td>
+    </tr>
+  );
 }
 
 export function ReviewLedgerRow({ row, repoFullName, agentName }: ReviewLedgerRowProps) {
@@ -174,10 +213,14 @@ export function ReviewLedgerRow({ row, repoFullName, agentName }: ReviewLedgerRo
 
 export function ReviewLedger({
   rows,
+  feedbackReceipts,
   repoFullName,
   agentName,
 }: {
   rows: ReviewRow[];
+  /** R2 — confirmed feedback broadcasts; an empty list adds no rows (the
+   *  ledger renders exactly as it did before receipts existed). */
+  feedbackReceipts: FeedbackReceiptRow[];
   repoFullName: string;
   agentName: string | null;
 }) {
@@ -218,6 +261,9 @@ export function ReviewLedger({
         <tbody>
           {rows.map((row) => (
             <ReviewLedgerRow key={`${row.pr}-${row.head_sha}-${row.created_at}`} row={row} repoFullName={repoFullName} agentName={agentName} />
+          ))}
+          {feedbackReceipts.map((row) => (
+            <FeedbackLedgerRow key={`${row.pr}-${row.tx_hash}-${row.created_at}`} row={row} />
           ))}
         </tbody>
       </table>

@@ -14,7 +14,10 @@
 // not pin a rotated key), every failure path degrades to a skip with reason.
 // Registry addresses are env-only — never hardcoded (canonical deployments:
 // docs/deployments/erc8004.md; identity registry on record
-// eip155:1:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432, agentId 50891).
+// eip155:1:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432, agentId 50891). A
+// CONFIRMED broadcast lands in the feedback_receipts index (repo, pr, chain
+// from REXTOR_FEEDBACK_CHAIN, tx) so the dashboard ledger shows the feedback
+// path; skipped outcomes leave no row.
 import { createPublicClient, createWalletClient, defineChain, http, parseAbi, zeroHash } from "viem";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 
@@ -48,6 +51,12 @@ export interface FeedbackPayloadConfig {
   value: bigint;
   valueDecimals: number;
   endpoint: string;
+  /** Display name of the chain the reputation registry lives on, recorded on
+   *  feedback receipts (REXTOR_FEEDBACK_CHAIN). Default "Ethereum" — the
+   *  canonical ERC-8004 home (chain-neutral identity ruling); a flip names the
+   *  chain exactly as the review rows do, so the dashboard's chain registry
+   *  resolves the explorer link (e.g. "HyperEVM mainnet"). */
+  chain: string;
 }
 
 export interface FeedbackConfig extends FeedbackPayloadConfig {
@@ -99,6 +108,7 @@ export function feedbackConfig(env: NodeJS.ProcessEnv): FeedbackPayloadConfig {
     value: uintFromEnv(env, "ERC8004_FEEDBACK_VALUE", "95"),
     valueDecimals: numberFromEnv(env, "ERC8004_FEEDBACK_DECIMALS", "0"),
     endpoint: env.REXTOR_FEEDBACK_ENDPOINT ?? "https://www.rextoraudit.com",
+    chain: env.REXTOR_FEEDBACK_CHAIN ?? "Ethereum",
   };
 }
 

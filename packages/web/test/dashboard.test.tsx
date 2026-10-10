@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import DashboardPage from "@/app/dashboard/[owner]/[repo]/page";
 import { readAgentIdentity } from "@/lib/chain-read";
-import type { ReviewRow } from "@/lib/reviews";
+import type { FeedbackReceiptRow, ReviewRow } from "@/lib/reviews";
 
 vi.mock("@/lib/chain-read", () => ({
   readAgentIdentity: vi.fn(async () => ({
@@ -36,8 +36,20 @@ function row(overrides: Partial<ReviewRow> = {}): ReviewRow {
   };
 }
 
+const receipt = (overrides: Partial<FeedbackReceiptRow> = {}): FeedbackReceiptRow => ({
+  repo: "rextorsec/demo",
+  pr: 2,
+  chain: "HyperEVM mainnet",
+  tx_hash: "0x" + "cd".repeat(32),
+  explorer_url: "",
+  created_at: "2026-10-10T12:00:00.000Z",
+  ...overrides,
+});
+
 interface StubRoutes {
   reviews?: ReviewRow[];
+  /** R2 — confirmed feedback broadcasts; omitted → the service predates them. */
+  receipts?: FeedbackReceiptRow[];
   dismissals?: Array<{ rule_id: string; path: string }>;
   /** null → 404 (no rextor.yaml); string → raw yaml body. */
   configYaml?: string | null;
@@ -46,7 +58,9 @@ interface StubRoutes {
 function stubReviews(reviews: ReviewRow[], extra: Omit<StubRoutes, "reviews"> = {}) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.includes("/reviews/")) return Response.json({ reviews });
+    if (url.includes("/reviews/")) {
+      return Response.json({ reviews, feedback_receipts: extra.receipts ?? [] });
+    }
     if (url.includes("/dismissals/")) return Response.json({ dismissals: extra.dismissals ?? [] });
     if (url.includes("api.github.com")) {
       if (extra.configYaml === null) return new Response("not found", { status: 404 });
@@ -164,6 +178,58 @@ describe("dashboard page — ledger", () => {
 
     expect(container.querySelectorAll("script")).toHaveLength(0);
     expect(container.textContent).toContain("<script>window.pwned=1</script>");
+  });
+});
+
+describe("dashboard page — feedback receipts (R2)", () => {
+  it("renders receipt rows in the ledger: badge, registry-derived tx link, row anatomy", async () => {
+    vi.stubGlobal("fetch", stubReviews([row()], { receipts: [receipt()] }));
+    await renderPage({ owner: "rextorsec", repo: "demo" });
+
+    const ledger = screen.getByRole("region", { name: /review ledger/i });
+    expect(within(ledger).getByText("feedback")).toBeInTheDocument();
+    // explorer_url is empty → the link derives from the web chain registry.
+    const txLinks = within(ledger).getAllByRole("link", { name: /tx ↗/i });
+    expect(txLinks.map((a) => a.getAttribute("href"))).toContain(
+      "https://hyperevmscan.io/tx/0x" + "cd".repeat(32),
+    );
+    // Same row anatomy as review rows (PR cell): the review row AND its
+    // feedback receipt both carry #2 — two PR cells, honest "—" score on the
+    // receipt row only.
+    expect(within(ledger).getAllByText("#2")).toHaveLength(2);
+    expect(within(ledger).getByText("2026-10-10")).toBeInTheDocument();
+  });
+
+  it("prefers the recorded explorer URL over the registry derivation", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubReviews([row()], {
+        receipts: [receipt({ chain: "Ethereum", explorer_url: "https://etherscan.io/tx/0x9" })],
+      }),
+    );
+    await renderPage({ owner: "rextorsec", repo: "demo" });
+
+    const txLinks = screen.getAllByRole("link", { name: /tx ↗/i });
+    expect(txLinks.map((a) => a.getAttribute("href"))).toContain("https://etherscan.io/tx/0x9");
+  });
+
+  it("a chain outside the web registry renders its label and adds no link (honest omission)", async () => {
+    vi.stubGlobal("fetch", stubReviews([row()], { receipts: [receipt({ chain: "somewhere" })] }));
+    await renderPage({ owner: "rextorsec", repo: "demo" });
+
+    const ledger = screen.getByRole("region", { name: /review ledger/i });
+    expect(within(ledger).getByText(/somewhere ·/)).toBeInTheDocument();
+    // Only the review row's tx link exists — the receipt contributes none.
+    expect(within(ledger).getAllByRole("link", { name: /tx ↗/i })).toHaveLength(1);
+  });
+
+  it("an empty receipts list adds no rows — the ledger renders exactly as before", async () => {
+    vi.stubGlobal("fetch", stubReviews([row()]));
+    await renderPage({ owner: "rextorsec", repo: "demo" });
+
+    const ledger = screen.getByRole("region", { name: /review ledger/i });
+    expect(within(ledger).queryByText("feedback")).not.toBeInTheDocument();
+    expect(within(ledger).getAllByRole("row")).toHaveLength(2); // header + the one review row
   });
 });
 

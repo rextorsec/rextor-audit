@@ -22,8 +22,22 @@ export interface ReviewRow {
   created_at: string;
 }
 
+/** R2 — one settled review's ERC-8004 feedback broadcast (the agent records a
+ *  receipt per CONFIRMED giveFeedback; skips record nothing). Same trust
+ *  posture as ReviewRow: untrusted strings rendered inert by React. */
+export interface FeedbackReceiptRow {
+  repo: string;
+  pr: number;
+  chain: string;
+  tx_hash: string;
+  explorer_url: string;
+  created_at: string;
+}
+
 /** Honest result: data OR a reason — the page never guesses. */
-export type ReviewsResult = { ok: true; rows: ReviewRow[] } | { ok: false; reason: string };
+export type ReviewsResult =
+  | { ok: true; rows: ReviewRow[]; receipts: FeedbackReceiptRow[] }
+  | { ok: false; reason: string };
 
 /** Per-row shape check at the trust boundary: one malformed row (partial
  *  write, schema drift) must degrade that ROW, not 500 the whole dashboard
@@ -44,6 +58,20 @@ function isReviewRow(v: unknown): v is ReviewRow {
     typeof r.finding_count === "number" &&
     typeof r.status === "number" &&
     typeof r.comment_url === "string" &&
+    typeof r.created_at === "string"
+  );
+}
+
+/** Same boundary contract as isReviewRow, for feedback receipts. */
+function isFeedbackReceiptRow(v: unknown): v is FeedbackReceiptRow {
+  if (typeof v !== "object" || v === null) return false;
+  const r = v as Record<string, unknown>;
+  return (
+    typeof r.repo === "string" &&
+    typeof r.pr === "number" &&
+    typeof r.chain === "string" &&
+    typeof r.tx_hash === "string" &&
+    typeof r.explorer_url === "string" &&
     typeof r.created_at === "string"
   );
 }
@@ -94,5 +122,12 @@ export async function fetchReviews(
   }
   const reviews: unknown = body.reviews;
   if (!Array.isArray(reviews)) return { ok: false, reason: "review index returned an unexpected shape" };
-  return { ok: true, rows: reviews.filter(isReviewRow).slice(0, MAX_RENDERED_ROWS) };
+  // R2 — feedback receipts are an OPTIONAL payload member: a service that
+  // predates them degrades to an empty list, never a 500 (schema drift costs
+  // the receipts their rows, not the page its render).
+  const rawReceipts = (body as Record<string, unknown>).feedback_receipts;
+  const receipts = Array.isArray(rawReceipts)
+    ? rawReceipts.filter(isFeedbackReceiptRow).slice(0, MAX_RENDERED_ROWS)
+    : [];
+  return { ok: true, rows: reviews.filter(isReviewRow).slice(0, MAX_RENDERED_ROWS), receipts };
 }

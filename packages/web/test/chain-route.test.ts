@@ -5,6 +5,7 @@ import { describe, expect, it, vi, assert } from "vitest";
 
 import { GET } from "@/app/api/chain/[chain]/route";
 import { readAgentIdentity } from "@/lib/chain-read";
+import { fetchReviews, MAX_RENDERED_ROWS } from "@/lib/reviews";
 
 vi.mock("@/lib/chain-read", () => ({
   readAgentIdentity: vi.fn(),
@@ -64,7 +65,6 @@ describe("fetchReviews boundary (row validation, timeout, cap)", () => {
     (async () => new Response(JSON.stringify(body), { status: 200 })) as unknown as typeof fetch;
 
   it("drops malformed rows instead of 500ing the page on one bad entry", async () => {
-    const { fetchReviews } = await import("@/lib/reviews");
     const res = await fetchReviews("o", "r", {
       baseUrl: "https://agent", token: "t",
       fetchImpl: okResponse({ reviews: [ROW, { repo: "o/r", pr: "not-a-number" }, null] }),
@@ -75,7 +75,6 @@ describe("fetchReviews boundary (row validation, timeout, cap)", () => {
   });
 
   it("caps rendered rows at MAX_RENDERED_ROWS (newest first)", async () => {
-    const { fetchReviews, MAX_RENDERED_ROWS } = await import("@/lib/reviews");
     const many = Array.from({ length: MAX_RENDERED_ROWS + 50 }, (_, i) => ({
       ...ROW, pr: i + 1,
     }));
@@ -84,5 +83,25 @@ describe("fetchReviews boundary (row validation, timeout, cap)", () => {
     });
     assert(res.ok);
     expect(res.rows).toHaveLength(MAX_RENDERED_ROWS);
+  });
+
+  it("parses feedback receipts at the boundary; a payload without them → [] (older service)", async () => {
+    const RECEIPT = {
+      repo: "o/r", pr: 1, chain: "HyperEVM mainnet", tx_hash: "0x3",
+      explorer_url: "", created_at: "2026-10-10T00:00:00.000Z",
+    };
+    const res = await fetchReviews("o", "r", {
+      baseUrl: "https://agent", token: "t",
+      fetchImpl: okResponse({ reviews: [ROW], feedback_receipts: [RECEIPT, { pr: "not-a-number" }, null] }),
+    });
+    assert(res.ok);
+    expect(res.receipts).toEqual([RECEIPT]); // malformed entries dropped, like rows
+
+    const older = await fetchReviews("o", "r", {
+      baseUrl: "https://agent", token: "t",
+      fetchImpl: okResponse({ reviews: [ROW] }),
+    });
+    assert(older.ok);
+    expect(older.receipts).toEqual([]);
   });
 });

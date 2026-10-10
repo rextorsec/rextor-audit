@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createReviewStore, type ReviewStore } from "../src/db";
+import { createReviewStore, type FeedbackReceiptRow, type ReviewStore } from "../src/db";
 import { dismissalKey } from "../src/config";
 import { canonicalFindingsJson, withIds, type Finding } from "../src/findings";
 import { runReview, type ReviewDeps } from "../src/review";
@@ -176,6 +176,61 @@ describe("re-drive dedup guard lookup (C1)", () => {
       expect(store.hasReview("o/r", 7, "b".repeat(40))).toBe(false); // new sha → reviewable
       expect(store.hasReview("o/r", 8, "a".repeat(40))).toBe(false);
       expect(store.hasReview("other/r", 7, "a".repeat(40))).toBe(false);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("feedback receipts store (R2)", () => {
+  const receipt = (over: Partial<FeedbackReceiptRow> = {}): FeedbackReceiptRow => ({
+    repo: "rextorsec/demo",
+    pr: 1,
+    chain: "HyperEVM mainnet",
+    tx_hash: "0x" + "cd".repeat(32),
+    explorer_url: "",
+    created_at: "2026-10-10T00:00:00.000Z",
+    ...over,
+  });
+
+  it("roundtrips recorded receipts verbatim, newest first, scoped to the repo", async () => {
+    const store = await tempStore();
+    try {
+      store.recordFeedbackReceipt(receipt({ tx_hash: "0x" + "01".repeat(32), created_at: "2026-10-10T10:00:00.000Z" }));
+      store.recordFeedbackReceipt(receipt({ tx_hash: "0x" + "02".repeat(32), created_at: "2026-10-10T12:00:00.000Z" }));
+      store.recordFeedbackReceipt(receipt({ repo: "other/repo", pr: 9, tx_hash: "0x" + "03".repeat(32), created_at: "2026-10-10T13:00:00.000Z" }));
+
+      const rows = store.listFeedbackReceipts("rextorsec/demo");
+      expect(rows.map((r) => r.tx_hash)).toEqual(["0x" + "02".repeat(32), "0x" + "01".repeat(32)]);
+      expect(rows[0]).toEqual(receipt({ tx_hash: "0x" + "02".repeat(32), created_at: "2026-10-10T12:00:00.000Z" }));
+      // Other repo's receipts never leak into this repo's listing.
+      expect(store.listFeedbackReceipts("other/repo").map((r) => r.tx_hash)).toEqual(["0x" + "03".repeat(32)]);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("multiple feedback txs per (repo, pr) are legitimate — no dedup, rowid breaks timestamp ties", async () => {
+    const store = await tempStore();
+    try {
+      store.recordFeedbackReceipt(receipt({ tx_hash: "0x" + "aa".repeat(32) }));
+      store.recordFeedbackReceipt(receipt({ tx_hash: "0x" + "bb".repeat(32) }));
+      const rows = store.listFeedbackReceipts("rextorsec/demo");
+      expect(rows).toHaveLength(2);
+      // Same created_at → the later insert lists first (deterministic order).
+      expect(rows.map((r) => r.tx_hash)).toEqual(["0x" + "bb".repeat(32), "0x" + "aa".repeat(32)]);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("unknown repo → [] and no repo → every receipt, still newest first", async () => {
+    const store = await tempStore();
+    try {
+      expect(store.listFeedbackReceipts("nobody/nothing")).toEqual([]);
+      store.recordFeedbackReceipt(receipt({ tx_hash: "0x" + "01".repeat(32), created_at: "2026-10-10T10:00:00.000Z" }));
+      store.recordFeedbackReceipt(receipt({ repo: "other/repo", tx_hash: "0x" + "02".repeat(32), created_at: "2026-10-10T11:00:00.000Z" }));
+      expect(store.listFeedbackReceipts().map((r) => r.repo)).toEqual(["other/repo", "rextorsec/demo"]);
     } finally {
       store.close();
     }

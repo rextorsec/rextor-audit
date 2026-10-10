@@ -40,6 +40,7 @@ const cfg = {
   value: 95n,
   valueDecimals: 0,
   endpoint: "https://www.rextoraudit.com",
+  chain: "Ethereum",
 };
 
 const record = (over: Partial<FeedbackRecord> = {}): FeedbackRecord => ({
@@ -90,12 +91,13 @@ describe("gating (REXTOR_AUTO_FEEDBACK, default OFF)", () => {
 });
 
 describe("feedbackConfig (documented defaults)", () => {
-  it("defaults agentId 50891, value 95, decimals 0, endpoint www.rextoraudit.com", () => {
+  it("defaults agentId 50891, value 95, decimals 0, endpoint www.rextoraudit.com, chain Ethereum", () => {
     expect(feedbackConfig({})).toEqual({
       agentId: 50891n,
       value: 95n,
       valueDecimals: 0,
       endpoint: "https://www.rextoraudit.com",
+      chain: "Ethereum",
     });
   });
 
@@ -106,12 +108,14 @@ describe("feedbackConfig (documented defaults)", () => {
         ERC8004_FEEDBACK_VALUE: "88",
         ERC8004_FEEDBACK_DECIMALS: "2",
         REXTOR_FEEDBACK_ENDPOINT: "https://rextoraudit.example",
+        REXTOR_FEEDBACK_CHAIN: "HyperEVM mainnet",
       }),
     ).toEqual({
       agentId: 42n,
       value: 88n,
       valueDecimals: 2,
       endpoint: "https://rextoraudit.example",
+      chain: "HyperEVM mainnet",
     });
   });
 

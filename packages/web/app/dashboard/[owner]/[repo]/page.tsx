@@ -35,6 +35,7 @@ export default async function DashboardPage({
 
   const reviews = await fetchReviews(owner, repo);
   const rows = reviews.ok ? reviews.rows : [];
+  const feedbackReceipts = reviews.ok ? reviews.receipts : [];
 
   // Active attestation chain: the latest attested row's chain, else the
   // registry default. Identity is an independent live read — the page renders
@@ -126,6 +127,7 @@ export default async function DashboardPage({
               <ScoreHistory rows={rows} />
               <ReviewLedger
                 rows={rows}
+                feedbackReceipts={feedbackReceipts}
                 repoFullName={repoFullName}
                 agentName={identity?.name ?? null}
               />

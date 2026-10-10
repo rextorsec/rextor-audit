@@ -28,6 +28,19 @@ export interface ReviewRow {
   created_at: string;
 }
 
+// R2 — one row per CONFIRMED ERC-8004 giveFeedback broadcast (the settle
+// point's feedback path). Skipped outcomes record NOTHING; multiple feedback
+// txs per (repo, pr) are legitimate, so unlike reviews there is no unique
+// constraint — the table is an append-only receipt log.
+export interface FeedbackReceiptRow {
+  repo: string;
+  pr: number;
+  chain: string;
+  tx_hash: string;
+  explorer_url: string;
+  created_at: string;
+}
+
 export interface ReviewStore {
   insert(row: ReviewRow): void;
   /** Rows for `repo` ("owner/name"), newest first, capped at
@@ -56,6 +69,11 @@ export interface ReviewStore {
   /** Learnings ledger: recurrence counter for one (ruleId, path) in a repo.
    *  Annotations only — a learning NEVER silences or re-scores a finding. */
   recordOccurrence(repo: string, ruleId: string, path: string, sample: string): { occurrences: number; lastSeenAt: string };
+  /** R2 — appends one feedback-path receipt row (confirmed outcomes only). */
+  recordFeedbackReceipt(row: FeedbackReceiptRow): void;
+  /** The repo's feedback receipts, newest first (same cap rationale as
+   *  listForRepo); `repo` omitted → every repo, still newest first. */
+  listFeedbackReceipts(repo?: string): FeedbackReceiptRow[];
 }
 
 /** SPEC-7 §4 — what the review pipeline needs from the server-side memory.
@@ -88,6 +106,19 @@ function toRow(raw: Record<string, unknown>): ReviewRow {
 const COLUMNS =
   "repo, pr, head_sha, review_id, chain, tx_hash, explorer_url, risk_score, finding_count, status, comment_url, created_at";
 
+function toReceiptRow(raw: Record<string, unknown>): FeedbackReceiptRow {
+  return {
+    repo: String(raw.repo),
+    pr: Number(raw.pr),
+    chain: String(raw.chain),
+    tx_hash: String(raw.tx_hash),
+    explorer_url: String(raw.explorer_url),
+    created_at: String(raw.created_at),
+  };
+}
+
+const RECEIPT_COLUMNS = "repo, pr, chain, tx_hash, explorer_url, created_at";
+
 /** Newest-rows-won listing cap for one repo (matches the web render cap).
  *  Interpolated into the prepared statement as a literal — a constant, never
  *  user input. */
@@ -119,6 +150,16 @@ export function createReviewStore(dbPath: string): ReviewStore {
       reason TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS feedback_receipts (
+      repo TEXT NOT NULL,
+      pr INTEGER NOT NULL,
+      chain TEXT NOT NULL,
+      tx_hash TEXT NOT NULL,
+      explorer_url TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS feedback_receipts_repo_created
+      ON feedback_receipts(repo, created_at);
   `);
   // Duplicate-review race net (server re-checks hasReview at run start; this
   // index makes the STORE itself refuse a second row for one verdict).
@@ -157,6 +198,19 @@ export function createReviewStore(dbPath: string): ReviewStore {
   );
   const isDeliverySkippedStmt = db.prepare(
     `SELECT 1 FROM skipped_deliveries WHERE delivery_id = ? LIMIT 1`,
+  );
+
+  // R2 — feedback receipts: append-only; the listing mirrors listForRepo's
+  // newest-first + cap contract (ISO-8601 created_at, rowid breaks ties).
+  const insertReceiptStmt = db.prepare(
+    `INSERT INTO feedback_receipts (${RECEIPT_COLUMNS})
+     VALUES (@repo, @pr, @chain, @tx_hash, @explorer_url, @created_at)`,
+  );
+  const listReceiptsForRepoStmt = db.prepare(
+    `SELECT ${RECEIPT_COLUMNS} FROM feedback_receipts WHERE repo = ? ORDER BY created_at DESC, rowid DESC LIMIT ${MAX_LISTED_REVIEWS}`,
+  );
+  const listAllReceiptsStmt = db.prepare(
+    `SELECT ${RECEIPT_COLUMNS} FROM feedback_receipts ORDER BY created_at DESC, rowid DESC LIMIT ${MAX_LISTED_REVIEWS}`,
   );
 
   // SPEC-7 §4 — server-side silencing memory (repo-file stores are an
@@ -255,6 +309,15 @@ export function createReviewStore(dbPath: string): ReviewStore {
         sample,
       }) as { occurrences: number; last_seen_at: string };
       return { occurrences: row.occurrences, lastSeenAt: row.last_seen_at };
+    },
+    recordFeedbackReceipt(row: FeedbackReceiptRow): void {
+      insertReceiptStmt.run(row);
+    },
+    listFeedbackReceipts(repo?: string): FeedbackReceiptRow[] {
+      const rows = repo
+        ? (listReceiptsForRepoStmt.all(repo) as Record<string, unknown>[])
+        : (listAllReceiptsStmt.all() as Record<string, unknown>[]);
+      return rows.map(toReceiptRow);
     },
   };
 }
