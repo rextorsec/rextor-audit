@@ -24,10 +24,17 @@ if [ ! -f /repo/foundry.toml ]; then
 fi
 # Copy the mounted PR into a writable workdir and analyze THERE: the container
 # runs as an unprivileged user (the mount may be read-only or unwritable), and
-# a PR's forge build must never write back into the mounted repo.
+# a PR's forge build must never write back into the mounted repo. -L
+# dereferences the symlink farms pnpm-style checkouts carry; the exit code is
+# checked explicitly because a swallowed cp failure used to leave this script
+# analyzing a partial copy or the read-only mount and dying cryptically with
+# forge's 'out/build-info is not a directory'. $RUNDIR is never analyzed in
+# place: cd happens only after a verified complete copy.
 WORK="$(mktemp -d)" || { echo '{"status":"incomplete","reason":"workdir-unavailable"}'; exit 3; }
-cp -r "$RUNDIR"/. "$WORK"/ 2>/dev/null || true
-cd "$WORK"
+if ! cp -rL "$RUNDIR"/. "$WORK"/; then
+  echo '{"status":"incomplete","reason":"evm-copy-failed"}'; exit 3
+fi
+cd "$WORK" || { echo '{"status":"incomplete","reason":"evm-workdir-cd-failed"}'; exit 3; }
 TMP="$(mktemp -d)/slither.json" || { echo '{"status":"incomplete","reason":"tmpdir-unavailable"}'; exit 3; }
 # --fail-none keeps the exit code a completion signal: slither 0.11.6 defaults to
 # fail_on=pedantic — it exits 255 whenever ANY finding exists (any impact) — which
