@@ -21,6 +21,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { findingsHash, type Finding } from "./findings";
 import { resolveChain, attestationChainId } from "./chains";
 import type { ReviewDeps } from "./review";
+import { logError, logWarn } from "./logger";
 
 // Exact contract ABI (SPEC-4 v2 — findingsURI + targetChainId). attest + verify
 // share the payload. parseAbi is NOT optional: viem's writeContract/getAbiItem
@@ -101,7 +102,7 @@ export function makeAttestDep(readEnv: () => NodeJS.ProcessEnv = () => process.e
     const pk = env.REXTOR_AGENT_PRIVATE_KEY;
     const address = env.REXTOR_ATTEST_CONTRACT_ADDRESS as `0x${string}` | undefined;
     if (!pk || !address) {
-      console.error("[rextor] attestation env unset at call time — skipping");
+      logWarn("chain.attest_env_unset", "attestation env unset at call time — skipping");
       return Promise.resolve(null);
     }
     const chain = resolveChain(env);
@@ -109,7 +110,7 @@ export function makeAttestDep(readEnv: () => NodeJS.ProcessEnv = () => process.e
     // used by review.ts's targetChainId resolution; null = unverified → skip.
     const chainId = attestationChainId(chain);
     if (chainId == null || !chain.testnet.rpc) {
-      console.error("[rextor] attestation chain params unverified — skipping");
+      logWarn("chain.attest_chain_unverified", "attestation chain params unverified — skipping");
       return Promise.resolve(null);
     }
     // SPEC-5 #16 — the resolved chain's registry attestation slot is null
@@ -121,7 +122,12 @@ export function makeAttestDep(readEnv: () => NodeJS.ProcessEnv = () => process.e
     // comparing env address to registry address — a legitimate env override
     // for a NEW deploy precedes the registry commit.)
     if (chain.attestation.address == null) {
-      console.error(`[rextor] attestation registry slot unverified for ${chain.key} — skipping`);
+      logWarn(
+        "chain.attest_registry_unverified",
+        `attestation registry slot unverified for ${chain.key} — skipping`,
+        undefined,
+        { chain: chain.key },
+      );
       return Promise.resolve(null);
     }
     const viemChain = defineChain({
@@ -165,14 +171,14 @@ export function makeAttestDep(readEnv: () => NodeJS.ProcessEnv = () => process.e
     let timer: NodeJS.Timeout | undefined;
     const guard = new Promise<null>((resolve) => {
       timer = setTimeout(() => {
-        console.error("[rextor] attestation timed out — posting comment without tx");
+        logError("chain.attest_timeout", "attestation timed out — posting comment without tx");
         resolve(null);
       }, ATTEST_TIMEOUT_MS);
     });
     return Promise.race([attempt, guard])
       .catch((err: unknown) => {
         // Log the MESSAGE only — never stack traces/env that could echo secrets.
-        console.error("[rextor] attestation failed:", err instanceof Error ? err.message : err);
+        logError("chain.attest_failed", "attestation failed:", err instanceof Error ? err.message : err);
         return null;
       })
       .finally(() => clearTimeout(timer));

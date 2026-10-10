@@ -201,7 +201,7 @@ describe("runReview — solana verdict chaining (SPEC-8 §5)", () => {
 
   it("Anchor repo + dep undefined (env unset) → VISIBLE skip note, review still attests + posts", async () => {
     const dir = await anchorRepoDir();
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const errSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const { deps, comments } = await makeRunReviewDeps(dir, {
       attest: async () => TEMPO_TX,
     });
@@ -220,7 +220,7 @@ describe("runReview — solana verdict chaining (SPEC-8 §5)", () => {
 
   it("Anchor repo + failed write → visible skip, never a review failure", async () => {
     const dir = await anchorRepoDir();
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const errSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const { deps, comments } = await makeRunReviewDeps(dir, {
       attest: async () => TEMPO_TX,
       attestSolana: makeSolanaVerdictDep(

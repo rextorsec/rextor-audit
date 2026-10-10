@@ -9,6 +9,7 @@
 // file per test) and every statement is prepared once at creation.
 import Database from "better-sqlite3";
 import { dismissalKey, type DismissalEntry } from "./config";
+import { logError } from "./logger";
 
 // Column names are the binding SPEC-6 §3 schema. `status` mirrors the
 // on-chain encoding (0 = complete, 1 = incomplete); empty tx/chain fields
@@ -216,8 +217,9 @@ export function createReviewStore(dbPath: string): ReviewStore {
   try {
     db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS reviews_repo_pr_head ON reviews(repo, pr, head_sha)`);
   } catch (err) {
-    console.error("[rextor] reviews unique-index creation failed (duplicate rows? keeping non-unique):",
-      err instanceof Error ? err.message : err);
+    logError("service.db_index_failed",
+      "reviews unique-index creation failed (duplicate rows? keeping non-unique):",
+      err);
   }
   const insertStmt = db.prepare(
     `INSERT OR IGNORE INTO reviews (${COLUMNS})

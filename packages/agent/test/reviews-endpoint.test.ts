@@ -13,6 +13,28 @@ import { createReviewServer, feedbackIdle, type ReviewServer, type ReviewServerO
 import { createReviewStore, type FeedbackReceiptRow, type ReviewRow, type ReviewStore } from "../src/db";
 import { runReview, type ReviewDeps } from "../src/review";
 
+// Logger seam: the service writes one JSON line per event to stdout; tests
+// capture the raw writes and parse them.
+function capture() {
+  const raw: string[] = [];
+  const spy = vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+    raw.push(String(chunk));
+    return true;
+  });
+  function lines(): Array<Record<string, unknown>> {
+    const parsed: Array<Record<string, unknown>> = [];
+    for (const s of raw) {
+      try {
+        parsed.push(JSON.parse(s) as Record<string, unknown>);
+      } catch {
+        // ignore foreign stdout noise
+      }
+    }
+    return parsed;
+  }
+  return { spy, raw, lines };
+}
+
 const TOKEN = "dashboard-test-token";
 
 // Each test gets its own temp DB file — no cross-test SQLite state.
@@ -283,7 +305,7 @@ describe("feedback settle receipts (R2)", () => {
 
   it("a failing feedback dep records no receipt and never breaks the settled review", async () => {
     const store = await tempStore();
-    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = capture();
     try {
       const deps = attestedDeps(async () => {
         throw new Error("rpc unreachable");
@@ -291,9 +313,12 @@ describe("feedback settle receipts (R2)", () => {
       const { reviews, receipts } = await settleAndReadReceipts(deps, store);
       expect(reviews).toBe(1);
       expect(receipts).toEqual([]);
-      expect(errorLog).toHaveBeenCalledWith("[rextor] feedback failed:", "rpc unreachable");
+      const logged = log.lines().filter((l) => l.event === "chain.feedback_failed");
+      expect(logged).toHaveLength(1);
+      expect(logged[0].msg).toBe("feedback failed:");
+      expect(logged[0].err).toMatchObject({ name: "Error", message: "rpc unreachable" });
     } finally {
-      errorLog.mockRestore();
+      log.spy.mockRestore();
       store.close();
     }
   });

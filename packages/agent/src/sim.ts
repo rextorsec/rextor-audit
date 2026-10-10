@@ -10,6 +10,7 @@ import { promisify } from "node:util";
 import { chatCompletion } from "./openrouter";
 import { POC_V1_SYSTEM, escapeUntrustedDelimiters } from "./profile";
 import type { Finding } from "./findings";
+import { logWarn } from "./logger";
 
 export interface PocRequest { finding: Finding; excerpt: string }
 export interface SimOutcomeMap { block: number; results: Record<string, boolean> }
@@ -131,7 +132,7 @@ export async function runSimStage(
     })));
     testSource = await generate(reqs);
   } catch (err) {
-    console.error("[rextor] PoC generation failed:", err instanceof Error ? err.message : err);
+    logWarn("review.sim_poc_failed", "PoC generation failed:", err);
     markAll("unproven");
     return { findings: out, simNote: "Fork-sim: PoC generation failed — eligible findings unproven." };
   }
@@ -147,14 +148,14 @@ export async function runSimStage(
   try {
     outcome = await deps.runSim(repoDir, testSource, forkUrl);
   } catch (err) {
-    console.error("[rextor] sim harness failed:", err instanceof Error ? err.message : err);
+    logWarn("review.sim_harness_failed", "sim harness failed:", err);
     markAll("unproven");
     return { findings: out, simNote: "Fork-sim: harness failed — eligible findings unproven." };
   }
   // The harness dep is a seam; a malformed result (null/garbage) is a harness
   // failure, never a crash escaping runSimStage (never-throw is total).
   if (!outcome || typeof outcome.block !== "number" || outcome.results === null || typeof outcome.results !== "object") {
-    console.error("[rextor] sim harness returned a malformed result");
+    logWarn("review.sim_harness_failed", "sim harness returned a malformed result");
     markAll("unproven");
     return { findings: out, simNote: "Fork-sim: harness failed — eligible findings unproven." };
   }

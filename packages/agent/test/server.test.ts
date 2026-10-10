@@ -15,6 +15,28 @@ import type { ReviewDeps } from "../src/review";
 import { createReviewStore, type DeepScanRow, type ReviewRow, type ReviewStore } from "../src/db";
 import type { ScanDeps } from "../src/scan";
 
+// Logger seam: the service writes one JSON line per event to stdout; tests
+// capture the raw writes and parse them.
+function capture() {
+  const raw: string[] = [];
+  const spy = vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+    raw.push(String(chunk));
+    return true;
+  });
+  function lines(): Array<Record<string, unknown>> {
+    const parsed: Array<Record<string, unknown>> = [];
+    for (const s of raw) {
+      try {
+        parsed.push(JSON.parse(s) as Record<string, unknown>);
+      } catch {
+        // ignore foreign stdout noise
+      }
+    }
+    return parsed;
+  }
+  return { spy, raw, lines };
+}
+
 // Fixed HMAC-SHA256 vector (SPEC-1 §4) — body + secret signed with
 // `node -e "console.log('sha256=' + require('node:crypto').createHmac('sha256','rextor-test-secret').update(BODY,'utf8').digest('hex'))"`.
 const SECRET = "rextor-test-secret";
@@ -306,13 +328,16 @@ describe("R2 feedback settle wiring", () => {
       calls.push({ record, repo });
       return { txHash: "0xfdb", explorerUrl: "" };
     };
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const log = capture();
     await withServer({ deps, secret: SECRET }, async (port, server) => {
       await post(port, BODY, signed(BODY, SECRET));
       await server.idle();
     });
     expect(calls).toEqual([]); // NEVER feedback without an attested artifact
-    expect(log).toHaveBeenCalledWith(expect.stringMatching(/feedback skipped: no attested artifact/));
+    const skips = log.lines().filter((l) => l.event === "chain.feedback_skipped");
+    expect(skips).toHaveLength(1);
+    expect(skips[0].msg).toMatch(/feedback skipped: no attested artifact/);
+    log.spy.mockRestore();
   });
 
   it("flag unset → undefined-dependency path records the exact disabled reason", async () => {
@@ -320,14 +345,15 @@ describe("R2 feedback settle wiring", () => {
     delete process.env.REXTOR_AUTO_FEEDBACK;
     try {
       const deps = attestedDeps(); // attested review, no feedback dep at all
-      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const log = capture();
       await withServer({ deps, secret: SECRET }, async (port, server) => {
         await post(port, BODY, signed(BODY, SECRET));
         await server.idle();
       });
-      expect(log).toHaveBeenCalledWith(
-        "[rextor] feedback skipped: auto-feedback disabled (REXTOR_AUTO_FEEDBACK off)",
-      );
+      const skips = log.lines().filter((l) => l.event === "chain.feedback_skipped");
+      expect(skips).toHaveLength(1);
+      expect(skips[0].msg).toBe("feedback skipped: auto-feedback disabled (REXTOR_AUTO_FEEDBACK off)");
+      log.spy.mockRestore();
     } finally {
       if (prevFlag !== undefined) process.env.REXTOR_AUTO_FEEDBACK = prevFlag;
     }
@@ -348,18 +374,18 @@ describe("R2 feedback settle wiring", () => {
       calls.push({ record, repo });
       return { txHash: "0xfdb", explorerUrl: "" };
     };
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const log = capture();
     try {
       await withServer({ deps, secret: SECRET }, async (port, server) => {
         await post(port, BODY, signed(BODY, SECRET));
         await server.idle();
       });
       expect(calls).toEqual([]); // incomplete reviews earn NO feedback
-      expect(log).toHaveBeenCalledWith(
-        "[rextor] feedback skipped: review incomplete — feedback withheld",
-      );
+      const skips = log.lines().filter((l) => l.event === "chain.feedback_skipped");
+      expect(skips).toHaveLength(1);
+      expect(skips[0].msg).toBe("feedback skipped: review incomplete — feedback withheld");
     } finally {
-      log.mockRestore();
+      log.spy.mockRestore();
     }
   });
 });

@@ -14,6 +14,7 @@
 // startup API calls.
 import { readFileSync } from "node:fs";
 import { signAppJwt } from "./app-auth";
+import { logError, logInfo } from "./logger";
 
 export const RECONCILE_PAGE_SIZE = 100;
 
@@ -73,7 +74,7 @@ export async function reconcileFailedDeliveries(deps: ReconcileDeps = {}): Promi
   const pemReader = deps.pemReader ?? ((p: string) => readFileSync(p, "utf8"));
   const disabled = reconciliationDisabledReason(env);
   if (disabled) {
-    console.log(`[rextor] delivery reconciliation skipped: ${disabled}`);
+    logInfo("webhook.reconcile_skipped", `delivery reconciliation skipped: ${disabled}`);
     return { redriven: 0, failed: 0, skipped: disabled };
   }
   let jwt: string;
@@ -81,7 +82,7 @@ export async function reconcileFailedDeliveries(deps: ReconcileDeps = {}): Promi
     jwt = signAppJwt(env.REXTOR_GITHUB_APP_ID!, pemReader(env.REXTOR_GITHUB_APP_PEM_PATH!), Math.floor((deps.now ?? Date.now)() / 1000));
   } catch (err) {
     const reason = `App JWT mint failed: ${err instanceof Error ? err.message : String(err)}`;
-    console.error(`[rextor] delivery reconciliation skipped: ${reason}`);
+    logError("webhook.reconcile_failed", `delivery reconciliation skipped: ${reason}`, err);
     return { redriven: 0, failed: 0, skipped: reason };
   }
   const authHeaders = { ...JSON_HEADERS, Authorization: `Bearer ${jwt}` };
@@ -92,7 +93,7 @@ export async function reconcileFailedDeliveries(deps: ReconcileDeps = {}): Promi
     });
     if (!list.ok) {
       const reason = `delivery list failed: HTTP ${list.status}`;
-      console.error(`[rextor] delivery reconciliation skipped: ${reason}`);
+      logError("webhook.reconcile_failed", `delivery reconciliation skipped: ${reason}`);
       return { redriven: 0, failed: 0, skipped: reason };
     }
     const deliveries = (await list.json()) as HookDelivery[];
@@ -115,22 +116,35 @@ export async function reconcileFailedDeliveries(deps: ReconcileDeps = {}): Promi
         });
         if (res.status === 202) {
           redriven += 1;
-          console.log(`[rextor] reconciliation re-driving failed delivery ${d.id}`);
+          logInfo("webhook.redrive_attempt", `reconciliation re-driving failed delivery ${d.id}`, { deliveryId: d.id });
         } else {
           failedRedrives += 1;
-          console.error(`[rextor] reconciliation redeliver for delivery ${d.id}: HTTP ${res.status} — skipped`);
+          logError(
+            "webhook.redrive_failed",
+            `reconciliation redeliver for delivery ${d.id}: HTTP ${res.status} — skipped`,
+            undefined,
+            { deliveryId: d.id },
+          );
         }
       } catch (err) {
         failedRedrives += 1;
-        console.error(`[rextor] reconciliation redeliver for delivery ${d.id} failed — skipped:`,
-          err instanceof Error ? err.message : err);
+        logError(
+          "webhook.redrive_failed",
+          `reconciliation redeliver for delivery ${d.id} failed — skipped:`,
+          err,
+          { deliveryId: d.id },
+        );
       }
     }
-    console.log(`[rextor] delivery reconciliation: ${redriven} re-driven, ${failedRedrives} failed, ${skippedUnrecoverable} skipped (unrecoverable) of ${deliveries.length} recent`);
+    logInfo(
+      "webhook.reconcile_summary",
+      `delivery reconciliation: ${redriven} re-driven, ${failedRedrives} failed, ${skippedUnrecoverable} skipped (unrecoverable) of ${deliveries.length} recent`,
+      { redriven, failed: failedRedrives, skipped: skippedUnrecoverable, recent: deliveries.length },
+    );
     return { redriven, failed: failedRedrives };
   } catch (err) {
     const reason = `delivery list failed: ${err instanceof Error ? err.message : String(err)}`;
-    console.error(`[rextor] delivery reconciliation skipped: ${reason}`);
+    logError("webhook.reconcile_failed", `delivery reconciliation skipped: ${reason}`, err);
     return { redriven: 0, failed: 0, skipped: reason };
   }
 }

@@ -33,6 +33,7 @@ import {
   type ChatReviewCache,
   type ChatRateLimiter,
 } from "./chat";
+import { logError, logInfo, logLevel, logWarn } from "./logger";
 
 // SPEC-6 §3 — the one /reviews route shape, shared by the dispatcher and the
 // handler (capture groups feed the owner/repo decode).
@@ -149,7 +150,7 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
           ? handleScans
           : handleDismissals;
       void handler(req, res, store, options.apiToken).catch((err) => {
-        console.error("[rextor] dashboard read handler crashed:", err);
+        logError("http.read_handler_crashed", "dashboard read handler crashed:", err, undefined, { stack: true });
         if (!res.headersSent) {
           res.statusCode = 500;
           json(res, { error: "internal error" });
@@ -166,7 +167,7 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
         return;
       }
       void handleScan(req, res, store, options.apiToken, scanDeps, scanFlight).catch((err) => {
-        console.error("[rextor] scan handler crashed:", err);
+        logError("http.scan_handler_crashed", "scan handler crashed:", err, undefined, { stack: true });
         if (!res.headersSent) {
           res.statusCode = 500;
           json(res, { error: "internal error" });
@@ -177,7 +178,7 @@ export function createReviewServer(options: ReviewServerOptions = {}): ReviewSer
       return;
     }
     void handleWebhook(req, res, options.secret, deps, queue, chat, store, options.maxPendingReviews ?? DEFAULT_MAX_PENDING_REVIEWS).catch((err) => {
-      console.error("[rextor] webhook handler crashed:", err);
+      logError("http.webhook_handler_crashed", "webhook handler crashed:", err, undefined, { stack: true });
       if (!res.headersSent) {
         res.statusCode = 500;
         json(res, { error: "internal error" });
@@ -212,8 +213,9 @@ function resolveDrainTimeoutMs(explicit: number | undefined): number {
   if (raw === undefined || raw.trim() === "") return DEFAULT_DRAIN_TIMEOUT_MS;
   const envMs = Number(raw);
   if (Number.isFinite(envMs) && envMs > 0) return envMs;
-  console.error(
-    `[rextor] REXTOR_DRAIN_TIMEOUT_MS=${JSON.stringify(raw)} is not a positive number — using the default ${DEFAULT_DRAIN_TIMEOUT_MS}ms`,
+  logWarn(
+    "service.drain_env_invalid",
+    `REXTOR_DRAIN_TIMEOUT_MS=${JSON.stringify(raw)} is not a positive number — using the default ${DEFAULT_DRAIN_TIMEOUT_MS}ms`,
   );
   return DEFAULT_DRAIN_TIMEOUT_MS;
 }
@@ -241,15 +243,15 @@ export function installDrain(server: ReviewServer, options: DrainOptions = {}): 
   const onSignal = (signal: NodeJS.Signals): void => {
     signalCount += 1;
     if (signalCount > 1) {
-      console.error(`[rextor] second ${signal} during drain — force exit 1`);
+      logError("service.drain_forced_exit", `second ${signal} during drain — force exit 1`, undefined, { signal });
       exit(1);
       return;
     }
-    console.log(`[rextor] ${signal} — draining: finishing in-flight reviews`);
+    logInfo("service.drain_started", `${signal} — draining: finishing in-flight reviews`, { signal });
     server.draining = true;
     const startedAt = Date.now();
     cap = setTimeout(() => {
-      console.error(`[rextor] drain timed out after ${timeoutMs}ms — queue or feedback still busy; exiting 1`);
+      logError("service.drain_timeout", `drain timed out after ${timeoutMs}ms — queue or feedback still busy; exiting 1`, undefined, { timeoutMs });
       server.close();
       exit(1);
     }, timeoutMs);
@@ -261,14 +263,14 @@ export function installDrain(server: ReviewServer, options: DrainOptions = {}): 
         void feedbackIdle().then(() => {
           clearTimeout(cap);
           server.close();
-          console.log(`[rextor] queue drained in ${Math.round((Date.now() - startedAt) / 1000)}s — exit 0`);
+          logInfo("service.drain_complete", `queue drained in ${Math.round((Date.now() - startedAt) / 1000)}s — exit 0`);
           exit(0);
         });
       },
       (err: unknown) => {
         clearTimeout(cap);
         server.close();
-        console.error("[rextor] queue idle failed — exiting 1:", err instanceof Error ? err.message : err);
+        logError("service.drain_idle_failed", "queue idle failed — exiting 1:", err);
         exit(1);
       },
     );
@@ -307,7 +309,7 @@ async function handleReviews(
     return;
   }
   if (!store) {
-    console.error("[rextor] REXTOR_DB_PATH is not configured");
+    logError("http.store_missing", "REXTOR_DB_PATH is not configured");
     res.statusCode = 500;
     json(res, { error: "server misconfigured: no review index" });
     return;
@@ -342,7 +344,7 @@ async function handleDismissals(
     return;
   }
   if (!store) {
-    console.error("[rextor] REXTOR_DB_PATH is not configured");
+    logError("http.store_missing", "REXTOR_DB_PATH is not configured");
     res.statusCode = 500;
     json(res, { error: "server misconfigured: no review index" });
     return;
@@ -374,7 +376,7 @@ async function handleScans(
     return;
   }
   if (!store) {
-    console.error("[rextor] REXTOR_DB_PATH is not configured");
+    logError("http.store_missing", "REXTOR_DB_PATH is not configured");
     res.statusCode = 500;
     json(res, { error: "server misconfigured: no review index" });
     return;
@@ -407,7 +409,7 @@ async function handleScan(
     return;
   }
   if (!store) {
-    console.error("[rextor] REXTOR_DB_PATH is not configured");
+    logError("http.store_missing", "REXTOR_DB_PATH is not configured");
     res.statusCode = 500;
     json(res, { error: "server misconfigured: no review index" });
     return;
@@ -476,8 +478,9 @@ async function handleScan(
         created_at: new Date().toISOString(),
       });
     } catch (err) {
-      console.error("[rextor] deep-scan ledger write failed:",
-        err instanceof Error ? err.message : err);
+      logError("http.scan_ledger_write_failed",
+        "deep-scan ledger write failed:",
+        err, { repo: report.repo });
     }
     json(res, report);
   } finally {
@@ -520,8 +523,9 @@ async function handleWebhook(
       try {
         store.skipDelivery(oversizeDeliveryId, "payload exceeds 1 MiB cap");
       } catch (err) {
-        console.error("[rextor] skip-list write failed:",
-          err instanceof Error ? err.message : err);
+        logError("webhook.skiplist_write_failed",
+          "skip-list write failed:",
+          err, { deliveryId: oversizeDeliveryId });
       }
     }
     res.writeHead(413, { "content-type": "application/json" });
@@ -534,7 +538,7 @@ async function handleWebhook(
 
   const secret = secretOpt ?? process.env.GITHUB_APP_SECRET;
   if (!secret) {
-    console.error("[rextor] GITHUB_APP_SECRET is not configured");
+    logError("http.secret_missing", "GITHUB_APP_SECRET is not configured");
     res.statusCode = 500;
     json(res, { error: "server misconfigured: no webhook secret" });
     return;
@@ -595,7 +599,7 @@ async function handleWebhook(
             // exact failure class GITHUB_STAGE_BUDGET_MS exists for).
             await githubStage("chat postComment", deps.postComment(evt.prUrl, reply));
           } catch (err) {
-            console.error("[rextor] chat reply failed:", err instanceof Error ? err.message : err);
+            logWarn("github.chat_reply_failed", "chat reply failed:", err, { prUrl: evt.prUrl });
           }
         },
         `chat reply ${evt.prUrl}`,
@@ -639,15 +643,16 @@ async function handleWebhook(
       try {
         const { repoFullName, prNumber } = prIdentity(prUrl);
         if (store.hasReview(repoFullName, prNumber, headSha)) {
-          console.log(
-            `[rextor] delivery ${deliveryId} skipped: ${repoFullName}#${prNumber} @ ${headSha.slice(0, 12)} already reviewed`,
+          logInfo(
+            "webhook.delivery_skipped",
+            `delivery ${deliveryId} skipped: ${repoFullName}#${prNumber} @ ${headSha.slice(0, 12)} already reviewed`,
+            { deliveryId, repo: repoFullName, pr: prNumber },
           );
           json(res, { skipped: "already reviewed" });
           return;
         }
       } catch (err) {
-        console.error("[rextor] re-drive guard failed — enqueuing anyway:",
-          err instanceof Error ? err.message : err);
+        logWarn("webhook.redrive_guard_failed", "re-drive guard failed — enqueuing anyway:", err, { deliveryId });
       }
     }
   }
@@ -657,7 +662,12 @@ async function handleWebhook(
   // the queue has room. Without this, a synchronize loop on ANY installed
   // repo occupies the serial tail for hours and starves every other repo.
   if (queue.pendingCount() >= maxPendingReviews) {
-    console.error(`[rextor] delivery ${deliveryId} refused: ${queue.pendingCount()} reviews pending (cap ${maxPendingReviews})`);
+    logWarn(
+      "webhook.delivery_refused",
+      `delivery ${deliveryId} refused: ${queue.pendingCount()} reviews pending (cap ${maxPendingReviews})`,
+      undefined,
+      { deliveryId, pending: queue.pendingCount(), cap: maxPendingReviews },
+    );
     res.writeHead(503, { "retry-after": "120", "content-type": "application/json" });
     res.end(JSON.stringify({ error: "review queue at capacity; retry later" }));
     return;
@@ -682,12 +692,15 @@ async function handleWebhook(
         try {
           const { repoFullName, prNumber } = prIdentity(prUrl as string);
           if (store.hasReview(repoFullName, prNumber, headSha)) {
-            console.log(`[rextor] queued review skipped (already reviewed): ${repoFullName}#${prNumber} @ ${headSha.slice(0, 12)}`);
+            logInfo(
+              "webhook.queued_review_skipped",
+              `queued review skipped (already reviewed): ${repoFullName}#${prNumber} @ ${headSha.slice(0, 12)}`,
+              { repo: repoFullName, pr: prNumber },
+            );
             return;
           }
         } catch (err) {
-          console.error("[rextor] in-run re-drive guard failed — reviewing anyway:",
-            err instanceof Error ? err.message : err);
+          logWarn("webhook.redrive_guard_failed", "in-run re-drive guard failed — reviewing anyway:", err, { deliveryId });
         }
       }
       const result = await runReview(prUrl as string, deps);
@@ -735,19 +748,19 @@ function settleFeedback(
   store: ReviewStore | undefined,
 ): void {
   if (!feedback) {
-    console.log(`[rextor] feedback skipped: ${feedbackDisabledReason(process.env)}`);
+    logInfo("chain.feedback_skipped", `feedback skipped: ${feedbackDisabledReason(process.env)}`);
     return;
   }
   // I2 — hard-incomplete-but-attested: withhold by name, never broadcast a
   // full-quality rating over the empty-findings feedbackHash.
   if (result.incomplete) {
-    console.log("[rextor] feedback skipped: review incomplete — feedback withheld");
+    logInfo("chain.feedback_skipped", "feedback skipped: review incomplete — feedback withheld");
     return;
   }
   const att = result.attestation;
   if (!att || "skipped" in att) {
     const reason = att && "skipped" in att ? att.skipped : "review never attested";
-    console.log(`[rextor] feedback skipped: no attested artifact (${reason})`);
+    logInfo("chain.feedback_skipped", `feedback skipped: no attested artifact (${reason})`);
     return;
   }
   // A successful attestation implies prIdentity already parsed this URL inside
@@ -765,10 +778,10 @@ function settleFeedback(
   const tracked = feedback({ findingsURI: att.findingsURI, findingsHash: att.findingsHash }, repoFullName)
     .then((outcome) => {
       if ("skipped" in outcome) {
-        console.log(`[rextor] feedback skipped: ${outcome.skipped}`);
+        logInfo("chain.feedback_skipped", `feedback skipped: ${outcome.skipped}`);
         return;
       }
-      console.log(`[rextor] feedback recorded: tx ${outcome.txHash}`);
+      logInfo("chain.feedback_recorded", `feedback recorded: tx ${outcome.txHash}`, { txHash: outcome.txHash });
       if (!store) return;
       try {
         store.recordFeedbackReceipt({
@@ -782,12 +795,13 @@ function settleFeedback(
       } catch (err) {
         // The review is settled and the tx is on-chain — a failed receipt
         // write degrades to a log line; it never re-drives the broadcast.
-        console.error("[rextor] feedback receipt write failed:",
-          err instanceof Error ? err.message : err);
+        logError("chain.feedback_receipt_write_failed",
+          "feedback receipt write failed:",
+          err, { repo: repoFullName, pr: prNumber });
       }
     })
     .catch((err: unknown) => {
-      console.error("[rextor] feedback failed:", err instanceof Error ? err.message : err);
+      logError("chain.feedback_failed", "feedback failed:", err, { repo: repoFullName, pr: prNumber });
     });
   inFlightFeedback.add(tracked);
   void tracked.then(() => inFlightFeedback.delete(tracked));
@@ -819,6 +833,8 @@ function envServerOptions(): ReviewServerOptions {
 const entry = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
 if (import.meta.url === entry) {
   const port = Number(process.env.PORT ?? 8080);
+  // The one boot line: names the active log level once (service.* contract).
+  logInfo("service.boot", "agent service starting", { level: logLevel(), port });
   // C1 — re-drive FAILED deliveries from the previous run at boot, alongside
   // listen: GitHub never auto-redelivers, so without this the mid-drain 503s
   // (and any delivery lost to a crash) would be silent loss. Fire-and-forget:
@@ -830,7 +846,7 @@ if (import.meta.url === entry) {
   const bootStore = process.env.REXTOR_DB_PATH ? createReviewStore(process.env.REXTOR_DB_PATH) : undefined;
   void reconcileFailedDeliveries(bootStore ? { skipList: { has: (id) => bootStore.isDeliverySkipped(id) } } : {})
     .catch((err: unknown) => {
-      console.error("[rextor] delivery reconciliation crashed:", err instanceof Error ? err.message : err);
+      logError("webhook.reconcile_crashed", "delivery reconciliation crashed:", err);
     })
     .finally(() => bootStore?.close());
   const server = createReviewServer(envServerOptions());
@@ -839,7 +855,7 @@ if (import.meta.url === entry) {
   // interfaces. An all-interface bind exposed gated-but-reachable surfaces
   // to every peer on the network.
   server.listen(port, "127.0.0.1", () => {
-    console.log(`[rextor] webhook listening on 127.0.0.1:${port}`);
+    logInfo("service.listening", `webhook listening on 127.0.0.1:${port}`, { port });
   });
   installDrain(server);
 }

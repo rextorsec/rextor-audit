@@ -18,6 +18,28 @@ import {
   type FeedbackRecord,
 } from "../src/feedback";
 
+// Logger seam: the service writes one JSON line per event to stdout; tests
+// capture the raw writes and parse them.
+function capture() {
+  const raw: string[] = [];
+  const spy = vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+    raw.push(String(chunk));
+    return true;
+  });
+  function lines(): Array<Record<string, unknown>> {
+    const parsed: Array<Record<string, unknown>> = [];
+    for (const s of raw) {
+      try {
+        parsed.push(JSON.parse(s) as Record<string, unknown>);
+      } catch {
+        // ignore foreign stdout noise
+      }
+    }
+    return parsed;
+  }
+  return { spy, raw, lines };
+}
+
 // anvil test keys — never real funds.
 const PK = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"; // anvil #1
 const SUBMITTER = "0x70997970c51812dc3a010c7d01b50e0d17dc79c8" as `0x${string}`; // anvil #1's address
@@ -152,7 +174,7 @@ describe("feedbackBudgetMs (R2 — receipt-wait budget)", () => {
 
 describe("submitFeedback receipt wait under the R2 budget", () => {
   it("still waits past the old 30s mark; abandons only at the 120s budget", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = capture();
     vi.useFakeTimers();
     try {
       // waitFor never settles: the receipt read is the abandoned side of the
@@ -168,6 +190,7 @@ describe("submitFeedback receipt wait under the R2 budget", () => {
       await settled;
     } finally {
       vi.useRealTimers();
+      log.spy.mockRestore();
     }
   });
 });
@@ -241,21 +264,28 @@ describe("submitFeedback (fake wallet client)", () => {
   });
 
   it("submit failure → logged, returned as skipped, never throws", async () => {
-    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = capture();
     const { io: fake, writes } = io({ giveFeedback: async () => { throw new Error("gas spike"); } });
     const out = await submitFeedback(record(), "o/r", fake, cfg);
     expect(out).toEqual({ skipped: expect.stringMatching(/gas spike/) });
     expect(writes).toEqual([]);
-    expect(err).toHaveBeenCalledWith(expect.stringMatching(/feedback submit failed/), expect.stringMatching(/gas spike/));
+    // Message-only discipline: the failure log is one chain.* error whose err
+    // carries the extracted message, nothing else.
+    const logged = log.lines().filter((l) => l.event === "chain.feedback_submit_failed");
+    expect(logged).toHaveLength(1);
+    expect(logged[0].msg).toMatch(/feedback submit failed/);
+    expect(logged[0].err).toMatchObject({ message: expect.stringMatching(/gas spike/) });
+    log.spy.mockRestore();
   });
 
   it("mined-but-reverted tx never passes as success", async () => {
-    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = capture();
     const { io: fake, writes } = io({ waitFor: async () => { throw new Error("reverted: gas"); } });
     const out = await submitFeedback(record(), "o/r", fake, cfg);
     expect(out).toEqual({ skipped: expect.stringMatching(/reverted/) });
     expect(writes).toHaveLength(1);
-    expect(err).toHaveBeenCalled();
+    expect(log.lines().some((l) => l.event === "chain.feedback_submit_failed")).toBe(true);
+    log.spy.mockRestore();
   });
 });
 

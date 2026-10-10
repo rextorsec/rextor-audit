@@ -95,7 +95,7 @@ describe("reconcileFailedDeliveries", () => {
   });
 
   it("REXTOR_RECONCILE_DELIVERIES=off → zero API calls, named skip", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const log = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const { calls, fetchFn } = fakeFetch([delivery(1, "failed")]);
     const outcome = await reconcileFailedDeliveries({
       fetchFn,
@@ -108,7 +108,7 @@ describe("reconcileFailedDeliveries", () => {
   });
 
   it("a failed list call is a logged skip that resolves (boot never blocks or crashes)", async () => {
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const errSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const { fetchFn } = fakeFetch([], new Map(), new Set([0])); // id 0 = fail the LIST
     const outcome = await reconcileFailedDeliveries({ fetchFn, env: APP_ENV, pemReader: () => PEM });
     expect(outcome.redriven).toBe(0);
@@ -117,7 +117,7 @@ describe("reconcileFailedDeliveries", () => {
   });
 
   it("a failed redeliver is a logged skip; the remaining deliveries still re-drive", async () => {
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const errSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const { calls, fetchFn } = fakeFetch(
       [delivery(1, "failed"), delivery(2, "failed")],
       new Map([[1, 422]]),
@@ -129,7 +129,7 @@ describe("reconcileFailedDeliveries", () => {
   });
 
   it("a thrown redeliver is a logged skip; the remaining deliveries still re-drive", async () => {
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const errSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const { fetchFn } = fakeFetch(
       [delivery(1, "failed"), delivery(2, "failed")],
       new Map(),
@@ -141,7 +141,7 @@ describe("reconcileFailedDeliveries", () => {
   });
 
   it("a bad PEM path is a logged skip, not a crash", async () => {
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const errSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const { calls, fetchFn } = fakeFetch([delivery(1, "failed")]);
     const outcome = await reconcileFailedDeliveries({
       fetchFn,

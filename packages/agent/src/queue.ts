@@ -4,6 +4,8 @@
 // it would double-post comments. Work runs strictly one-at-a-time in
 // arrival order; worker errors are contained (the webhook has already
 // acknowledged 200 and must never be rejected by the queue).
+import { logError, logInfo, logWarn } from "./logger";
+
 const DELIVERY_TTL_MS = 15 * 60 * 1000;
 
 /** Body-size ceiling for webhook payloads (1 MiB), enforced pre-signature. */
@@ -72,16 +74,16 @@ export class ReviewQueue {
       const currentLabel = slot.label;
       const currentRun = slot.run;
       const startedAt = Date.now();
-      console.log(`[rextor] review started: ${currentLabel}`);
+      logInfo("webhook.review_started", `review started: ${currentLabel}`, { label: currentLabel });
       const stall = setInterval(() => {
         const secs = Math.round((Date.now() - startedAt) / 1000);
-        console.error(`[rextor] review STILL RUNNING after ${secs}s (possible hang): ${currentLabel}`);
+        logWarn("service.watchdog_stall", `review STILL RUNNING after ${secs}s (possible hang): ${currentLabel}`, undefined, { label: currentLabel });
       }, this.stallWarnMs);
       try {
         await currentRun();
-        console.log(`[rextor] review finished: ${currentLabel} in ${Math.round((Date.now() - startedAt) / 1000)}s`);
+        logInfo("webhook.review_finished", `review finished: ${currentLabel} in ${Math.round((Date.now() - startedAt) / 1000)}s`, { label: currentLabel });
       } catch (err) {
-        console.error("[rextor] queued review failed:", err instanceof Error ? err.message : err);
+        logError("webhook.review_failed", "queued review failed:", err, { deliveryId: currentDeliveryId });
       } finally {
         clearInterval(stall);
         this.processedAt.set(currentDeliveryId, Date.now());

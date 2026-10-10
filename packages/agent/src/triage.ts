@@ -3,6 +3,7 @@ import { SEVERITIES, withIds, type Finding, type Severity } from "./findings";
 import { chatCompletion, extractJsonArray, triageModelFor, TriageUnavailableError, type ChatMessage } from "./openrouter";
 import { PROFILE_V1_SYSTEM, buildTriageUserMessage } from "./profile";
 import type { DiffScopeResult } from "./diff-scope";
+import { logError, logWarn } from "./logger";
 
 export type TriageOp =
   | { op: "reclassify"; id: number; severity: Severity; reason: string }
@@ -189,7 +190,7 @@ export function triageFromEnv(
       // Partial config (a key or a model set, but not both) is a misconfiguration
       // worth surfacing; a fully unconfigured env is the normal skipped path.
       if (model === null && (env.REXTOR_TRIAGE_MODEL || env.REXTOR_FRONTIER_MODEL || apiKey)) {
-        console.warn("[rextor] triage env incomplete — need OPENROUTER_API_KEY, REXTOR_TRIAGE_MODEL, REXTOR_FRONTIER_MODEL; running untriaged");
+        logWarn("review.triage_env_incomplete", "triage env incomplete — need OPENROUTER_API_KEY, REXTOR_TRIAGE_MODEL, REXTOR_FRONTIER_MODEL; running untriaged");
       }
       return rawFindingsResult(findingsIn);
     }
@@ -221,7 +222,7 @@ export function triageFromEnv(
         triageStatus: "complete",
       };
     } catch (err) {
-      console.error("[rextor] triage failed:", err instanceof Error ? err.message : err);
+      logWarn("review.triage_failed", "triage failed:", err);
       return {
         ...rawFindingsResult(findings),
         modelUsed: model,

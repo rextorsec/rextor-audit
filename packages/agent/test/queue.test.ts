@@ -1,6 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import { ReviewQueue } from "../src/queue";
 
+// Logger seam: the service writes one JSON line per event to stdout; tests
+// capture the raw writes (msg fragments stay greppable inside the JSON).
+function capture() {
+  const raw: string[] = [];
+  const spy = vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+    raw.push(String(chunk));
+    return true;
+  });
+  return { spy, raw };
+}
+
 // Executor-form deferred: `Promise.withResolvers` is ES2024-lib and does not
 // typecheck under this project's ES2022 target.
 function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -96,8 +107,7 @@ describe("ReviewQueue", () => {
 
   it("logs lifecycle and warns on stall (observability rail)", async () => {
     vi.useFakeTimers();
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = capture();
     try {
       const q = new ReviewQueue({ stallWarnMs: 10_000 });
       const label = "https://github.com/o/r/pull/9";
@@ -110,19 +120,20 @@ describe("ReviewQueue", () => {
         label,
       );
       await flush();
-      expect(logSpy.mock.calls.map((c) => String(c[0])).some((s) => s === `[rextor] review started: ${label}`)).toBe(true);
+      expect(log.raw.some((s) => s.includes(`"msg":"review started: ${label}"`))).toBe(true);
       // Advance past one warn interval on the fake clock; the interval callback
       // must have fired — the rail that would have surfaced the 2026-09-22
       // silent-hang incident (a stuck run starved every later review).
       await vi.advanceTimersByTimeAsync(10_000);
-      expect(errSpy.mock.calls.map((c) => String(c[0])).some((s) => s.includes("review STILL RUNNING after") && s.includes(label))).toBe(true);
+      expect(log.raw.some((s) => s.includes("review STILL RUNNING after") && s.includes(label))).toBe(true);
       gate.resolve();
       await done;
-      expect(logSpy.mock.calls.map((c) => String(c[0])).some((s) => s.includes(`[rextor] review finished: ${label}`))).toBe(true);
+      // The msg continues past the label ("… in Ns"), so pin the prefix —
+      // same includes-semantics the console-era assertion had.
+      expect(log.raw.some((s) => s.includes(`"msg":"review finished: ${label}`))).toBe(true);
     } finally {
       vi.useRealTimers();
-      logSpy.mockRestore();
-      errSpy.mockRestore();
+      log.spy.mockRestore();
     }
   });
 });

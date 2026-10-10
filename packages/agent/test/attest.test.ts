@@ -8,6 +8,28 @@ import { buildAttestRecord, commitHashFor, makeAttestDep, reviewIdFor, REXTOR_AT
 import { CANONICAL_FINDINGS_LITERAL, CANONICAL_FINDINGS_SHA256, VECTOR_FINDINGS } from "./vectors";
 import type * as ChainsModule from "../src/chains";
 
+// Logger seam: the service writes one JSON line per event to stdout; tests
+// capture the raw writes and parse them.
+function capture() {
+  const raw: string[] = [];
+  const spy = vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+    raw.push(String(chunk));
+    return true;
+  });
+  function lines(): Array<Record<string, unknown>> {
+    const parsed: Array<Record<string, unknown>> = [];
+    for (const s of raw) {
+      try {
+        parsed.push(JSON.parse(s) as Record<string, unknown>);
+      } catch {
+        // ignore foreign stdout noise
+      }
+    }
+    return parsed;
+  }
+  return { spy, raw, lines };
+}
+
 // SPEC-5 #16 — every registry attestation slot is now FILLED (tempo #3,
 // hyperliquid mainnet #2, solana B4), so the null-slot skip branch is
 // unreachable via real data. Synthesize the pre-deploy hyperliquid state
@@ -117,7 +139,7 @@ describe("makeAttestDep", () => {
     // call to a non-contract address MINES status=success as a no-op on
     // HyperEVM, so the receipt guard alone cannot catch it — the null
     // registry slot must fail loudly BEFORE any tx is sent.
-    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = capture();
     const env = {
       REXTOR_AGENT_PRIVATE_KEY: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d", // anvil key #1, test-only
       REXTOR_ATTEST_CONTRACT_ADDRESS: "0x7fe69adeaaaf5fb2344ab14ac0eec42463410bcd", // retired Tempo deploy #2
@@ -130,7 +152,11 @@ describe("makeAttestDep", () => {
     });
     const result = await attest(record);
     expect(result).toBeNull();
-    expect(err).toHaveBeenCalledWith(expect.stringMatching(/registry slot unverified/));
-    err.mockRestore();
+    // The skip is a structured chain.* warn carrying the chain it refused.
+    const skips = log.lines().filter((l) => l.event === "chain.attest_registry_unverified");
+    expect(skips).toHaveLength(1);
+    expect(skips[0].msg).toMatch(/registry slot unverified/);
+    expect(skips[0].chain).toBe("hyperliquid");
+    log.spy.mockRestore();
   });
 });

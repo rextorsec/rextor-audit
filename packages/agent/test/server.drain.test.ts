@@ -9,6 +9,29 @@ import {
 } from "../src/server";
 import type { ReviewDeps } from "../src/review";
 
+// Logger seam: the service writes one JSON line per event to stdout; tests
+// capture the raw writes (fragments stay greppable inside the JSON) and can
+// parse them for event-level assertions.
+function capture() {
+  const raw: string[] = [];
+  const spy = vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+    raw.push(String(chunk));
+    return true;
+  });
+  function lines(): Array<Record<string, unknown>> {
+    const parsed: Array<Record<string, unknown>> = [];
+    for (const s of raw) {
+      try {
+        parsed.push(JSON.parse(s) as Record<string, unknown>);
+      } catch {
+        // ignore foreign stdout noise
+      }
+    }
+    return parsed;
+  }
+  return { spy, raw, lines };
+}
+
 // Drain semantics (R3 + C1): reviews are ACKed before they run, so a supervisor
 // SIGTERM must finish in-flight reviews instead of silently dropping them.
 // These tests pin the drain gate (503 + Retry-After to mid-drain deliveries,
@@ -160,7 +183,7 @@ describe("graceful drain on SIGTERM", () => {
     const { deps } = makeFakeDeps();
     deps.fetchDiff = async () => new Promise<string>(() => {}); // review never settles
     const { firstCode, exit } = captureExit();
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = capture();
     try {
       await withDrainServer(deps, { timeoutMs: 25, exit }, async (port) => {
         const acked = await post(port, BODY, signed(BODY));
@@ -171,10 +194,10 @@ describe("graceful drain on SIGTERM", () => {
         expect(await firstCode).toBe(1);
         expect(Date.now() - startedAt).toBeGreaterThanOrEqual(20);
         // The cap log names the state reached: server closed, queue busy.
-        expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("drain timed out"));
+        expect(log.spy).toHaveBeenCalledWith(expect.stringContaining("drain timed out"));
       });
     } finally {
-      errSpy.mockRestore();
+      log.spy.mockRestore();
     }
   });
 
@@ -229,7 +252,7 @@ describe("graceful drain on SIGTERM", () => {
         return diff.done;
       };
       const { calls, firstCode, exit } = captureExit();
-      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const log = capture();
       const prev = process.env.REXTOR_DRAIN_TIMEOUT_MS;
       process.env.REXTOR_DRAIN_TIMEOUT_MS = raw;
       try {
@@ -239,8 +262,8 @@ describe("graceful drain on SIGTERM", () => {
           await acked.json();
           await vi.waitFor(() => expect(diffRequested).toBe(true)); // review parked mid-run
           process.emit("SIGTERM", "SIGTERM");
-          expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("REXTOR_DRAIN_TIMEOUT_MS"));
-          expect(errSpy).toHaveBeenCalledTimes(1); // once, at boot — not per tick
+          expect(log.spy).toHaveBeenCalledWith(expect.stringContaining("REXTOR_DRAIN_TIMEOUT_MS"));
+          expect(log.lines().filter((l) => l.event === "service.drain_env_invalid")).toHaveLength(1); // once, at boot — not per tick
           // Absence check on a real clock — the drain's cap timer and the HTTP
           // stack under test are real timers (fake timers would freeze
           // undici/node:http); same pattern as the held-exit test above.
@@ -251,7 +274,7 @@ describe("graceful drain on SIGTERM", () => {
           expect(cloned).toHaveLength(1); // the in-flight review finished
         });
       } finally {
-        errSpy.mockRestore();
+        log.spy.mockRestore();
         if (prev === undefined) delete process.env.REXTOR_DRAIN_TIMEOUT_MS;
         else process.env.REXTOR_DRAIN_TIMEOUT_MS = prev;
       }
@@ -273,7 +296,7 @@ describe("graceful drain on SIGTERM", () => {
       return fb.done;
     };
     const { calls, firstCode, exit } = captureExit();
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const log = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     try {
       await withDrainServer(deps, { timeoutMs: 5_000, exit }, async (port) => {
         const acked = await post(port, BODY, signed(BODY));
@@ -308,7 +331,7 @@ describe("graceful drain on SIGTERM", () => {
       return never;
     };
     const { firstCode, exit } = captureExit();
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = capture();
     try {
       await withDrainServer(deps, { timeoutMs: 25, exit }, async (port) => {
         const acked = await post(port, BODY, signed(BODY));
@@ -319,10 +342,10 @@ describe("graceful drain on SIGTERM", () => {
         const startedAt = Date.now();
         expect(await firstCode).toBe(1);
         expect(Date.now() - startedAt).toBeGreaterThanOrEqual(20);
-        expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("drain timed out"));
+        expect(log.spy).toHaveBeenCalledWith(expect.stringContaining("drain timed out"));
       });
     } finally {
-      errSpy.mockRestore();
+      log.spy.mockRestore();
       releaseNever(); // settle the tracked promise so later tests see an empty set
     }
   });

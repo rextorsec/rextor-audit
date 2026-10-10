@@ -14,6 +14,7 @@ import { makeAttestDep } from "./attest";
 import { makeSolanaVerdictDep } from "./solana";
 import { makePinDep } from "./ipfs";
 import { triageFromEnv } from "./triage";
+import { logWarn } from "./logger";
 
 const execFileP = promisify(execFile);
 
@@ -99,9 +100,11 @@ export function githubDeps(options: GithubDepsOptions = {}): ReviewDeps {
             subErr instanceof Error
               ? subErr.message.split(t).join("***")
               : String(subErr).split(t).join("***");
-          console.error(
-            `[rextor] submodule init failed for ${owner}/${repo}#${number} (continuing):`,
-            subDetail,
+          logWarn(
+            "review.submodule_init_failed",
+            `submodule init failed for ${owner}/${repo}#${number} (continuing): ${subDetail}`,
+            undefined,
+            { repo: `${owner}/${repo}`, pr: number },
           );
         }
         // SPEC-4 §3: the attestation record needs the PR head sha — the clone

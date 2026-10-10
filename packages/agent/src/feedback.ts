@@ -20,6 +20,7 @@
 // path; skipped outcomes leave no row.
 import { createPublicClient, createWalletClient, defineChain, http, parseAbi, zeroHash } from "viem";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
+import { logError } from "./logger";
 
 // Live registries run version 2.0.0 (docs/deployments/erc8004.md): value is
 // int128 — the older uint8 draft selector is NOT on-chain.
@@ -209,7 +210,7 @@ export async function submitFeedback(
   } catch (err) {
     // Log the MESSAGE only — never stack traces/env that could echo secrets.
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("[rextor] feedback submit failed:", msg);
+    logError("chain.feedback_submit_failed", "feedback submit failed:", msg);
     return { skipped: `feedback submit failed: ${msg}` };
   }
 }

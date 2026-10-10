@@ -45,6 +45,7 @@ import {
   type ReviewResult,
   type SolanaVerdictInfo,
 } from "./review/types";
+import { logError, logWarn } from "./logger";
 
 export type { Finding, IncompleteCause } from "./findings";
 export { incompleteCauseFor } from "./findings";
@@ -137,13 +138,12 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     ({ dir: repoDir, headSha } = await deps.clone(prUrl));
   } catch (err) {
     const reason = `github setup failed: ${err instanceof Error ? err.message : String(err)}`;
-    console.error("[rextor]", reason);
+    logError("review.setup_failed", reason, err, { prUrl });
     try {
       await githubStage("postComment", deps.postComment(prUrl, incompleteCommentBody(reason, "infra")));
       return { commented: true, score: 0, incomplete: reason, incompleteCause: "infra", findings: [] };
     } catch (postErr) {
-      console.error("[rextor] failure comment could not be posted:",
-        postErr instanceof Error ? postErr.message : postErr);
+      logError("github.comment_post_failed", "failure comment could not be posted:", postErr);
       return { commented: false, score: 0, incomplete: reason, incompleteCause: "infra", findings: [] };
     }
   }
@@ -163,8 +163,9 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
       repoConfig = parsed.config;
       configError = parsed.error;
     } catch (err) {
-      console.error("[rextor] rextor.yaml read failed (infrastructure):",
-        err instanceof Error ? err.message : err);
+      logWarn("review.config_read_failed",
+        "rextor.yaml read failed (infrastructure):",
+        err);
     }
   }
   const yamlDismissalKeys = new Set(
@@ -182,8 +183,9 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
         ...deps.repoMemory.dismissedKeys(identity.repoFullName),
       ]);
     } catch (err) {
-      console.error("[rextor] dismissals memory sync failed — yaml keys only:",
-        err instanceof Error ? err.message : err);
+      logWarn("review.dismissals_sync_failed",
+        "dismissals memory sync failed — yaml keys only:",
+        err);
     }
   }
   // Config errors contain yaml-derived repo content — untrusted text renders
@@ -203,8 +205,9 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     try {
       await githubStage("postCheckRun", deps.postCheckRun(prUrl, headSha, conclusion, summary));
     } catch (err) {
-      console.error("[rextor] check-run post failed:",
-        err instanceof Error ? err.message : err);
+      logWarn("github.check_run_failed",
+        "check-run post failed:",
+        err);
     }
   };
 
@@ -238,7 +241,8 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
         created_at: new Date().toISOString(),
       });
     } catch (err) {
-      console.error("[rextor] review index write failed:", err instanceof Error ? err.message : err);
+      logError("review.index_write_failed", "review index write failed:", err,
+        { repo: identity.repoFullName, pr: identity.prNumber });
     }
   };
 
@@ -279,8 +283,9 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
           const pinned = await deps.pin({ commented: true, score: riskScore, findings });
           findingsURI = pinned.uri;
         } catch (err) {
-          console.error("[rextor] ipfs pin failed — attesting without findingsURI:",
-            err instanceof Error ? err.message : err);
+          logWarn("chain.pin_failed",
+            "ipfs pin failed — attesting without findingsURI:",
+            err);
         }
       }
       // SPEC-4 v2 — targetChainId resolves from the SPEC-5 registry chain via
@@ -325,7 +330,7 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
         findingsHash: record.findingsHash,
       };
     } catch (err) {
-      console.error("[rextor] attestation failed:", err instanceof Error ? err.message : err);
+      logError("chain.attest_failed", "attestation failed:", err);
       return { att: { skipped: "attestation attempt failed" } };
     }
   };
@@ -406,7 +411,7 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
       try {
         triaged = await deps.triage(withIds(findings), scope, diff);
       } catch (err) {
-        console.error("[rextor] triage dep threw:", err instanceof Error ? err.message : err);
+        logWarn("review.triage_dep_failed", "triage dep threw:", err);
         triaged = rawFindingsResult(withIds(findings));
       }
     } else {
@@ -429,7 +434,7 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
           );
           if (occurrences >= 2) fnd.learningNote = `rextor ledger: fired ${occurrences}× in this repo`;
         } catch (err) {
-          console.error("[rextor] learnings record failed:", err instanceof Error ? err.message : err);
+          logWarn("review.learnings_failed", "learnings record failed:", err);
         }
       }
     }
@@ -452,10 +457,11 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
       commentUrl = typeof posted === "string" ? posted : undefined;
       commentPosted = true;
     } catch (err) {
-      console.error(
-        "[rextor] SETTLED-REVIEW COMMENT LOST (verdict exists; index row written; manual comment redrive needed):",
-        `${identity.repoFullName}#${identity.prNumber}@${headSha.slice(0, 10)} —`,
-        err instanceof Error ? err.message : err,
+      logError(
+        "github.settled_comment_lost",
+        "SETTLED-REVIEW COMMENT LOST (verdict exists; index row written; manual comment redrive needed):",
+        err,
+        { repo: identity.repoFullName, pr: identity.prNumber, headSha },
       );
     }
     await checkRunStage(conclusion,
@@ -468,7 +474,7 @@ export async function runReview(prUrl: string, deps: ReviewDeps): Promise<Review
     try {
       await deps.dispose(repoDir);
     } catch (err) {
-      console.error("[rextor] clone cleanup failed:", err);
+      logError("review.clone_cleanup_failed", "clone cleanup failed:", err, undefined, { stack: true });
     }
   }
 }

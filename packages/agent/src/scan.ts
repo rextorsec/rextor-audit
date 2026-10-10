@@ -30,6 +30,7 @@ import {
 } from "./findings";
 import { rawFindingsResult } from "./triage";
 import { simTmpBase } from "./sim";
+import { logError, logWarn } from "./logger";
 
 // A hung git transport must not block the synchronous scan request forever
 // (same budget discipline as github.ts's clone: SIGKILL, bounded).
@@ -165,7 +166,12 @@ export async function runScan(repo: string, ref: string | undefined, deps: ScanD
       } catch (subErr) {
         const subDetail =
           subErr instanceof Error ? subErr.message.split(t).join("***") : String(subErr).split(t).join("***");
-        console.error(`[rextor] submodule init failed for ${repo}@${requestedRef} (continuing):`, subDetail);
+        logWarn(
+          "review.submodule_init_failed",
+          `submodule init failed for ${repo}@${requestedRef} (continuing): ${subDetail}`,
+          undefined,
+          { repo, ref: requestedRef },
+        );
       }
       headSha = (await runGit(["-C", dir, "rev-parse", "HEAD"])).trim();
     } catch (err) {
@@ -223,7 +229,7 @@ export async function runScan(repo: string, ref: string | undefined, deps: ScanD
     try {
       await rmDir(dir);
     } catch (err) {
-      console.error("[rextor] scan clone cleanup failed:", err);
+      logError("review.clone_cleanup_failed", "scan clone cleanup failed:", err, undefined, { stack: true });
     }
   }
 }

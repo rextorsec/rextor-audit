@@ -26,6 +26,7 @@ import { Connection, Keypair, type TransactionSignature } from "@solana/web3.js"
 import { CHAIN_REGISTRY } from "./chains";
 import type { AttestRecord } from "./attest";
 import type { ReviewDeps } from "./review";
+import { logError, logWarn } from "./logger";
 
 /** Same fast-write budget as the Tempo attest dep (SPEC-4 §3): a hung devnet
  *  RPC must never delay the PR comment — the verdict is best-effort. */
@@ -115,32 +116,32 @@ export function makeSolanaVerdictDep(
     const programId = env.REXTOR_SOLANA_PROGRAM_ID;
     const keypairPath = env.REXTOR_SOLANA_KEYPAIR;
     if (!programId || !keypairPath) {
-      console.error("[rextor] solana verdict env unset at call time — skipping");
+      logWarn("chain.solana_env_unset", "solana verdict env unset at call time — skipping");
       return null;
     }
     // Fee-burn guards: the program rejects these deterministically, and a
     // rejected Solana tx still pays. Fail here, loudly, for free.
     if (!/^0x[0-9a-f]{64}$/.test(record.reviewId)) {
-      console.error("[rextor] solana verdict: reviewId is not 32 bytes — refusing to send");
+      logWarn("chain.solana_refused", "solana verdict: reviewId is not 32 bytes — refusing to send");
       return null;
     }
     if (record.riskScore < 0 || record.riskScore > 100) {
-      console.error("[rextor] solana verdict: riskScore out of range — refusing to send");
+      logWarn("chain.solana_refused", "solana verdict: riskScore out of range — refusing to send");
       return null;
     }
     if (record.status < 0 || record.status > 1) {
-      console.error("[rextor] solana verdict: status out of range — refusing to send");
+      logWarn("chain.solana_refused", "solana verdict: status out of range — refusing to send");
       return null;
     }
     if (Buffer.byteLength(record.findingsURI, "utf8") > 128) {
-      console.error("[rextor] solana verdict: findingsURI exceeds 128 bytes — refusing to send");
+      logWarn("chain.solana_refused", "solana verdict: findingsURI exceeds 128 bytes — refusing to send");
       return null;
     }
     // The same bytes the EVM contract hashes: 32-byte array, hex minus "0x".
     const reviewId = Array.from(Buffer.from(record.reviewId.slice(2), "hex"));
     const rpc = CHAIN_REGISTRY.solana.testnet.rpc;
     if (!rpc) {
-      console.error("[rextor] solana registry rpc unverified — skipping");
+      logWarn("chain.solana_rpc_unverified", "solana registry rpc unverified — skipping");
       return null;
     }
     const attempt = io
@@ -163,14 +164,14 @@ export function makeSolanaVerdictDep(
     let timer: NodeJS.Timeout | undefined;
     const guard = new Promise<null>((resolve) => {
       timer = setTimeout(() => {
-        console.error("[rextor] solana verdict timed out — the tx may still have landed");
+        logError("chain.solana_timeout", "solana verdict timed out — the tx may still have landed");
         resolve(null);
       }, timeoutMs);
     });
     return Promise.race([attempt, guard])
       .catch((err: unknown) => {
         // Log the MESSAGE only — never stack traces/env that could echo secrets.
-        console.error("[rextor] solana verdict write failed:", err instanceof Error ? err.message : err);
+        logError("chain.solana_write_failed", "solana verdict write failed:", err instanceof Error ? err.message : err);
         return null;
       })
       .finally(() => clearTimeout(timer));
