@@ -38,7 +38,8 @@ Audits are point-in-time. Code is continuous.
 |---|---|
 | Website | `https://www.rextoraudit.com` |
 | GitHub | `https://github.com/rextorsec/rextor-audit` (public, MIT) |
-| Demo video | `[RECTOR: paste final render link — hosting decision pending]` |
+| Demo video | **`https://vimeo.com/1234667258`** (uploaded + approved 2026-10-10, RECTOR "lgtm"; Public per RECTOR decision — matches his 3 existing public hackathon videos) |
+| Demo PR (click-through, public) | `https://github.com/rextorsec/rextor-audit-test/pull/12` (repo flipped public 2026-10-10 per RECTOR) |
 | Install | `https://www.rextoraudit.com/install` |
 | Live receipts | `/api/chain/tempo` · `/api/chain/hyperliquid` · dashboard `/dashboard/rextorsec/rextor-audit-test` |
 
