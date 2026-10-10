@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
@@ -139,6 +139,92 @@ describe("github adapter clone location", () => {
     } finally {
       vi.unstubAllEnvs();
       await rm(base, { recursive: true, force: true });
+    }
+  });
+});
+
+// F5 — postComment must decide auth EXACTLY like postCheckRun: App
+// installation token when it resolves (the comment posts as
+// rextor-audit[bot], not the PAT user), PAT otherwise. The provider seam
+// keeps token minting out of the network; a global fetch stub intercepts
+// only Octokit's comment call and records its Authorization header.
+// (@octokit/auth-token@6 prefixes dotless tokens with `token `, only
+// 3-dot JWT-shaped strings get `bearer` — same wire format postCheckRun
+// already sends.)
+describe("github adapter postComment auth (F5)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const COMMENT_URL = "https://github.com/rextor/demo/pull/42#issuecomment-1";
+
+  function stubFetch(calls: Array<{ url: string; init?: RequestInit }>): void {
+    const stub = (async (url: string | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ html_url: COMMENT_URL }), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", stub);
+  }
+
+  function authorizationHeader(call: { init?: RequestInit }): string | undefined {
+    const headers = (call.init?.headers ?? {}) as Record<string, string>;
+    return Object.entries(headers).find(([k]) => k.toLowerCase() === "authorization")?.[1];
+  }
+
+  it("App token resolves → the comment request authenticates as the installation", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    stubFetch(calls);
+    const deps = githubDeps({
+      token: () => "ghp_pat_token",
+      installationToken: async () => "ghs_app_token",
+    });
+
+    const url = await deps.postComment("https://github.com/rextor/demo/pull/42", "audit body");
+
+    expect(url).toBe(COMMENT_URL);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.init?.method).toBe("POST");
+    expect(calls[0]!.url).toContain("/repos/rextor/demo/issues/42/comments");
+    expect(authorizationHeader(calls[0]!)).toBe("token ghs_app_token");
+    // The PAT must not leak into the request at all.
+    expect(JSON.stringify(calls[0]!.init?.headers)).not.toContain("ghp_pat_token");
+  });
+
+  it("App unconfigured (provider resolves null) → PAT fallback", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    stubFetch(calls);
+    const deps = githubDeps({
+      token: () => "ghp_pat_token",
+      installationToken: async () => null,
+    });
+
+    const url = await deps.postComment("https://github.com/rextor/demo/pull/42", "audit body");
+
+    expect(url).toBe(COMMENT_URL);
+    expect(authorizationHeader(calls[0]!)).toBe("token ghp_pat_token");
+  });
+
+  it("default provider wiring: env triple unset → no mint request, PAT used", async () => {
+    vi.stubEnv("REXTOR_GITHUB_APP_ID", "");
+    vi.stubEnv("REXTOR_GITHUB_INSTALLATION_ID", "");
+    vi.stubEnv("REXTOR_GITHUB_APP_PEM_PATH", "");
+    try {
+      const calls: Array<{ url: string; init?: RequestInit }> = [];
+      stubFetch(calls);
+      const deps = githubDeps({ token: () => "ghp_pat_token" });
+
+      const url = await deps.postComment("https://github.com/rextor/demo/pull/42", "audit body");
+
+      expect(url).toBe(COMMENT_URL);
+      // Exactly one HTTP call: the comment. The default provider minted nothing.
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.url).toContain("/repos/rextor/demo/issues/42/comments");
+      expect(authorizationHeader(calls[0]!)).toBe("token ghp_pat_token");
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 });

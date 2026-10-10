@@ -32,8 +32,10 @@ export interface GithubDepsOptions {
   /** Token source seam; default: env GITHUB_TOKEN, required. */
   token?: () => string;
   /** F5 — App installation-token source for the check-run receipt (checks:
-   *  write). Default provider reads the REXTOR_GITHUB_APP_* env triple per
-   *  call; unset → resolves null → postCheckRun falls back to `token()`. */
+   *  write) and review comments (posted as rextor-audit[bot]). Default
+   *  provider reads the REXTOR_GITHUB_APP_* env triple per call and caches
+   *  the minted token to expiry; unset → resolves null → postCheckRun and
+   *  postComment fall back to `token()`. */
   installationToken?: () => Promise<string | null>;
   /** Directory-removal seam (test injection); default: rm -rf. */
   rmDir?: (dir: string) => Promise<void>;
@@ -154,9 +156,13 @@ export function githubDeps(options: GithubDepsOptions = {}): ReviewDeps {
     // attests with findingsURI "" (degraded mode).
     pin: makePinDep(),
 
+    // F5 — same auth decision as postCheckRun: the comment posts as
+    // rextor-audit[bot] whenever the App installation token resolves, PAT
+    // fallback otherwise (the provider caches to expiry — no per-call mint).
     async postComment(prUrl: string, body: string): Promise<string | undefined> {
       const { owner, repo, number } = prParts(prUrl);
-      const octokit = new Octokit({ auth: token(), request: { timeout: OCTOKIT_TIMEOUT_MS } });
+      const appAuth = await installationToken();
+      const octokit = new Octokit({ auth: appAuth ?? token(), request: { timeout: OCTOKIT_TIMEOUT_MS } });
       const res = await octokit.rest.issues.createComment({ owner, repo, issue_number: number, body });
       // SPEC-6 §3 — the comment html_url is the review index's comment_url.
       return res.data.html_url ?? undefined;
