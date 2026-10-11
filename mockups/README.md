@@ -16,3 +16,4 @@ Planned mocks (Week 3 per PLAN.md):
 - `dashboard/` — living audit report (attestation ledger, risk history)
 - `dashboard-v2/` — extension mock (2026-10-06): metrics strip + percentiles, run-config transparency footer, config live-preview pane, dismissals panel, real INCOMPLETE row — teardown steal-list absorbs; **awaiting RECTOR approval**
 - `install/` — GitHub App install + onboarding flow
+- `deep-scan/` — Deep Scan surface (2026-10-11): scans page (trigger panel 8-state demo + scans ledger: live receipt row + labeled design specimens + empty-ledger state) + report view (hero, findings table with expanded specimen row, clean-pass and INCOMPLETE variants). Family-continuity with `dashboard-v2/` — zero new tokens. **approved 2026-10-11**

@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rextor Audit — Deep Scan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="tokens.css">
+<style>
+/* Hallmark · macrostructure: Workbench (deep-scan extension run) · tone: operator · anchor hue: raptor-green 165 · family-continuity: dashboard-v2, zero new tokens */
+/* Hallmark · pre-emit critique: P4 H4 E4 S5 R4 V3 (family-continuity run) */
+/* V3 is the inverted diversification rule — an app-surface family shares its system; see dashboard-v2/.hallmark-stamp.md. E4: enrichment is functional only (indeterminate bar, state renderings), no ornament. */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.6;
+  color: var(--foreground);
+  background: var(--background);
+  padding-inline: max(1rem, env(safe-area-inset-left)) max(1rem, env(safe-area-inset-right));
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+.container { max-width: 64rem; margin-inline: auto; }
+a { color: inherit; }
+
+/* ---------- N9 edge-aligned nav (family-verbatim) ---------- */
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-block: var(--space-lg);
+  border-bottom: 1px solid var(--border);
+}
+.wordmark {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: var(--text-sm);
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  white-space: nowrap;
+}
+.wordmark::before {
+  content: "";
+  width: 0.55rem;
+  height: 0.55rem;
+  background: var(--primary);
+  border-radius: 1px;
+}
+.btn {
+  display: inline-block;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1;
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: 999px;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.btn--ghost { border: 1px solid var(--border); color: var(--foreground); background: transparent; }
+.btn--ghost:hover { border-color: var(--rule-strong); }
+.btn--primary { border: 1px solid var(--primary); background: var(--primary); color: var(--primary-foreground); }
+.btn--primary:hover, .demo--hover .btn--primary { background: var(--primary-strong); border-color: var(--primary-strong); }
+.btn--primary:active, .demo--active .btn--primary { transform: translateY(1px); background: var(--primary-strong); border-color: var(--primary-strong); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+.btn--loading { cursor: progress; }
+.btn:focus-visible, a:focus-visible, summary:focus-visible, .input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+/* ---------- page header ---------- */
+.pagehead { padding-block: var(--space-2xl) var(--space-xl); }
+.pagehead h1 {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.pagehead__lede {
+  margin-top: var(--space-sm);
+  color: var(--muted-foreground);
+  max-width: 58ch;
+}
+
+/* ---------- section heading convention (family) ---------- */
+.sec-h {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--subtle-foreground);
+  margin-bottom: var(--space-md);
+}
+
+/* ---------- trigger panel — component-scope state previews ---------- */
+.trigger { padding-block: var(--space-lg) var(--space-2xl); }
+.panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  padding: var(--space-lg);
+}
+.panel__intro {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--subtle-foreground);
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--border);
+}
+.demo {
+  display: grid;
+  grid-template-columns: minmax(0, 16ch) minmax(0, 1fr);
+  gap: var(--space-lg);
+  padding-block: var(--space-lg);
+}
+.demo + .demo { border-top: 1px solid var(--border); }
+.demo__name {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.demo__note {
+  margin-top: var(--space-2xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--subtle-foreground);
+  overflow-wrap: anywhere;
+}
+.demo__body { min-width: 0; }
+.demo--focus .input {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-color: var(--rule-strong);
+}
+
+/* form fields */
+.form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+.field { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2xs); }
+.field__label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--subtle-foreground);
+}
+.input {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: var(--space-sm) var(--space-md);
+  width: 100%;
+  overflow-wrap: anywhere;
+}
+.input::placeholder { color: var(--subtle-foreground); }
+.input--invalid { border-color: var(--danger); }
+.field__error {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+.hint {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--subtle-foreground);
+  overflow-wrap: anywhere;
+}
+.form__actions {
+  margin-top: var(--space-md);
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+.duration {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+}
+
+/* loading — indeterminate affordance, transform/opacity only */
+.progress {
+  margin-top: var(--space-md);
+  height: 2px;
+  background: var(--elevated);
+  border-radius: 1px;
+  overflow: hidden;
+}
+.progress__ind {
+  width: 30%;
+  height: 100%;
+  background: var(--primary);
+  transform: translateX(-110%);
+  animation: indslide 1.4s var(--ease-in-out) infinite;
+}
+@keyframes indslide { to { transform: translateX(440%); } }
+.dots span {
+  display: inline-block;
+  animation: pulse 1.2s var(--ease-in-out) infinite;
+}
+.dots span:nth-child(2) { animation-delay: 0.2s; }
+.dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+
+/* result banners — family banner pattern */
+.banner {
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  background: var(--elevated);
+  padding: var(--space-sm) var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+.banner--error { border-color: var(--danger); }
+.banner--error strong { color: var(--danger); font-weight: 500; white-space: nowrap; }
+.banner--ok { border-color: var(--success); }
+.link--receipt {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--primary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.link--receipt:hover { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+
+/* ---------- scan ledger ---------- */
+.ledger { padding-block: var(--space-lg) var(--space-2xl); }
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table {
+  width: 100%;
+  min-width: 54rem;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: var(--text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--subtle-foreground);
+  padding: var(--space-sm) var(--space-md) var(--space-sm) 0;
+  border-bottom: 1px solid var(--rule-strong);
+  white-space: nowrap;
+}
+td {
+  padding: var(--space-md) var(--space-md) var(--space-md) 0;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+td.c-repo { font-family: var(--font-mono); overflow-wrap: anywhere; }
+td.c-ref { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted-foreground); white-space: nowrap; }
+td.c-sha { font-family: var(--font-mono); overflow-wrap: anywhere; }
+td.c-risk, td.c-findings { font-family: var(--font-mono); font-weight: 500; }
+td.c-risk .of { color: var(--subtle-foreground); font-weight: 400; }
+td.c-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted-foreground); white-space: nowrap; }
+td .severity { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 1px; margin-right: var(--space-2xs); }
+td .sev-mid { background: var(--warning); }
+td .sev-low { background: var(--success); }
+td .row-sub {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--subtle-foreground);
+  margin-top: var(--space-2xs);
+  overflow-wrap: anywhere;
+}
+.chip {
+  display: inline-block;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.chip--live { color: var(--primary); border-color: var(--primary); }
+.chip--incomplete { color: var(--warning); border-color: var(--warning); }
+.chip--degraded { color: var(--muted-foreground); border-color: var(--rule-strong); border-style: dashed; }
+.chip--cause { white-space: normal; }
+tr.ledger__divider td {
+  border-top: 1px dashed var(--rule-strong);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--label);
+  padding-block: var(--space-sm);
+}
+.ledger__more {
+  margin-top: var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--subtle-foreground);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- empty-ledger state banner (family empty pattern) ---------- */
+.state-banner {
+  border: 1px dashed var(--rule-strong);
+  border-radius: 8px;
+  padding: var(--space-2xl);
+  text-align: center;
+  margin-top: var(--space-lg);
+}
+.state-banner__tag {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--label);
+  display: block;
+  margin-bottom: var(--space-sm);
+}
+.state-banner p { color: var(--muted-foreground); max-width: 46ch; margin-inline: auto; overflow-wrap: anywhere; }
+
+/* ---------- Ft5 statement footer (family-verbatim) ---------- */
+.footer { border-top: 1px solid var(--border); padding-block: var(--space-2xl) var(--space-lg); }
+.footer__statement {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  max-width: 28ch;
+  overflow-wrap: anywhere;
+}
+.footer__statement span { color: var(--primary); }
+.footer__meta {
+  margin-top: var(--space-lg);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+.footer__meta a { color: var(--muted-foreground); text-decoration: none; white-space: nowrap; }
+.footer__meta a:hover { color: var(--foreground); }
+.footer__freeze {
+  margin-top: var(--space-2xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--subtle-foreground);
+}
+
+@media (max-width: 48rem) {
+  .demo { grid-template-columns: 1fr; gap: var(--space-md); }
+  .form { grid-template-columns: 1fr; }
+}
+@media (max-width: 30rem) {
+  .panel { padding: var(--space-md); }
+  .state-banner { padding: var(--space-xl) var(--space-md); }
+}
+</style>
+</head>
+<body>
+
+<nav class="nav container" aria-label="Primary">
+  <a class="wordmark" href="#">REXTOR AUDIT</a>
+  <a class="btn btn--ghost" href="#">Install on a repo</a>
+</nav>
+
+<main class="container">
+
+  <header class="pagehead">
+    <h1>Deep Scan</h1>
+    <p class="pagehead__lede">Whole-repo scan at a pinned head — synchronous, minutes not seconds. The verdict lands in the ledger below with its full receipt.</p>
+  </header>
+
+  <section class="trigger" aria-label="Deep Scan trigger panel">
+    <h2 class="sec-h">Trigger panel · component states</h2>
+    <div class="panel">
+      <p class="panel__intro">every state the same component can be in — static renderings, not screenshots; the form itself is the product</p>
+
+      <div class="demo">
+        <div>
+          <p class="demo__name">default</p>
+          <p class="demo__note">resting panel — repo + optional ref, then run</p>
+        </div>
+        <div class="demo__body">
+          <div class="form">
+            <div class="field">
+              <label class="field__label" for="repo-default">repo</label>
+              <input class="input" id="repo-default" name="repo" type="text" placeholder="owner/repo" spellcheck="false" autocomplete="off">
+              <p class="hint">owner/name · charset [A&#8209;Za&#8209;z0&#8209;9_.-]</p>
+            </div>
+            <div class="field">
+              <label class="field__label" for="ref-default">ref · optional</label>
+              <input class="input" id="ref-default" name="ref" type="text" placeholder="HEAD" spellcheck="false" autocomplete="off">
+              <p class="hint">branch, tag or sha — empty resolves to HEAD</p>
+            </div>
+          </div>
+          <div class="form__actions">
+            <button class="btn btn--primary" type="button">Run Deep Scan</button>
+            <p class="duration">whole-repo run · synchronous · expect minutes, not seconds</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="demo">
+        <div>
+          <p class="demo__name">invalid input · HTTP 400</p>
+          <p class="demo__note">inline field validation — rejected before the scan starts, no ledger row</p>
+        </div>
+        <div class="demo__body">
+          <div class="form">
+            <div class="field">
+              <label class="field__label" for="repo-invalid">repo</label>
+              <input class="input input--invalid" id="repo-invalid" name="repo" type="text" value="vault core!" spellcheck="false" autocomplete="off">
+              <p class="field__error">invalid repo — expected owner/name · allowed [A&#8209;Za&#8209;z0&#8209;9_.-]</p>
+            </div>
+            <div class="field">
+              <label class="field__label" for="ref-invalid">ref · optional</label>
+              <input class="input" id="ref-invalid" name="ref" type="text" placeholder="HEAD" spellcheck="false" autocomplete="off">
+              <p class="hint">HTTP 400 — fix the path, nothing to retry</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="demo demo--hover">
+        <div>
+          <p class="demo__name">hover</p>
+          <p class="demo__note">:hover on the primary action</p>
+        </div>
+        <div class="demo__body">
+          <button class="btn btn--primary" type="button">Run Deep Scan</button>
+        </div>
+      </div>
+
+      <div class="demo demo--focus">
+        <div>
+          <p class="demo__name">focus&#8209;visible</p>
+          <p class="demo__note">keyboard focus — ring from var(--ring)</p>
+        </div>
+        <div class="demo__body">
+          <div class="form">
+            <div class="field">
+              <label class="field__label" for="repo-focus">repo</label>
+              <input class="input" id="repo-focus" type="text" placeholder="owner/repo" spellcheck="false" autocomplete="off">
+              <p class="hint">owner/name · charset [A&#8209;Za&#8209;z0&#8209;9_.-]</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="demo demo--active">
+        <div>
+          <p class="demo__name">active</p>
+          <p class="demo__note">:active press — 1px down</p>
+        </div>
+        <div class="demo__body">
+          <button class="btn btn--primary" type="button">Run Deep Scan</button>
+        </div>
+      </div>
+
+      <div class="demo">
+        <div>
+          <p class="demo__name">disabled</p>
+          <p class="demo__note">prerequisite missing — inert, not hidden</p>
+        </div>
+        <div class="demo__body">
+          <button class="btn btn--primary" type="button" disabled>Run Deep Scan</button>
+        </div>
+      </div>
+
+      <div class="demo">
+        <div>
+          <p class="demo__name">loading</p>
+          <p class="demo__note">indeterminate by design — no fake percent; the run reports when it's done</p>
+        </div>
+        <div class="demo__body">
+          <button class="btn btn--primary btn--loading" type="button" aria-busy="true">scanning whole repo — this takes minutes<span class="dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></button>
+          <div class="progress" role="progressbar" aria-label="Scan progress — indeterminate"><div class="progress__ind"></div></div>
+        </div>
+      </div>
+
+      <div class="demo">
+        <div>
+          <p class="demo__name">error · HTTP 409</p>
+          <p class="demo__note">single-flight — one whole-repo scan runs at a time</p>
+        </div>
+        <div class="demo__body">
+          <div class="banner banner--error">
+            <strong>scan already in progress</strong>
+            <span>HTTP 409 — wait for the running scan, or check the ledger for its row when it settles</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="demo">
+        <div>
+          <p class="demo__name">success</p>
+          <p class="demo__note">lands in the ledger and links to the report view — sample values are the real receipt</p>
+        </div>
+        <div class="demo__body">
+          <div class="banner banner--ok">
+            <span>status 0 · risk 34 / 100 · 4 findings · head ce7f6a9</span>
+            <a class="link--receipt" href="./report.html">open report ↗</a>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section class="ledger" aria-label="Deep Scan ledger">
+    <h2 class="sec-h">Scan ledger · newest first</h2>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Repo</th>
+            <th scope="col">Ref</th>
+            <th scope="col">Head</th>
+            <th scope="col">Status</th>
+            <th scope="col">Risk</th>
+            <th scope="col">Findings</th>
+            <th scope="col">Scanned (UTC)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="c-repo" data-label="Repo">rextorsec/rextor-audit-test</td>
+            <td class="c-ref" data-label="Ref">main</td>
+            <td class="c-sha" data-label="Head" title="ce7f6a9d2b42abcd599537e4abffa33d8760496c">ce7f6a9</td>
+            <td class="c-status" data-label="Status"><span class="chip chip--live">complete · status 0</span></td>
+            <td class="c-risk" data-label="Risk"><span class="severity sev-low" aria-hidden="true"></span>34 <span class="of">/ 100</span></td>
+            <td class="c-findings" data-label="Findings">4</td>
+            <td class="c-date" data-label="Scanned (UTC)">2026-10-10 19:45:22</td>
+          </tr>
+        </tbody>
+        <tbody class="ledger__specimens">
+          <tr class="ledger__divider">
+            <td colspan="7">design specimens · example data — not scan history</td>
+          </tr>
+          <tr>
+            <td class="c-repo" data-label="Repo">example-org/vault-contracts</td>
+            <td class="c-ref" data-label="Ref">main</td>
+            <td class="c-sha" data-label="Head">4b8e1d2</td>
+            <td class="c-status" data-label="Status">
+              <span class="chip chip--incomplete">INCOMPLETE · status 1</span>
+              <span class="row-sub"><span class="chip chip--cause">infra — not a verdict on the code</span></span>
+            </td>
+            <td class="c-risk" data-label="Risk">—</td>
+            <td class="c-findings" data-label="Findings">—</td>
+            <td class="c-date" data-label="Scanned (UTC)">2026-10-09 14:03:57</td>
+          </tr>
+          <tr>
+            <td class="c-repo" data-label="Repo">example-org/token-bridge</td>
+            <td class="c-ref" data-label="Ref">develop</td>
+            <td class="c-sha" data-label="Head">c07f3aa</td>
+            <td class="c-status" data-label="Status">
+              <span class="chip chip--live">complete · status 0</span>
+              <span class="chip chip--degraded">degraded</span>
+              <span class="row-sub">1 analyzer unavailable — verdict stands, status stays 0</span>
+            </td>
+            <td class="c-risk" data-label="Risk"><span class="severity sev-mid" aria-hidden="true"></span>67 <span class="of">/ 100</span></td>
+            <td class="c-findings" data-label="Findings">3</td>
+            <td class="c-date" data-label="Scanned (UTC)">2026-10-08 08:12:40</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="ledger__more">row 1 is live — deep-scan service index, GET /scans · rextorsec/rextor-audit-test@ce7f6a9, status 0, risk 34, 4 findings, 2026-10-10T19:45:22Z</p>
+    <p class="ledger__more">— is honest: an INCOMPLETE run keeps its row with risk and findings at — (never 0); a completed clean pass renders a real 0 findings; a run recorded without a head renders —. Status mirrors on-chain encoding: 0 complete, 1 INCOMPLETE · status 1 carries a cause — infra — not a verdict on the code, or content — nothing in scope to analyze.</p>
+
+    <div class="state-banner" aria-label="Empty ledger state example">
+      <span class="state-banner__tag">empty ledger · example state — shown when a repo has no scans</span>
+      <p>No scans yet — run the first Deep Scan.</p>
+      <p>The first run writes row one: repo, ref, head, status, risk, findings, scanned — newest first.</p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer container">
+  <p class="footer__statement">The verdict lives <span>on&#8209;chain</span> — recomputable by anyone, from the findings alone.</p>
+  <div class="footer__meta">
+    <span>Rextor Security</span>
+    <span>Tempo testnet 42431</span>
+    <span>0x51ac…495a</span>
+    <span>© 2026</span>
+  </div>
+  <p class="footer__freeze">Mock frozen 2026-10-11 · live row from the deep-scan service index (GET /scans, 2026-10-10) · every other row and banner is a labeled design specimen.</p>
+</footer>
+
+</body>
+</html>

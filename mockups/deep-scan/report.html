@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>rextorsec/rextor-audit-test — deep scan report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="tokens.css">
+<style>
+/* Hallmark · macrostructure: Workbench (deep-scan extension run) · tone: operator · anchor hue: raptor-green 165 · family-continuity: dashboard-v2, zero new tokens */
+/* Hallmark · pre-emit critique: P4 H5 E4 S5 R5 V3 (family-continuity run — V3 is the inverted diversification rule, same as the dashboard-v2 stamp: an app-surface family shares its system) */
+/* Page styles — tokens.css is the shared system. Deep-scan report layout only (sibling of dashboard-v2). */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.6;
+  color: var(--foreground);
+  background: var(--background);
+  padding-inline: max(1rem, env(safe-area-inset-left)) max(1rem, env(safe-area-inset-right));
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+.container { max-width: 64rem; margin-inline: auto; }
+a { color: inherit; }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+/* ---------- N9 edge-aligned nav (family-verbatim) ---------- */
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-block: var(--space-lg);
+  border-bottom: 1px solid var(--border);
+}
+.wordmark {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: var(--text-sm);
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  white-space: nowrap;
+}
+.wordmark::before {
+  content: "";
+  width: 0.55rem;
+  height: 0.55rem;
+  background: var(--primary);
+  border-radius: 1px;
+}
+.btn {
+  display: inline-block;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1;
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: 999px;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.btn--ghost { border: 1px solid var(--border); color: var(--foreground); background: transparent; }
+.btn--ghost:hover { border-color: var(--rule-strong); }
+
+/* ---------- breadcrumb / back affordance ---------- */
+.crumb {
+  display: inline-block;
+  margin-top: var(--space-lg);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.crumb:hover { color: var(--foreground); }
+
+/* ---------- chips (family conventions) ---------- */
+.chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.chip--ok { color: var(--success); border-color: var(--success); }
+.chip--warn { color: var(--warning); border-color: var(--warning); }
+.chip--incomplete { color: var(--warning); border-color: var(--warning); }
+
+/* ---------- report hero ---------- */
+.report-hero { padding-block: var(--space-lg) var(--space-xl); }
+.report-hero__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm) var(--space-md);
+}
+.report-hero__receipt {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.report-hero__receipt .repo { color: var(--foreground); }
+.report-hero h1 {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-top: var(--space-2xs);
+  overflow-wrap: anywhere;
+}
+.report-hero__grid {
+  margin-top: var(--space-lg);
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: var(--space-lg) var(--space-2xl);
+  align-items: start;
+}
+.risk { min-width: 0; }
+.risk__value {
+  font-family: var(--font-mono);
+  font-size: var(--text-display-s);
+  font-weight: 500;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  color: var(--success);
+  letter-spacing: -0.02em;
+}
+.risk__value--none { color: var(--muted-foreground); }
+.risk__of { font-size: var(--text-md); color: var(--muted-foreground); font-weight: 400; }
+.risk__label {
+  margin-top: var(--space-3xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.risk__note {
+  margin-top: var(--space-3xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--subtle-foreground);
+}
+.hero-side { min-width: 0; display: grid; gap: var(--space-md); }
+.hero-stat { min-width: 0; }
+.hero-stat__value {
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
+  font-weight: 500;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.hero-stat__value--zero { color: var(--success); }
+.hero-stat__label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  margin-top: var(--space-3xs);
+}
+.hero-meta {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.kv { display: grid; grid-template-columns: minmax(0, 12ch) minmax(0, 1fr); gap: var(--space-md); padding-block: var(--space-2xs); }
+.kv dt { color: var(--subtle-foreground); }
+.kv dd { color: var(--foreground); overflow-wrap: anywhere; min-width: 0; }
+.hero-src {
+  margin-top: var(--space-md);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--subtle-foreground);
+}
+.degraded-row { display: flex; flex-wrap: wrap; gap: var(--space-sm); align-items: center; }
+.degraded-note {
+  margin-top: var(--space-2xs);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  max-width: 62ch;
+}
+@media (max-width: 48rem) {
+  .report-hero__grid { grid-template-columns: 1fr; }
+}
+
+/* ---------- labelled example (specimen) blocks ---------- */
+.spec {
+  border: 1px dashed var(--rule-strong);
+  border-radius: 8px;
+  padding: var(--space-lg);
+  margin-block: var(--space-lg) var(--space-2xl);
+  min-width: 0;
+}
+.spec__tag {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--label);
+  margin-bottom: var(--space-sm);
+}
+.spec__note {
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  max-width: 70ch;
+  margin-bottom: var(--space-md);
+}
+.spec .report-hero { padding-block: 0; }
+.spec .risk__value { font-size: var(--text-xl); }
+.spec .report-hero__grid { margin-top: var(--space-md); }
+
+/* ---------- section heading convention (family) ---------- */
+.sec-h {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--subtle-foreground);
+  margin-bottom: var(--space-md);
+}
+
+/* ---------- findings table (horizontal scroll wrapper — never squished) ---------- */
+.findings { padding-block: var(--space-lg) var(--space-2xl); }
+.table-scroll { overflow-x: auto; }
+table { width: 100%; min-width: 42rem; border-collapse: collapse; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: var(--text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--subtle-foreground);
+  padding: var(--space-sm) var(--space-md) var(--space-sm) 0;
+  border-bottom: 1px solid var(--rule-strong);
+  white-space: nowrap;
+}
+td {
+  padding: var(--space-md) var(--space-md) var(--space-md) 0;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  min-width: 0;
+}
+td.sev-cell, td.check-cell, td.loc-cell { white-space: nowrap; }
+td.check-cell code, td.loc-cell code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--foreground);
+}
+td.loc-cell code { color: var(--muted-foreground); overflow-wrap: anywhere; white-space: normal; }
+.sev { display: inline-flex; align-items: center; gap: var(--space-2xs); font-family: var(--font-mono); font-size: var(--text-xs); white-space: nowrap; }
+.sev__dot { width: 0.5rem; height: 0.5rem; border-radius: 1px; flex: none; }
+.sev__dot--crit { background: var(--danger); }
+.sev--crit { color: var(--danger); }
+.sev__dot--high { background: var(--warning); }
+.sev--high { color: var(--warning); }
+.sev__dot--mid { background: var(--muted-foreground); }
+.sev--mid { color: var(--muted-foreground); }
+.sev__dot--low { background: var(--subtle-foreground); }
+.sev--low { color: var(--subtle-foreground); }
+.sev-legend {
+  margin-top: var(--space-md);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-lg);
+}
+.sev-legend-note {
+  margin-top: var(--space-2xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--subtle-foreground);
+}
+
+/* expanded finding detail — native details, family expander pattern */
+tr.finding-detail-row td { padding-top: 0; border-bottom: 1px solid var(--border); }
+details.finding-detail { margin-top: calc(-1 * var(--space-2xs)); }
+details.finding-detail summary {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  list-style: none;
+  white-space: nowrap;
+}
+details.finding-detail summary::before { content: "▾ "; color: var(--subtle-foreground); }
+details.finding-detail:not([open]) summary::before { content: "▸ "; }
+.finding-detail__body {
+  margin-top: var(--space-sm);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-md);
+  display: grid;
+  gap: var(--space-md);
+  min-width: 0;
+}
+.fd-h {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--subtle-foreground);
+  margin-bottom: var(--space-2xs);
+}
+.fd-h .fd-tag {
+  color: var(--label);
+  letter-spacing: 0.08em;
+}
+.fd-body { font-size: var(--text-sm); color: var(--foreground); max-width: 74ch; }
+.fd-body code { font-family: var(--font-mono); font-size: var(--text-xs); }
+
+.diff {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: var(--space-sm) var(--space-md);
+  overflow-x: auto;
+  min-width: 0;
+}
+.diff .add { color: var(--success); }
+.diff .del { color: var(--danger); }
+.diff .ctx { color: var(--muted-foreground); }
+
+.poc {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: var(--space-sm) var(--space-md);
+  overflow-x: auto;
+  min-width: 0;
+  color: var(--foreground);
+}
+.merged { list-style: none; display: grid; gap: var(--space-3xs); }
+.merged li {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  padding-left: var(--space-md);
+  position: relative;
+}
+.merged li::before { content: "·"; position: absolute; left: 0; color: var(--subtle-foreground); }
+.merged li code { color: var(--foreground); }
+.merged-note { margin-top: var(--space-2xs); font-size: var(--text-xs); color: var(--subtle-foreground); }
+.findings-src {
+  margin-top: var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--subtle-foreground);
+}
+
+/* ---------- Ft5 statement footer (family) ---------- */
+.footer { border-top: 1px solid var(--border); padding-block: var(--space-2xl) var(--space-lg); }
+.footer__statement {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  max-width: 28ch;
+  overflow-wrap: anywhere;
+}
+.footer__statement span { color: var(--primary); }
+.footer__meta {
+  margin-top: var(--space-lg);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+.footer__meta a { color: var(--muted-foreground); text-decoration: none; white-space: nowrap; }
+.footer__meta a:hover { color: var(--foreground); }
+.footer__freeze {
+  margin-top: var(--space-2xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--subtle-foreground);
+}
+</style>
+</head>
+<body>
+
+<nav class="nav container" aria-label="Primary">
+  <a class="wordmark" href="#">REXTOR AUDIT</a>
+  <a class="btn btn--ghost" href="#">Install on a repo</a>
+</nav>
+
+<main class="container">
+
+  <a class="crumb" href="#">← scans ledger</a>
+
+  <!-- ============ report hero — LIVE receipt (not a specimen) ============ -->
+  <header class="report-hero" aria-label="Deep scan report hero">
+    <div class="report-hero__line">
+      <p class="report-hero__receipt"><span class="repo">rextorsec/rextor-audit-test</span> · main @ ce7f6a9</p>
+      <span class="chip chip--ok">status 0 · complete</span>
+    </div>
+    <h1>Deep scan report</h1>
+    <div class="report-hero__grid">
+      <div class="risk" role="group" aria-label="Risk score 34 of 100">
+        <p class="risk__value">34<span class="risk__of"> / 100</span></p>
+        <p class="risk__label">risk score</p>
+        <p class="risk__note">0–100 · higher = riskier</p>
+      </div>
+      <div class="hero-side">
+        <div class="hero-stat">
+          <p class="hero-stat__value">4</p>
+          <p class="hero-stat__label">findings</p>
+        </div>
+        <dl class="hero-meta">
+          <div class="kv"><dt>ref</dt><dd>main</dd></div>
+          <div class="kv"><dt>head</dt><dd>ce7f6a9d2b42abcd599537e4abffa33d8760496c</dd></div>
+          <div class="kv"><dt>scanned at</dt><dd>2026-10-10T19:45:22Z</dd></div>
+        </dl>
+        <p class="hero-src">live receipt — first production deep scan, POST /scan (service ledger, 2026-10-10)</p>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ findings — labelled specimen rows ============ -->
+  <section class="findings" aria-label="Findings">
+    <h2 class="sec-h">Findings</h2>
+
+    <div class="spec">
+      <p class="spec__tag">example · finding rows are design specimens</p>
+      <p class="spec__note">Detector ids below are real finding classes from a live review receipt (rextorsec/rextor-audit-test PR #13, head ac94e6e). The four ce7f6a9 findings are recorded in the service ledger — they are not reproduced in this mock; file:line values and row text are generic specimens.</p>
+
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col" class="col-sev">Severity</th>
+              <th scope="col">Check</th>
+              <th scope="col">Location</th>
+              <th scope="col">Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- finding #0 — rendered EXPANDED (specimen) -->
+            <tr class="finding">
+              <td class="sev-cell"><span class="sev sev--high"><span class="sev__dot sev__dot--high" aria-hidden="true"></span>high</span></td>
+              <td class="check-cell"><code>reentrancy-eth</code></td>
+              <td class="loc-cell"><code>src/Vault.sol:87</code></td>
+              <td>External call sends ETH before the balance state flip — a reentrant withdraw can read a stale balance and drain the vault.</td>
+            </tr>
+            <tr class="finding-detail-row">
+              <td colspan="4">
+                <details class="finding-detail" open>
+                  <summary>triage detail · finding #0</summary>
+                  <div class="finding-detail__body">
+                    <div>
+                      <h3 class="fd-h">triage note</h3>
+                      <p class="fd-body">Kept at detector severity (high) — the external call moves value before the balance write, and no view-only escape exists on this path. The suggested fix is the states-flip reorder: move the state write ahead of the call.</p>
+                    </div>
+                    <div>
+                      <h3 class="fd-h">suggested fix — review before applying</h3>
+<pre class="diff"><span class="ctx">  function withdraw(uint256 amount) external {</span>
+<span class="del">-     (bool ok, ) = msg.sender.call{value: amount}("");</span>
+<span class="del">-     require(ok, "withdraw failed");</span>
+<span class="ctx">      balances[msg.sender] -= amount;</span>
+<span class="add">+     (bool ok, ) = msg.sender.call{value: amount}("");</span>
+<span class="add">+     require(ok, "withdraw failed");</span>
+<span class="ctx">  }</span></pre>
+                    </div>
+                    <div>
+                      <h3 class="fd-h">proof of concept <span class="fd-tag">specimen</span></h3>
+<pre class="poc">// forge test --match-test test_Withdraw_Reentrancy
+// expect: the reentrant second withdraw reverts — balance flips before the call
+contract Reenter {
+    Vault immutable v = Vault(0xACE);
+    receive() external payable {
+        if (address(v).balance >= 1 ether) v.withdraw(1 ether);
+    }
+}</pre>
+                    </div>
+                    <div>
+                      <h3 class="fd-h">merged checks</h3>
+                      <ul class="merged">
+                        <li><code>reentrancy-eth</code> — primary</li>
+                        <li><code>arbitrary-send-eth</code> — merged, same call site</li>
+                        <li><code>calls-loop</code> — merged, same call site</li>
+                      </ul>
+                      <p class="merged-note">deduped by triage into finding #0 — every detector hit stays recorded on the finding.</p>
+                    </div>
+                    <div>
+                      <h3 class="fd-h">server-side learnings ledger</h3>
+                      <p class="fd-body">Repo-keyed, stored server-side: this withdraw() call-before-flip shape has been flagged on earlier runs of this repo. Learnings sharpen triage notes over time — they never silence a finding. Dismissal stays a service-side action by the repo owner.</p>
+                    </div>
+                  </div>
+                </details>
+              </td>
+            </tr>
+            <!-- remaining specimen rows (collapsed surfaces) -->
+            <tr class="finding">
+              <td class="sev-cell"><span class="sev sev--mid"><span class="sev__dot sev__dot--mid" aria-hidden="true"></span>medium</span></td>
+              <td class="check-cell"><code>low-level-calls</code></td>
+              <td class="loc-cell"><code>src/Vault.sol:102</code></td>
+              <td>Result of a low-level call is used without checking success — failures on this path stay silent.</td>
+            </tr>
+            <tr class="finding">
+              <td class="sev-cell"><span class="sev sev--mid"><span class="sev__dot sev__dot--mid" aria-hidden="true"></span>medium</span></td>
+              <td class="check-cell"><code>immutable-states</code></td>
+              <td class="loc-cell"><code>src/Vault.sol:31</code></td>
+              <td>State variable is set only in the constructor and never reassigned — it could be declared immutable.</td>
+            </tr>
+            <tr class="finding">
+              <td class="sev-cell"><span class="sev sev--low"><span class="sev__dot sev__dot--low" aria-hidden="true"></span>low</span></td>
+              <td class="check-cell"><code>missing-zero-check</code></td>
+              <td class="loc-cell"><code>src/Vault.sol:58</code></td>
+              <td>Setter does not guard against a zero value — a zeroed parameter can brick the accounting path.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="sev-legend" aria-label="Severity encoding">
+        <span class="sev sev--crit"><span class="sev__dot sev__dot--crit" aria-hidden="true"></span>critical</span>
+        <span class="sev sev--high"><span class="sev__dot sev__dot--high" aria-hidden="true"></span>high</span>
+        <span class="sev sev--mid"><span class="sev__dot sev__dot--mid" aria-hidden="true"></span>medium</span>
+        <span class="sev sev--low"><span class="sev__dot sev__dot--low" aria-hidden="true"></span>low</span>
+      </div>
+      <p class="sev-legend-note">severity encoding — critical/high carry the danger/warning tokens; medium/low render muted ink</p>
+      <p class="findings-src">specimen rows — the real run's findings live in the service record for head ce7f6a9, not in this mock</p>
+    </div>
+  </section>
+
+  <!-- ============ zero-findings variant — labelled example ============ -->
+  <section class="variants" aria-label="Report variants">
+    <h2 class="sec-h">Report states</h2>
+
+    <div class="spec">
+      <p class="spec__tag">example · status 0 — clean pass, 0 findings</p>
+      <p class="spec__note">Specimen values (org/repo, score). A zero count renders as a real result — the pass is shown, never hidden.</p>
+
+      <div class="report-hero">
+        <div class="report-hero__line">
+          <p class="report-hero__receipt"><span class="repo">org/repo</span> · main @ 91d0c44</p>
+          <span class="chip chip--ok">status 0 · complete</span>
+        </div>
+        <div class="report-hero__grid">
+          <div class="risk" role="group" aria-label="Risk score 8 of 100">
+            <p class="risk__value">8<span class="risk__of"> / 100</span></p>
+            <p class="risk__label">risk score</p>
+            <p class="risk__note">0–100 · higher = riskier</p>
+          </div>
+          <div class="hero-side">
+            <div class="hero-stat">
+              <p class="hero-stat__value hero-stat__value--zero">0</p>
+              <p class="hero-stat__label">findings — clean pass</p>
+            </div>
+            <div class="degraded-row">
+              <span class="chip chip--warn">degraded · poc unproven — generation failed</span>
+              <span class="chip">status stays 0</span>
+            </div>
+            <p class="degraded-note">Degradation notes annotate the run — they ride along with a complete status and never change the verdict. Findings stand exactly as reported.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ INCOMPLETE variant — labelled example ============ -->
+    <div class="spec">
+      <p class="spec__tag">example · status 1 — incomplete</p>
+      <p class="spec__note">Specimen ref. Empty head_sha renders as — (never a fake hash); risk stays — and the row is kept in the ledger either way. A settled INCOMPLETE re-fires on the next head.</p>
+
+      <div class="report-hero">
+        <div class="report-hero__line">
+          <p class="report-hero__receipt"><span class="repo">org/repo</span> · main @ —</p>
+          <span class="chip chip--incomplete">status 1 · INCOMPLETE</span>
+        </div>
+        <div class="report-hero__grid">
+          <div class="risk" role="group" aria-label="No risk score — incomplete">
+            <p class="risk__value risk__value--none">—</p>
+            <p class="risk__label">risk score</p>
+            <p class="risk__note">no score — incomplete</p>
+          </div>
+          <div class="hero-side">
+            <div class="hero-stat">
+              <p class="hero-stat__value">—</p>
+              <p class="hero-stat__label">findings</p>
+            </div>
+            <p class="degraded-note">Analysis did not complete — the run ended before the analyzer reported. The cause chip says which side failed:</p>
+            <div class="degraded-row">
+              <span class="chip chip--incomplete">infra — not a verdict on the code</span>
+              <span class="chip">content — nothing in scope to analyze</span>
+            </div>
+            <p class="degraded-note">infra: service-side failure — no judgment about the code was made. content: the run completed but nothing in scope matched — also not a verdict.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer container">
+  <p class="footer__statement">The report is the receipt — score, findings, and status, <span>kept</span> even when the run breaks.</p>
+  <div class="footer__meta">
+    <span>Rextor Security</span>
+    <span>Tempo testnet 42431</span>
+    <span>0x51ac…495a</span>
+    <span>© 2026</span>
+  </div>
+  <p class="footer__freeze">Mock frozen 2026-10-11 · hero row is live service data (POST /scan receipt, 2026-10-10); finding rows and state blocks are labelled specimens.</p>
+</footer>
+
+</body>
+</html>
