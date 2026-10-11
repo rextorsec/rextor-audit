@@ -21,6 +21,7 @@ PR-time audit agent for smart-contract repos. Building for Colosseum Crypto Worl
 
 ## Useful facts
 
+- Deep Scan (shipped 2026-10-11): whole-repo scans on the agent service (`POST /scan`, `GET /scans`, `deep_scans` ledger). Web surface live on the dashboard (scans ledger + report view); the public trigger route `POST /api/scan` is **flag-gated default-OFF** (`REXTOR_SCAN_TRIGGER_ENABLED=1` to enable — enabling exposes the service-wide single-flight to anonymous callers; RECTOR's call). Mock: `mockups/deep-scan/` (approved).
 - CWF tracks aimed (post-Gate-B pivot 2026-09-15): **Tempo (flagship) + Hyperliquid (primary)**, Solana adapter tier, EVM riders (Eth L1 / Base / Arbitrum / Robinhood Chain). Zcash excluded deliberately. Evidence: `docs/gates/`.
 - Tempo = EVM payments L1 (Stripe/Paradigm; Foundry-native; testnet faucet). Hyperliquid = HyperEVM. Robinhood Chain = Arbitrum Orbit, mainnet Jul 2026.
 - Engine pattern heritage: Conatus (Mantle GC 2026) — deterministic pass → citation-constrained triage → rubric score → on-chain attestation.
