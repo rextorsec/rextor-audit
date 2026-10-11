@@ -44,3 +44,9 @@ Every number above is copied from the live artifacts (PR comment, check-runs API
 ledger `GET /reviews/rextorsec/rextor-audit-test`, `GET /scans?...`) — nothing estimated, no
 backfilled rows. The three pre-index HyperEVM feedback broadcasts remain ledger-invisible by
 design (receipts-not-claims: no fabricated history).
+
+## Decision (2026-10-11, RECTOR)
+
+**Default stays `z-ai/glm-5.3-flash` on both seams. The glm-5.3 flip is rejected.** The
+rehearsal above proved parity on the fixture pair; flash wins on cost/latency. This closes
+the parked model-flip gate — no env change, no restart.
