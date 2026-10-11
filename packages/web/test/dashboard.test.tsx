@@ -275,8 +275,24 @@ describe("dashboard page — honest error panel", () => {
     );
     await renderPage({ owner: "rextorsec", repo: "demo" });
 
-    const panel = screen.getByRole("region", { name: /index unavailable/i });
-    expect(within(panel).getByText(/no data is shown/i)).toBeInTheDocument();
+    // The service carries BOTH indexes — the page renders one honest panel
+    // per index, each with its own reason, not a single shared error.
+    const reviewPanel = screen.getByRole("region", { name: "Index unavailable" });
+    expect(
+      within(reviewPanel).getByText(
+        /the review index could not be read \(review index unreachable\)/i,
+      ),
+    ).toBeInTheDocument();
+    expect(within(reviewPanel).getByText(/no data is shown/i)).toBeInTheDocument();
+
+    const scanPanel = screen.getByRole("region", { name: "Scan index unavailable" });
+    expect(
+      within(scanPanel).getByText(
+        /the scan index could not be read \(scan index unreachable\)/i,
+      ),
+    ).toBeInTheDocument();
+    expect(within(scanPanel).getByText(/no data is shown/i)).toBeInTheDocument();
+
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     // Identity card is an independent live read — it still renders.
     expect(screen.getByRole("region", { name: /agent identity/i })).toBeInTheDocument();
@@ -289,7 +305,21 @@ describe("dashboard page — honest error panel", () => {
     delete process.env.REXTOR_AGENT_TOKEN;
     await renderPage({ owner: "rextorsec", repo: "demo" });
 
-    expect(screen.getByRole("region", { name: /index unavailable/i })).toBeInTheDocument();
+    // Both agent-service reads fail at the same missing-token guard — each
+    // index still gets its own panel and its own reason sentence.
+    const reviewPanel = screen.getByRole("region", { name: "Index unavailable" });
+    expect(
+      within(reviewPanel).getByText(
+        /the review index could not be read \(REXTOR_AGENT_TOKEN is not configured\)/i,
+      ),
+    ).toBeInTheDocument();
+
+    const scanPanel = screen.getByRole("region", { name: "Scan index unavailable" });
+    expect(
+      within(scanPanel).getByText(
+        /the scan index could not be read \(REXTOR_AGENT_TOKEN is not configured\)/i,
+      ),
+    ).toBeInTheDocument();
   });
 });
 

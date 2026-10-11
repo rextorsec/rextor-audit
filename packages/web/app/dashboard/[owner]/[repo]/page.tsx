@@ -5,15 +5,18 @@
 // and "—" fields, never fabricated data.
 import { AgentIdentityCard } from "@/components/agent-identity-card";
 import { ConfigPane } from "@/components/config-pane";
+import { DeepScanTrigger } from "@/components/deep-scan-trigger";
 import { DismissalsPanel } from "@/components/dismissals-panel";
 import { MetricsStrip } from "@/components/metrics-strip";
 import { ReviewLedger } from "@/components/review-ledger";
+import { ScansLedger } from "@/components/scans-ledger";
 import { ScoreHistory } from "@/components/score-history";
 import { Wordmark } from "@/components/nav";
 import { readAgentIdentity } from "@/lib/chain-read";
 import { DEFAULT_CHAIN_KEY, shortHex, webChainByName, WEB_CHAINS } from "@/lib/chains";
 import { fetchDismissals } from "@/lib/dismissals";
 import { fetchReviews } from "@/lib/reviews";
+import { fetchScans } from "@/lib/scans";
 import { fetchRepoConfig, SAMPLE_REXTOR_YAML } from "@/lib/repo-config";
 import identityData from "@/content/identity.json";
 
@@ -33,7 +36,12 @@ export default async function DashboardPage({
   const repo = repoParam.toLowerCase();
   const repoFullName = `${owner}/${repo}`;
 
-  const reviews = await fetchReviews(owner, repo);
+  // Reviews and scans are independent reads — fetched together, and each
+  // degrades to its own honest failure render below.
+  const [reviews, scans] = await Promise.all([
+    fetchReviews(owner, repo),
+    fetchScans(owner, repo),
+  ]);
   const rows = reviews.ok ? reviews.rows : [];
   const feedbackReceipts = reviews.ok ? reviews.receipts : [];
 
@@ -133,6 +141,36 @@ export default async function DashboardPage({
               />
             </>
           )}
+
+          {/* Deep Scan (approved mock mockups/deep-scan): trigger above, scan
+              ledger below. Reads stay public; the trigger itself is gated by
+              its enabled prop (env, server-side — this page is dynamic). */}
+          <section aria-label="Deep Scan" className="block py-6 pb-10">
+            <h2 className="mb-4 font-mono text-xs font-normal tracking-[0.12em] uppercase text-subtle-foreground">
+              Deep Scan
+            </h2>
+            <p className="mb-4 max-w-[58ch] text-muted-foreground">
+              Whole-repo scan at a pinned head — synchronous, minutes not seconds. The verdict
+              lands in the ledger below with its full receipt.
+            </p>
+            <DeepScanTrigger enabled={process.env.REXTOR_SCAN_TRIGGER_ENABLED === "1"} />
+            {!scans.ok ? (
+              <section
+                aria-label="Scan index unavailable"
+                className="my-10 rounded-lg border border-dashed border-rule-strong p-10 text-center"
+              >
+                <span className="mb-2 block font-mono text-xs tracking-[0.12em] uppercase text-label">
+                  scan index unavailable
+                </span>
+                <p className="mx-auto max-w-[46ch] text-muted-foreground">
+                  The scan index could not be read ({scans.reason}) — no data is shown rather than
+                  guessed.
+                </p>
+              </section>
+            ) : (
+              <ScansLedger rows={scans.rows} />
+            )}
+          </section>
 
           <AgentIdentityCard
             name={identity?.name ?? null}
