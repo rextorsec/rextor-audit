@@ -12,6 +12,8 @@
 // everyone else). Enabling it via REXTOR_SCAN_TRIGGER_ENABLED=1 is an explicit
 // operator decision; the default is OFF.
 
+import { checkScanAccess, resolveRateMax } from "@/lib/scan-gate";
+
 // The scan is synchronous and container-time is accepted: this function may
 // legitimately run for minutes (Vercel Fluid max). 290s of upstream timeout
 // leaves headroom under the 300s ceiling for the response hop.
@@ -34,6 +36,25 @@ export async function POST(req: Request): Promise<Response> {
   }
   if (!token) {
     return Response.json({ error: "REXTOR_AGENT_TOKEN is not configured" }, { status: 500 });
+  }
+
+  // Abuse model (see the hard-gate comment above): this is still a PUBLIC
+  // route, so an enabled trigger means anonymous compute that can hold the
+  // service-wide single-flight (409ing everyone else). The per-IP window
+  // bounds that; REXTOR_SCAN_DEMO_KEY lifts it for the demo (timing-safe
+  // compare). The window is in-memory — per server instance, reset on
+  // restart, not distributed-attack-proof — the service-side single-flight
+  // (409) bounds the remaining blast radius.
+  const gate = checkScanAccess(req, {
+    enabled: true,
+    demoKey: process.env.REXTOR_SCAN_DEMO_KEY || undefined,
+    rateMax: resolveRateMax(process.env.REXTOR_SCAN_RATE_MAX),
+  });
+  if (!gate.ok) {
+    return Response.json(
+      { error: gate.error },
+      { status: gate.status, headers: { "Retry-After": String(gate.retryAfterSeconds) } },
+    );
   }
 
   // The service validates {repo, ref} authoritatively (400) and enforces the

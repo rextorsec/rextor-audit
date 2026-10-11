@@ -1,9 +1,10 @@
-// POST /api/scan — flag gate, env discipline, status-verbatim proxying,
-// timeout semantics, and the no-token-leak guarantee. No live network, ever:
-// global fetch is a stub.
+// POST /api/scan — flag gate, env discipline, per-IP rate limiting with the
+// demo-key bypass, status-verbatim proxying, timeout semantics, and the
+// no-token-leak guarantee. No live network, ever: global fetch is a stub.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { POST, maxDuration } from "@/app/api/scan/route";
+import { resetScanRateLimit } from "@/lib/scan-gate";
 
 const SERVICE_URL = "https://agent.local";
 const TOKEN = "rx-test-token-0123456789abcdef";
@@ -53,10 +54,18 @@ beforeEach(() => {
     REXTOR_SCAN_TRIGGER_ENABLED: process.env.REXTOR_SCAN_TRIGGER_ENABLED,
     REXTOR_AGENT_URL: process.env.REXTOR_AGENT_URL,
     REXTOR_AGENT_TOKEN: process.env.REXTOR_AGENT_TOKEN,
+    REXTOR_SCAN_DEMO_KEY: process.env.REXTOR_SCAN_DEMO_KEY,
+    REXTOR_SCAN_RATE_MAX: process.env.REXTOR_SCAN_RATE_MAX,
   };
   process.env.REXTOR_SCAN_TRIGGER_ENABLED = "1";
   process.env.REXTOR_AGENT_URL = SERVICE_URL;
   process.env.REXTOR_AGENT_TOKEN = TOKEN;
+  // Access-control defaults for every test: no demo key, default window max —
+  // a test opts in by setting these explicitly. The limiter is in-memory and
+  // module-scoped, so it MUST be reset between tests for isolation.
+  delete process.env.REXTOR_SCAN_DEMO_KEY;
+  delete process.env.REXTOR_SCAN_RATE_MAX;
+  resetScanRateLimit();
 });
 
 afterEach(() => {
@@ -111,6 +120,123 @@ describe("POST /api/scan — env discipline", () => {
     const text = await res.text();
     expect(JSON.parse(text)).toEqual({ error: "REXTOR_AGENT_TOKEN is not configured" });
     expect(text).not.toContain(TOKEN);
+  });
+});
+
+describe("POST /api/scan — access control (per-IP rate limit + demo key)", () => {
+  const DEMO_KEY = "demo-secret";
+
+  function keyedRequest(url: string, headers: Record<string, string>): Request {
+    return new Request(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify({ repo: "owner/repo" }),
+    });
+  }
+
+  it("keeps the flag gate FIRST: 503 even when the demo key matches", async () => {
+    process.env.REXTOR_SCAN_DEMO_KEY = DEMO_KEY;
+    process.env.REXTOR_SCAN_TRIGGER_ENABLED = "0";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await POST(
+      keyedRequest(`https://web.local/api/scan?key=${DEMO_KEY}`, { "x-scan-key": DEMO_KEY }),
+    );
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "scan trigger is disabled on this deployment" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("forwards when enabled with no key while under the per-IP limit", async () => {
+    const fetchMock = stubFetchUpstream(200, SCAN_REPORT);
+
+    const res = await POST(postRequest({ repo: "owner/repo" }));
+
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("429s once the per-IP window is exhausted — Retry-After set, service never contacted", async () => {
+    const fetchMock = stubFetchUpstream(200, SCAN_REPORT);
+
+    // Default window max is 3 per hour (resolveRateMax fallback): three
+    // forwards, then the route answers locally.
+    expect((await POST(postRequest({ repo: "owner/repo" }))).status).toBe(200);
+    expect((await POST(postRequest({ repo: "owner/repo" }))).status).toBe(200);
+    expect((await POST(postRequest({ repo: "owner/repo" }))).status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    const res = await POST(postRequest({ repo: "owner/repo" }));
+
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({
+      error: "too many scans from your address — try again later",
+    });
+    const retryAfter = res.headers.get("Retry-After");
+    expect(retryAfter).toMatch(/^\d+$/);
+    expect(Number(retryAfter)).toBeGreaterThan(0);
+    expect(fetchMock).toHaveBeenCalledTimes(3); // the 429 never reached the service
+  });
+
+  it("REXTOR_SCAN_RATE_MAX tunes the per-IP window max", async () => {
+    process.env.REXTOR_SCAN_RATE_MAX = "1";
+    const fetchMock = stubFetchUpstream(200, SCAN_REPORT);
+
+    expect((await POST(postRequest({ repo: "owner/repo" }))).status).toBe(200);
+    const res = await POST(postRequest({ repo: "owner/repo" }));
+
+    expect(res.status).toBe(429);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("a valid x-scan-key header bypasses the exhausted limit", async () => {
+    process.env.REXTOR_SCAN_DEMO_KEY = DEMO_KEY;
+    const fetchMock = stubFetchUpstream(200, SCAN_REPORT);
+
+    for (let i = 0; i < 3; i += 1) {
+      expect((await POST(postRequest({ repo: "owner/repo" }))).status).toBe(200);
+    }
+    expect((await POST(postRequest({ repo: "owner/repo" }))).status).toBe(429);
+
+    const res = await POST(keyedRequest("https://web.local/api/scan", { "x-scan-key": DEMO_KEY }));
+
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(4); // 3 + the keyed forward; the 429 never fetched
+  });
+
+  it("a valid ?key= query param bypasses the exhausted limit", async () => {
+    process.env.REXTOR_SCAN_DEMO_KEY = DEMO_KEY;
+    const fetchMock = stubFetchUpstream(200, SCAN_REPORT);
+
+    for (let i = 0; i < 3; i += 1) {
+      await POST(postRequest({ repo: "owner/repo" }));
+    }
+    expect((await POST(postRequest({ repo: "owner/repo" }))).status).toBe(429);
+
+    const res = await POST(keyedRequest(`https://web.local/api/scan?key=${DEMO_KEY}`, {}));
+
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("a WRONG key is rate limited like everyone else", async () => {
+    process.env.REXTOR_SCAN_DEMO_KEY = DEMO_KEY;
+    const fetchMock = stubFetchUpstream(200, SCAN_REPORT);
+
+    for (let i = 0; i < 3; i += 1) {
+      await POST(keyedRequest("https://web.local/api/scan", { "x-scan-key": "not-the-key" }));
+    }
+    const res = await POST(
+      keyedRequest("https://web.local/api/scan", { "x-scan-key": "not-the-key" }),
+    );
+
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({
+      error: "too many scans from your address — try again later",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });
 

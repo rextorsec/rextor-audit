@@ -1,6 +1,6 @@
 // DeepScanTrigger — client island lifecycle: flag-off renders inert (never
 // fetches), invalid repo is rejected BEFORE the network, loading is honestly
-// indeterminate (no fake percent), 409/400/504/network banners, success
+// indeterminate (no fake percent), 409/429/400/504/network banners, success
 // renders the report. global fetch is a stub; no live network, ever.
 import { fireEvent, render, screen, within, type RenderResult } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -164,6 +164,45 @@ describe("DeepScanTrigger — honest banners", () => {
       await screen.findByText(
         "HTTP 409 — wait for the running scan, or check the ledger for its row when it settles",
       ),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the 429 rate-limit banner with the Retry-After hint when the route sends it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ error: "too many scans from your address — try again later" }),
+            {
+              status: 429,
+              headers: { "Content-Type": "application/json", "Retry-After": "3599" },
+            },
+          ),
+      ),
+    );
+
+    await typeRepoAndSubmit("owner/repo");
+
+    expect(await screen.findByText("HTTP 429")).toBeInTheDocument();
+    expect(
+      await screen.findByText("too many scans from your address — try again later — retry after 3599s"),
+    ).toBeInTheDocument();
+    // Rate limiting is a refusal, not a run: no receipt line may appear.
+    expect(screen.queryByText("status 0 · complete")).not.toBeInTheDocument();
+  });
+
+  it("renders the bare 429 copy when no Retry-After header is present", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse(429, { error: "too many scans from your address — try again later" })),
+    );
+
+    await typeRepoAndSubmit("owner/repo");
+
+    expect(await screen.findByText("HTTP 429")).toBeInTheDocument();
+    expect(
+      await screen.findByText("too many scans from your address — try again later"),
     ).toBeInTheDocument();
   });
 

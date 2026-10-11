@@ -8,8 +8,9 @@
 // only to our own /api/scan proxy, so no service URL or token is ever in the
 // client bundle (invariants 18/19). Zero-meaningful loading: the affordance
 // is indeterminate by design — no fake percent; the run reports when it's
-// done. Banner copy mirrors the mock verbatim (409) or passes the service's
-// own message through (400/504/…).
+// done. Banner copy mirrors the mock verbatim (409), states the route's own
+// rate-limit verdict (429, + Retry-After hint), or passes the service's own
+// message through (400/504/…).
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { ScanReportView } from "@/components/scan-report";
 import { Button } from "@/components/ui/button";
@@ -157,6 +158,17 @@ export function DeepScanTrigger({ enabled }: { enabled: boolean }) {
           heading: "scan already in progress",
           detail:
             "HTTP 409 — wait for the running scan, or check the ledger for its row when it settles",
+        });
+      } else if (res.status === 429) {
+        // Route-side per-IP rate limit. The proxy forwards only Content-Type,
+        // so a Retry-After header here is always the route's own honest hint;
+        // without it, the bare copy stands alone.
+        const retryAfter = res.headers.get("Retry-After");
+        setError({
+          heading: "HTTP 429",
+          detail: `too many scans from your address — try again later${
+            retryAfter === null ? "" : ` — retry after ${retryAfter}s`
+          }`,
         });
       } else {
         setError({ heading: `HTTP ${res.status}`, detail: await errorDetail(res) });
