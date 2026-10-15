@@ -1,7 +1,7 @@
 import { Wordmark } from "@/components/nav";
 
-/** Ft5 · Statement — one closing line, meta row beneath. The firm link returns
- *  when rextorsecurity.com resolves (dead DNS as of 2026-09-22). */
+/** Ft5 · Statement — one closing line, meta row beneath. Firm link live:
+ *  rextorsecurity.com resolves (2026-10-15). */
 export function Footer() {
   return (
     <footer className="container pb-10 pt-16">
@@ -10,7 +10,12 @@ export function Footer() {
       </p>
       <div className="flex flex-wrap items-baseline gap-6 border-t border-border pt-4 font-mono text-xs text-subtle-foreground">
         <Wordmark size="xs" className="text-foreground" />
-        <span>by Rextor Security</span>
+        <span>
+          by{" "}
+          <a href="https://rextorsecurity.com" className="transition-colors hover:text-foreground">
+            Rextor Security
+          </a>
+        </span>
         <span className="ml-auto max-[60rem]:ml-0">© 2026</span>
       </div>
     </footer>

@@ -244,9 +244,9 @@ export default function InstallPage() {
           <a className={docLink} href="#">
             Dashboard
           </a>
-          {/* Firm link reduced to plain text — rextorsecurity.com does not
-              resolve (2026-09-22). Relink when DNS goes live. */}
-          <span className={docLink}>Rextor Security</span>
+          <a className={docLink} href="https://rextorsecurity.com">
+            Rextor Security
+          </a>
           <span className="font-mono text-xs whitespace-nowrap text-muted-foreground">© 2026</span>
         </div>
       </footer>
