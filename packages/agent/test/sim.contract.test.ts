@@ -161,6 +161,11 @@ async function makeFixtureCopy(prefix: string): Promise<string> {
   await rm(join(copy, "out"), { recursive: true, force: true });
   await rm(join(copy, "cache"), { recursive: true, force: true });
   await rm(join(copy, "test", "Vault.t.sol"));
+  // Mount-readability floor (see analyzer.contract.test.ts): the container's
+  // analyzer user (uid 1000) cannot read a 0700 mkdtemp dir owned by the
+  // runner (uid 1001) — the PR's foundry.toml would be invisible and the
+  // adversarial-FFI gates would pass vacuously on default config.
+  await chmod(copy, 0o755);
   return copy;
 }
 

@@ -2,12 +2,12 @@
 // result mapping (confirmed/unproven/skipped), and the frontier PoC
 // generation seam. All LLM/container I/O is injected; env is injected too,
 // so these tests never touch a network or docker.
-import { describe, expect, it } from "vitest";
-import { readFile } from "node:fs/promises";
+import { describe, expect, it, vi } from "vitest";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
   generatePocFromEnv, parseForgeJson, POC_DIR_MODE, readExcerpt, runSimStage, sanitizePocSource,
-  simContainerArgs, simEligible,
+  simContainerArgs, simEligible, simTmpBase,
   type PocRequest, type SimOutcomeMap,
 } from "../src/sim";
 import { withIds, type Finding } from "../src/findings";
@@ -22,6 +22,21 @@ describe("simEligible", () => {
     expect(simEligible(crit(0))).toBe(true);
     expect(simEligible({ ...crit(0), severity: "high" })).toBe(true);
     expect(simEligible(low(0))).toBe(false);
+  });
+});
+
+describe("simTmpBase", () => {
+  it("creates its base on demand (mkdtemp callers rely on it existing)", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "rextor-simtmp-test-"));
+    const nested = join(parent, "nested", "base");
+    try {
+      vi.stubEnv("REXTOR_SIM_TMP_DIR", nested);
+      expect(simTmpBase()).toBe(nested);
+      await expect(stat(nested)).resolves.toBeTruthy();
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(parent, { recursive: true, force: true });
+    }
   });
 });
 

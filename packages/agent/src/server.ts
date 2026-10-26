@@ -22,6 +22,7 @@ import { githubDeps } from "./github";
 import { MAX_BODY_BYTES, ReviewQueue } from "./queue";
 import { createReviewStore, type ReviewStore } from "./db";
 import { reconcileFailedDeliveries } from "./reconcile";
+import { sweepStaleTmpDirs } from "./tmp-sweep";
 import { runScan, isValidScanRepo, isValidScanRef, type ScanDeps, type ScanReport } from "./scan";
 import {
   buildChatReply,
@@ -849,6 +850,21 @@ if (import.meta.url === entry) {
       logError("webhook.reconcile_crashed", "delivery reconciliation crashed:", err);
     })
     .finally(() => bootStore?.close());
+  // Reclaim run dirs leaked by crash/kill paths (finally cannot run under
+  // SIGKILL): mkdtemp-shaped scan/review/sim dirs older than the retention
+  // window, in the sim base + the legacy home root. Fire-and-forget — the
+  // sweep is best-effort and can never block or crash boot (same shape as
+  // the reconcile re-drive above).
+  void sweepStaleTmpDirs()
+    .then((swept) => {
+      if (swept.removed.length > 0 || swept.errors.length > 0) {
+        logInfo("service.tmp_sweep", `reclaimed ${swept.removed.length} leaked tmp dir(s), ${swept.errors.length} error(s)`, {
+          removed: swept.removed.join(","),
+          errors: swept.errors.map((e) => `${e.dir}: ${e.message}`).join("; "),
+        });
+      }
+    })
+    .catch((err: unknown) => logError("service.tmp_sweep_crashed", "tmp sweep crashed:", err));
   const server = createReviewServer(envServerOptions());
   // Loopback only: the public path is the same-host cloudflared tunnel; the
   // webhook (HMAC) and /reviews (token) endpoints have no business on LAN
