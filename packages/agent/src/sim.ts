@@ -2,7 +2,7 @@
 // `poc` fields (invariant 9). The LLM generates; deterministic TS maps results.
 // Every I/O seam (generation, harness) is injected; env is read per call.
 import { execFile } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
@@ -264,11 +264,19 @@ export function simContainerArgs(
 /** Base dir for the PoC overlay: the docker daemon can only bind-mount paths
  *  it shares. colima (macOS dev) shares only $HOME — a /tmp bind silently
  *  degrades to an empty VM-local dir (empirically verified) — so darwin
- *  defaults to the home dir; Linux keeps /tmp. REXTOR_SIM_TMP_DIR overrides
- *  for exotic daemons. The contract tests must agree with this choice, so
- *  it lives here and not in the test file. */
+ *  defaults to a dotdir under the home: still daemon-shared, but out of the
+ *  home root (run dirs used to land bare in ~ until the 2026-10 tmp-sweep
+ *  fix). Linux keeps /tmp. REXTOR_SIM_TMP_DIR overrides for exotic daemons.
+ *  The base is created on demand — mkdtemp callers rely on it existing. Run
+ *  dirs leaked by crash/kill paths (finally cannot run under SIGKILL) are
+ *  reclaimed by sweepStaleTmpDirs: at server boot and via `pnpm --filter
+ *  @rextor/agent tmp:sweep`. The contract tests must agree with this choice,
+ *  so it lives here and not in the test file. */
 export function simTmpBase(): string {
-  return process.env.REXTOR_SIM_TMP_DIR ?? (process.platform === "darwin" ? homedir() : tmpdir());
+  const base =
+    process.env.REXTOR_SIM_TMP_DIR ?? (process.platform === "darwin" ? join(homedir(), ".rextor", "tmp") : tmpdir());
+  mkdirSync(base, { recursive: true });
+  return base;
 }
 
 /** forge's per-test JSON, normalized to BARE test names → pass/fail. Pinned
