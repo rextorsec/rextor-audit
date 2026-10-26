@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
@@ -6,6 +6,21 @@ import { githubDeps } from "../src/github";
 import { simTmpBase } from "../src/sim";
 
 const HEAD_SHA = "971a6ca000000000000000000000000000000000";
+
+// Floor for every clone test: the sim base is redirected to a per-test
+// fixture so no test can ever write into the real simTmpBase (before the
+// 2026-10 tmp-sweep fix this pollution landed directly in the home dir).
+// Tests that assert on a specific base stub REXTOR_SIM_TMP_DIR themselves;
+// afterEach restores the env and removes whatever this file created.
+let testBase = "";
+beforeEach(async () => {
+  testBase = await mkdtemp(join(tmpdir(), "rextor-github-test-base-"));
+  vi.stubEnv("REXTOR_SIM_TMP_DIR", testBase);
+});
+afterEach(async () => {
+  vi.unstubAllEnvs();
+  if (testBase) await rm(testBase, { recursive: true, force: true });
+});
 
 // The adapter's DI seams (runGit / token / rmDir) let us pin the failure
 // hygiene without touching the network: a mid-clone git failure must remove
