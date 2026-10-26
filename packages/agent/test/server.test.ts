@@ -1,4 +1,4 @@
-import { afterAll, describe, it, expect, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { createHmac } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,6 +14,19 @@ import { MAX_BODY_BYTES } from "../src/queue";
 import type { ReviewDeps } from "../src/review";
 import { createReviewStore, type DeepScanRow, type ReviewRow, type ReviewStore } from "../src/db";
 import type { ScanDeps } from "../src/scan";
+
+// Floor: the scan-route tests inject a no-op rmDir fake (to assert cleanup
+// calls), so runScan's real mkdtemp dir would strand in the real sim base on
+// every run. Same redirect floor as github.test.ts / scan.test.ts.
+let testBase = "";
+beforeEach(async () => {
+  testBase = await mkdtemp(join(tmpdir(), "rextor-server-test-base-"));
+  vi.stubEnv("REXTOR_SIM_TMP_DIR", testBase);
+});
+afterEach(async () => {
+  vi.unstubAllEnvs();
+  if (testBase) await rm(testBase, { recursive: true, force: true });
+});
 
 // Logger seam: the service writes one JSON line per event to stdout; tests
 // capture the raw writes and parse them.
