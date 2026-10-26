@@ -81,3 +81,34 @@ jobs:
           curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o /tmp/gitleaks.tgz
           tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
           /tmp/gitleaks detect --source . --config .gitleaks.toml --redact --exit-code 1 --report-path /tmp/gitleaks-report.json
+  contract-debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build analyzer image
+        run: docker build -t rextor/analyzer packages/agent/analyzer
+      - name: Ground truth probes
+        run: |
+          set -x
+          uname -m
+          docker run --rm --entrypoint forge rextor/analyzer --version
+          F="$(mktemp -d /tmp/anchor-empty-XXXXXX)"
+          touch "$F/Anchor.toml"
+          echo '--- container view of /repo ---'
+          docker run --rm --entrypoint sh -v "$F":/repo:ro rextor/analyzer -c 'ls -la /repo; [ -f /repo/Anchor.toml ] && echo ANCHOR-SEEN || echo ANCHOR-MISSING'
+          echo '--- run.sh on anchor-empty (raw) ---'
+          docker run --rm -v "$F":/repo rextor/analyzer; echo "rc=$?"
+          echo '--- solana.sh direct (raw) ---'
+          docker run --rm --entrypoint /usr/local/bin/solana.sh -v "$F":/repo rextor/analyzer; echo "rc=$?"
+          rm -rf "$F"
+          echo '--- FFI gate in simroot (inline-table ffi=true) ---'
+          G="$(mktemp -d /tmp/gate-probe-XXXXXX)"
+          printf '[profile]\ndefault = { ffi = true }\n' > "$G/foundry.toml"
+          P="$(mktemp -d /tmp/gate-poc-XXXXXX)" && chmod 777 "$P"
+          printf '// SPDX-License-Identifier: MIT\npragma solidity ^0.8.24;\nimport {Test} from "forge-std/Test.sol";\ncontract RextorPocTest is Test { function test_controlHarnessRan() public { assertTrue(true); } }\n' > "$P/RextorPoc.t.sol"
+          docker run --rm --network none -v "$G":/repo:ro -v "$P":/poc -e FORK_URL=http://127.0.0.1:8545 -e FORK_BLOCK=1 -e FOUNDRY_FFI=false --entrypoint /usr/local/bin/sim.sh rextor/analyzer; echo "sim.sh rc=$?"
+          echo '--- simroot stderr.txt ---'
+          cat "$P/stderr.txt" 2>/dev/null | tail -5 || true
+          echo '--- forge config in bare fixture, with env ---'
+          docker run --rm --entrypoint sh -v "$G":/repo:ro -e FOUNDRY_FFI=false rextor/analyzer -c 'cd /repo && forge config --json 2>&1 | head -5'
+          rm -rf "$G" "$P"
