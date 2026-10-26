@@ -2,9 +2,25 @@
 // triage-absent scoring. No live network, no real containers, no real git
 // (controller ruling 9). INCOMPLETE outcomes are reports with status 1, never
 // throws — the route records them; only a misconfigured token seam throws.
-import { describe, expect, it } from "vitest";
-import { rm } from "node:fs/promises";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runScan, isValidScanRepo, isValidScanRef, type ScanDeps } from "../src/scan";
+
+// Floor: scan runs mkdtemp under the real simTmpBase and the tests inject
+// rmDir fakes (to assert cleanup calls), so without a redirect every suite
+// run would strand a rextor-scan-* dir in the real base. Same floor as
+// github.test.ts.
+let testBase = "";
+beforeEach(async () => {
+  testBase = await mkdtemp(join(tmpdir(), "rextor-scan-test-base-"));
+  vi.stubEnv("REXTOR_SIM_TMP_DIR", testBase);
+});
+afterEach(async () => {
+  vi.unstubAllEnvs();
+  if (testBase) await rm(testBase, { recursive: true, force: true });
+});
 
 const SHA = "e".repeat(40);
 const TOKEN = "scan-test-token";
