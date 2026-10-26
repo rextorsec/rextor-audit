@@ -857,9 +857,10 @@ if (import.meta.url === entry) {
   // the reconcile re-drive above).
   void sweepStaleTmpDirs()
     .then((swept) => {
-      if (swept.removed.length > 0) {
-        logInfo("service.tmp_sweep", `reclaimed ${swept.removed.length} leaked tmp dir(s)`, {
-          errorCount: swept.errors.length,
+      if (swept.removed.length > 0 || swept.errors.length > 0) {
+        logInfo("service.tmp_sweep", `reclaimed ${swept.removed.length} leaked tmp dir(s), ${swept.errors.length} error(s)`, {
+          removed: swept.removed.join(","),
+          errors: swept.errors.map((e) => `${e.dir}: ${e.message}`).join("; "),
         });
       }
     })

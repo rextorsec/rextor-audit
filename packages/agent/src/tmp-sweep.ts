@@ -37,11 +37,19 @@ export interface SweepResult {
   errors: { dir: string; message: string }[];
 }
 
-/** Root pairs: the current sim base + the legacy home root (deduped when they
- *  coincide, e.g. Linux where the base was never the home dir — the home-root
- *  pass is then a harmless no-op). */
+/** The legacy home root: explicit override, or the darwin pre-relocation
+ *  sim base. The home root only ever held leaked dirs on darwin — on Linux
+ *  the base was always /tmp — so outside darwin the home pass is opt-in
+ *  (tests inject legacyRoot explicitly). */
+function legacyRootFor(legacyRoot?: string): string | undefined {
+  return legacyRoot ?? (process.platform === "darwin" ? homedir() : undefined);
+}
+
+/** Root pairs: the current sim base + the legacy home root (deduped when
+ *  they coincide, i.e. the darwin default before the 2026-10 relocation). */
 export function sweepRoots(legacyRoot?: string): string[] {
-  return [...new Set([simTmpBase(), legacyRoot ?? homedir()])];
+  const legacy = legacyRootFor(legacyRoot);
+  return legacy ? [...new Set([simTmpBase(), legacy])] : [simTmpBase()];
 }
 
 /** Best-effort by contract: per-dir failures are collected, never thrown — a
@@ -51,7 +59,17 @@ export async function sweepStaleTmpDirs(options: SweepOptions = {}): Promise<Swe
   const maxAgeMs = options.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
   const cutoff = (options.now ?? Date.now()) - maxAgeMs;
   const result: SweepResult = { scanned: 0, removed: [], errors: [] };
-  for (const root of sweepRoots(options.legacyRoot)) {
+  let roots: string[];
+  try {
+    roots = sweepRoots(options.legacyRoot);
+  } catch {
+    // simTmpBase() mkdirs on demand and can throw (EACCES/EROFS, a file in
+    // the way) — degrade to the legacy root alone; the sweep stays
+    // best-effort and never crashes boot.
+    const legacy = legacyRootFor(options.legacyRoot);
+    roots = legacy ? [legacy] : [];
+  }
+  for (const root of roots) {
     let entries: Dirent[];
     try {
       entries = await readdir(root, { withFileTypes: true });
@@ -68,6 +86,9 @@ export async function sweepStaleTmpDirs(options: SweepOptions = {}): Promise<Swe
         await rm(dir, { recursive: true, force: true });
         result.removed.push(dir);
       } catch (err) {
+        // Raced away (the run's own finally, or a concurrent sweep) —
+        // already gone is success, not a per-dir failure.
+        if ((err as NodeJS.ErrnoException)?.code === "ENOENT") continue;
         result.errors.push({ dir, message: err instanceof Error ? err.message : String(err) });
       }
     }

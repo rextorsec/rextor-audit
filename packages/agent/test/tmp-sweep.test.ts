@@ -4,8 +4,8 @@
 // REXTOR_SIM_TMP_DIR and the legacy root is injected — these tests must never
 // be able to touch the real home dir or the real sim base.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdir, mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, chmod, mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_MAX_AGE_MS, sweepRoots, sweepStaleTmpDirs, TMP_DIR_PATTERN } from "../src/tmp-sweep";
 
@@ -108,6 +108,42 @@ describe("sweepStaleTmpDirs", () => {
     // One tick older → removed.
     const gone = await sweepStaleTmpDirs({ legacyRoot: base, maxAgeMs: DEFAULT_MAX_AGE_MS, now: mtimeMs + DEFAULT_MAX_AGE_MS + 1 });
     expect(gone.removed).toEqual([dir]);
+  });
+
+  it("scopes the default legacy-home pass to darwin (Linux never had a home-root base)", async () => {
+    const base = await makeFixture();
+    bases.push(base);
+    vi.stubEnv("REXTOR_SIM_TMP_DIR", base);
+    const original = Object.getOwnPropertyDescriptor(process, "platform");
+    if (!original) throw new Error("process.platform descriptor missing");
+    const setPlatform = (value: string) => Object.defineProperty(process, "platform", { ...original, value });
+    try {
+      setPlatform("darwin");
+      expect(sweepRoots()).toEqual([base, homedir()]);
+      expect(sweepRoots(base)).toEqual([base]); // explicit legacy still dedups
+      setPlatform("linux");
+      expect(sweepRoots()).toEqual([base]); // home pass is opt-in off darwin
+      expect(sweepRoots("/opt/legacy")).toEqual([base, "/opt/legacy"]);
+    } finally {
+      Object.defineProperty(process, "platform", original);
+    }
+  });
+
+  it("collects per-dir rm failures instead of throwing", async () => {
+    const base = await makeFixture();
+    bases.push(base);
+    vi.stubEnv("REXTOR_SIM_TMP_DIR", base);
+    const dir = await staleDir(base, "rextor-scan-Mm3Nn4");
+    if (process.platform === "win32") return;
+    await chmod(base, 0o555); // readdir OK, rm of children fails
+    try {
+      const swept = await sweepStaleTmpDirs({ legacyRoot: base });
+      expect(swept.removed).toEqual([]);
+      expect(swept.errors).toHaveLength(1);
+      expect(swept.errors[0]?.dir).toBe(dir);
+    } finally {
+      await chmod(base, 0o700);
+    }
   });
 
   it("never throws: missing roots are skipped and per-dir errors are collected", async () => {
