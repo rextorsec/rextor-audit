@@ -66,7 +66,7 @@ describe.skipIf(!docker || process.env.REXTOR_SKIP_CONTRACT_TESTS === "1")("anal
   });
   it("emits incomplete (never silent clean) on analyzer failure", { timeout: 180_000 }, () => {
     // repo with no contracts → analyzer failure → contract requires status:incomplete + exit 3
-    const tmp = execFileSync("mktemp", ["-d"]).toString().trim();
+    const tmp = mountable(execFileSync("mktemp", ["-d"]).toString().trim());
     const { status, stdout } = runAnalyzer(tmp);
     expect(status).toBe(3);
     // Parse, don't needle: slices emit JSON with different whitespace.
@@ -95,11 +95,23 @@ describe.skipIf(!docker || process.env.REXTOR_SKIP_CONTRACT_TESTS === "1")("anal
 // (empty /repo → wrong chain dispatch → misleading reasons). The env var lets
 // each environment pick its mount-visible base without code churn; turbo.json
 // globalEnv carries it so strict env mode doesn't strip it.
-import { mkdtempSync, mkdirSync, copyFileSync, writeFileSync, rmSync, cpSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, copyFileSync, writeFileSync, rmSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const contractTmp = process.env.REXTOR_CONTRACT_TMPDIR ?? tmpdir();
+
+// Mount-readability floor: every fixture dir this file mounts MUST be chmod'd
+// 0755 right after creation. mkdtemp/mktemp create 0700 dirs owned by the
+// runner user (uid 1001 on GH runners); the container's analyzer user is
+// uid 1000, so a 0700 mount is unreadable in-container — Anchor.toml and
+// foundry.toml become invisible (wrong-chain dispatch, vacuous FFI gates;
+// empirically pinned on ubuntu-26.04 runners, 2026-10-26). The deployment
+// host mounts agent-owned, uid-coherent clones, so this is harness-only.
+const mountable = (dir: string): string => {
+  chmodSync(dir, 0o755);
+  return dir;
+};
 
 const solanaFixturePath = `${repoRoot}fixtures/solana-vault`;
 const SOLANA_ENTRYPOINT = "/usr/local/bin/solana.sh";
@@ -118,7 +130,7 @@ describe.skipIf(!docker || process.env.REXTOR_SKIP_CONTRACT_TESTS === "1")("sola
   });
 
   it("run.sh dispatches Anchor-shaped repos to the slice (default entrypoint, same findings)", { timeout: 240_000 }, () => {
-    const dir = mkdtempSync(join(contractTmp, "anchor-dispatch-"));
+    const dir = mountable(mkdtempSync(join(contractTmp, "anchor-dispatch-")));
     try {
       writeFileSync(join(dir, "Anchor.toml"), "");
       mkdirSync(join(dir, "programs/x/src"), { recursive: true });
@@ -136,7 +148,7 @@ describe.skipIf(!docker || process.env.REXTOR_SKIP_CONTRACT_TESTS === "1")("sola
   });
 
   it("Anchor-dispatched repo without rust sources → incomplete no-rust-analyzed (never clean)", { timeout: 120_000 }, () => {
-    const dir = mkdtempSync(join(contractTmp, "anchor-empty-"));
+    const dir = mountable(mkdtempSync(join(contractTmp, "anchor-empty-")));
     try {
       writeFileSync(join(dir, "Anchor.toml"), "");
       const { status, stdout } = runAnalyzer(dir);
@@ -156,7 +168,7 @@ describe.skipIf(!docker || process.env.REXTOR_SKIP_CONTRACT_TESTS === "1")("sola
 // two existing fixtures (provenance: fixtures/solana-vault + fixtures/vault).
 describe.skipIf(!docker || process.env.REXTOR_SKIP_CONTRACT_TESTS === "1")("monorepo dual dispatch (SPEC-8 §1)", () => {
   it("mixed-shape repo emits BOTH the solana and the evm findings", { timeout: 300_000 }, () => {
-    const dir = mkdtempSync(join(contractTmp, "monorepo-dual-"));
+    const dir = mountable(mkdtempSync(join(contractTmp, "monorepo-dual-")));
     try {
       writeFileSync(join(dir, "Anchor.toml"), "");
       mkdirSync(join(dir, "programs/x/src"), { recursive: true });
